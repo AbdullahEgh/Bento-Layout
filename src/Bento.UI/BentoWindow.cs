@@ -25,6 +25,12 @@ public sealed class BentoWindow : Window
         Title = "Bento"; Icon = AppIcons.Image; Width = 850; Height = 650; MinWidth = 740; MinHeight = 540;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         SetResourceReference(BackgroundProperty, "Page");
+        SetResourceReference(ForegroundProperty, "Text");
+        FontFamily = new FontFamily("Segoe UI Variable, Segoe UI"); FontSize = 13;
+        void UpdateCaption() => WindowAppearance.SetDarkCaption(new System.Windows.Interop.WindowInteropHelper(this).Handle, AppTheme.IsDark);
+        SourceInitialized += (_, _) => UpdateCaption();
+        AppTheme.Changed += UpdateCaption;
+        Closed += (_, _) => AppTheme.Changed -= UpdateCaption;
         var root = new Grid(); root.SetResourceReference(Panel.BackgroundProperty, "Page"); root.ColumnDefinitions.Add(new() { Width = new GridLength(190) }); root.ColumnDefinitions.Add(new());
         var sidebar = new Border { Padding = new Thickness(16, 26, 16, 18) }; sidebar.SetResourceReference(Border.BackgroundProperty, "Sidebar");
         var side = new DockPanel(); sidebar.Child = side;
@@ -147,7 +153,7 @@ public sealed class BentoWindow : Window
         var right = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(12), Child = Label("Hold near an edge\nSplit the space") }; right.SetResourceReference(Border.BackgroundProperty, "Selection"); Grid.SetColumn(right, 2);
         illustration.Children.Add(left); illustration.Children.Add(arrow); illustration.Children.Add(right); guide.Children.Add(illustration);
         var gestures = Card("Dragging");
-        Row(gestures, "Hold to split", "Wait at an edge until the indicator fills.\n0 ms splits immediately.", Range(draft.SplitHoldMs, 0, 1200, 50, " ms", n => draft = draft with { SplitHoldMs = n }));
+        Row(gestures, "Hold to split", "Wait at an edge until the slot divides.\n0 ms splits immediately.", Range(draft.SplitHoldMs, 0, 2000, 50, " ms", n => draft = draft with { SplitHoldMs = n }));
         Row(gestures, "Smooth transitions", "Respects Windows reduced-motion settings", Toggle(draft.Animate, v => draft = draft with { Animate = v }));
         Row(gestures, "Transition duration", "Short and quiet", Range(draft.AnimationMs, 80, 400, 20, " ms", n => draft = draft with { AnimationMs = n }));
         var windows = Card("Windows integration");

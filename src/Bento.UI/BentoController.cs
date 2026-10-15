@@ -18,7 +18,8 @@ public sealed class BentoController : IDisposable
     private DesktopTransition? transition;
     private BentoWindow? appWindow;
     private DropIntent intent;
-    private bool edgePending;
+    private PixelRect dropTargetBounds;
+    private PixelPoint? touchPoint;
     private readonly HashSet<long> released = new();
     private bool automatic = true;
     private string? failedMembership;
@@ -78,15 +79,28 @@ public sealed class BentoController : IDisposable
         tray.DoubleClick += (_, _) => Dispatch(() => ShowInterface());
         timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         timer.Tick += (_, _) => Tick(); timer.Start();
+        Microsoft.Win32.SystemEvents.UserPreferenceChanged += AppearanceChanged;
         if (!shortcut) Report($"Could not register {Settings.Shortcut} (Windows error {shortcutError}). Choose another shortcut in tray settings.");
         try { snapLease?.SetSuppressed(Settings.SuppressWindowsSnap); } catch (Exception ex) { Report(ex.Message); }
     }
 
     public void ShowInterface(string page = "Workspace")
     {
-        if (appWindow is null) { appWindow = new BentoWindow(this); appWindow.Closed += (_, _) => appWindow = null; }
+        if (appWindow is null) { appWindow = new BentoWindow(this); appWindow.Closed += (_, _) => appWindow = null; appWindow.Activated += (_, _) => PlaceDividersBelowInterface(); }
         appWindow.SelectPage(page); appWindow.Show(); appWindow.WindowState = WindowState.Normal; appWindow.Activate();
+        PlaceDividersBelowInterface();
     }
+    private void PlaceDividersBelowInterface()
+    {
+        if (appWindow?.IsVisible != true) return;
+        var sibling = new WindowInteropHelper(appWindow).Handle;
+        foreach (var handle in dividers) DesktopIntegration.PlaceBelow(new WindowInteropHelper(handle).Handle, sibling);
+    }
+    private void AppearanceChanged(object sender, Microsoft.Win32.UserPreferenceChangedEventArgs args) => Dispatch(() =>
+    {
+        AppTheme.Apply(Settings.Theme); WallpaperContrast.Invalidate();
+        foreach (var handle in dividers) handle.RefreshContrast();
+    });
     public void SetAutomatic(bool enabled)
     {
         if (enabled) { ArrangeDesktop(); return; }
@@ -195,9 +209,10 @@ public sealed class BentoController : IDisposable
         foreach (var handle in dividers) handle.Hide();
         UpdatePreview();
     }
-    public void BeginDivider(DesktopMonitor monitor, Divider value)
+    public void BeginDivider(DesktopMonitor monitor, Divider value, PixelPoint? touch = null)
     {
         CancelDrag(); divider = value; dividerMonitor = monitor.Id; dragStart = history.Current;
+        touchPoint = touch;
         timer.Interval = TimeSpan.FromMilliseconds(16);
     }
     public void BeginNativeResize(long id)
@@ -208,7 +223,7 @@ public sealed class BentoController : IDisposable
         timer.Interval = TimeSpan.FromMilliseconds(16);
         foreach (var handle in dividers) handle.Hide();
     }
-    public void PreviewDrag(PixelPoint point) => UpdatePreview(point);
+    public void PreviewDrag(PixelPoint point) { if (touchPoint.HasValue) touchPoint = point; UpdatePreview(point); }
     private void Tick()
     {
         if (Dragging)
@@ -269,7 +284,7 @@ public sealed class BentoController : IDisposable
     });
     private void UpdatePreview(PixelPoint? position = null)
     {
-        var point = position ?? WindowCatalog.Cursor;
+        var point = position ?? touchPoint ?? WindowCatalog.Cursor;
         var previousPreview = preview;
         var previousDestination = previewDestination;
         previewDestination = null;
@@ -303,11 +318,10 @@ public sealed class BentoController : IDisposable
                 // Gaps are deliberately non-droppable, so divider gestures cannot silently insert windows.
                 if (target is null && history.Current.Roots.GetValueOrDefault(monitor.Id) is not null) { dragIntent.Reset(); dropPreview?.Hide(); return; }
                 var bounds = target?.Bounds ?? Area(monitor);
-                var placement = PlacementZones.HitTest(bounds, point);
-                edgePending = placement != Placement.Center && target is not null;
+                dropTargetBounds = bounds;
                 intent = target is null ? new(Placement.Center, 0, false) :
                     dragIntent.Update(monitor.Id, target.Window.Id, bounds, point, clock(), Settings.SplitHoldMs, monitor.Scale);
-                placement = intent.Placement;
+                var placement = intent.Placement;
                 if (placement == Placement.Center && target is not null && !history.Current.Windows.Any(w => w.WindowId == incoming.WindowId))
                     placement = bounds.Width >= bounds.Height ? Placement.Right : Placement.Bottom;
                 var destinationKey = (monitor.Id, target?.Window.Id, placement);
@@ -356,11 +370,12 @@ public sealed class BentoController : IDisposable
     {
         incoming = null; divider = null; dividerMonitor = null; dragStart = null; preview = null;
         previewDestination = null;
-        dragIntent.Reset(); intent = default; edgePending = false;
+        dragIntent.Reset(); intent = default; touchPoint = null;
         nativeResizeWindow = 0; validPreview = false;
         timer.Interval = TimeSpan.FromSeconds(1);
         dropPreview?.Hide();
         foreach (var handle in dividers) handle.Show();
+        PlaceDividersBelowInterface();
     }
     public void Remove(long id)
     {
@@ -491,11 +506,10 @@ public sealed class BentoController : IDisposable
         {
             var layout = Layout(monitor, preview);
             PixelRect? bounds = incoming is not null
-                ? layout.Regions.FirstOrDefault(r => r.Window.WindowId == incoming.WindowId)?.Bounds
+                ? previewDestination?.Monitor == monitor.Id ? SlotPreview.Bounds(dropTargetBounds, previewDestination.Value.Placement, Settings.Gap) : null
                 : layout.Dividers.FirstOrDefault(d => d.SplitId == divider?.SplitId)?.Bounds;
             if (bounds is null) continue;
-            string hint = incoming is null ? "Resize" : intent.Armed ? "Release to split" : edgePending ? "Hold to split" : "Release to swap";
-            (dropPreview ??= new DropPreviewWindow()).Present(bounds.Value, monitor.Scale, hint, edgePending ? intent.Progress : 0,
+            (dropPreview ??= new DropPreviewWindow()).Present(bounds.Value, monitor.Scale,
                 Settings.Animate && SystemParameters.ClientAreaAnimation);
             return;
         }
@@ -515,11 +529,14 @@ public sealed class BentoController : IDisposable
                     var handle = new DesktopDividerWindow(this, monitor, boundary);
                     dividers.Add(handle); handle.Show();
                 }
+            PlaceDividersBelowInterface();
         }
         catch (LayoutConstraintException) { /* Geometry may no longer fit after a display change. */ }
     }
     public void Dispose()
     {
+        Microsoft.Win32.SystemEvents.UserPreferenceChanged -= AppearanceChanged;
+        WallpaperContrast.Invalidate();
         timer.Stop(); events.Dispose(); transition?.Dispose(); CloseDesktopHelpers(); appWindow?.Close();
         try { snapLease?.Dispose(); } catch { /* The recovery journal is kept for the next launch. */ }
         DesktopIntegration.UnregisterShortcut(source.Handle, 1); source.Dispose(); tray.Dispose();

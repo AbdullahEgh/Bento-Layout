@@ -9,6 +9,7 @@
     <SolidColorBrush x:Key="Selection" Color="#DCEEE9"/>
     <Style TargetType="Window"><Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI"/><Setter Property="FontSize" Value="13"/><Setter Property="Foreground" Value="{DynamicResource Text}"/></Style>
     <Style TargetType="TextBlock"><Setter Property="TextWrapping" Value="Wrap"/></Style>
+    <Style TargetType="ScrollViewer"><Setter Property="Foreground" Value="{DynamicResource Text}"/></Style>
     <Style TargetType="Button">
       <Setter Property="Background" Value="{DynamicResource Surface}"/><Setter Property="Foreground" Value="{DynamicResource Text}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource Line}"/><Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="14,9"/>
@@ -44,7 +45,7 @@
     <Style TargetType="ComboBox">
       <Setter Property="MinWidth" Value="120"/><Setter Property="Foreground" Value="{DynamicResource Text}"/>
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBox"><Grid>
-        <ToggleButton Focusable="False" IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+        <ToggleButton Foreground="{DynamicResource Text}" Focusable="False" IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
           <ToggleButton.Template><ControlTemplate TargetType="ToggleButton"><Border CornerRadius="7" BorderThickness="1" BorderBrush="{DynamicResource Line}" Background="{DynamicResource Page}" Padding="10,7"><DockPanel><TextBlock DockPanel.Dock="Right" Text="⌄" Margin="16,0,0,0"/><ContentPresenter/></DockPanel></Border></ControlTemplate></ToggleButton.Template>
           <TextBlock Text="{Binding SelectedItem, RelativeSource={RelativeSource AncestorType=ComboBox}}"/>
         </ToggleButton>

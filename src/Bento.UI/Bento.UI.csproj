@@ -7,9 +7,10 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>Bento</AssemblyName>
-    <Version>0.3.0</Version>
+    <Version>0.3.1</Version>
     <ApplicationIcon>Assets/bento.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../Bento.Windows/Bento.Windows.csproj" /></ItemGroup>
   <ItemGroup><Resource Include="Assets/bento.ico" /><Resource Include="Assets/bento.png" /></ItemGroup>
 </Project>
+
