@@ -1,0 +1,108 @@
+using System.Diagnostics;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Security.Cryptography;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+
+namespace Bento.UI;
+
+public sealed record AvailableUpdate(string Version, string Notes, string PageUrl, string DownloadUrl, string Digest);
+public sealed record ReleaseNote(string Version, string Date, string Title, string[] Changes);
+public sealed class UpdateService
+{
+    public static string CurrentVersion => typeof(BentoController).Assembly.GetName().Version?.ToString(3) ?? "0.3.0";
+    public static readonly ReleaseNote[] Releases = [
+        new("0.3.0", "October 2026", "A desktop that follows your lead", ["Hold at a window edge to split, with visible progress and stable targets.", "Smoother window transitions, with a reduced-motion option.", "A new Bento interface, light and dark appearances, and original icons.", "Optional Windows edge-snap control with restoration on exit.", "GitHub release checks, verified update packages, and update history."]),
+        new("0.2.1", "October 2026", "Lighter dragging", ["Reuse previews within the same destination zone.", "Reduce application queries at drag start."]),
+        new("0.2.0", "October 2026", "Bento on your desktop", ["Automatic recursive layouts for real application windows.", "Drag to swap or split, resize neighboring regions, and undo arrangements."])
+    ];
+    public static string NormalizeRepository(string input)
+    {
+        string value = input.Trim().TrimEnd('/');
+        if (value.StartsWith("https://github.com/", StringComparison.OrdinalIgnoreCase)) value = value[19..];
+        if (!Regex.IsMatch(value, @"^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}$") || value.EndsWith("/.") || value.EndsWith("/.."))
+            throw new ArgumentException("Enter a GitHub repository as owner/Bento-Layout.");
+        return value;
+    }
+    private static HttpClient Client()
+    {
+        var client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd($"Bento/{CurrentVersion}");
+        return client;
+    }
+    public async System.Threading.Tasks.Task<AvailableUpdate?> CheckAsync(string repository, System.Threading.CancellationToken cancellation = default)
+    {
+        string repo = NormalizeRepository(repository);
+        using var client = Client();
+        using var response = await client.GetAsync($"https://api.github.com/repos/{repo}/releases/latest", cancellation);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            throw new InvalidOperationException("No public release is available yet. For a private repository, download its update package from GitHub.");
+        response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellation));
+        return ParseRelease(document.RootElement, CurrentVersion);
+    }
+    public static AvailableUpdate? ParseRelease(JsonElement release, string currentVersion)
+    {
+        string version = (release.GetProperty("tag_name").GetString() ?? "").TrimStart('v', 'V');
+        if (!Version.TryParse(version, out var next) || next <= Version.Parse(currentVersion) ||
+            release.GetProperty("draft").GetBoolean() || release.GetProperty("prerelease").GetBoolean()) return null;
+        foreach (var asset in release.GetProperty("assets").EnumerateArray())
+        {
+            if (asset.GetProperty("name").GetString() != "Bento-win-x64.zip") continue;
+            string url = asset.GetProperty("browser_download_url").GetString() ?? "";
+            string digest = asset.TryGetProperty("digest", out var d) ? d.GetString() ?? "" : "";
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "https" || uri.Host != "github.com" ||
+                !Regex.IsMatch(digest, @"^sha256:[0-9a-fA-F]{64}$"))
+                throw new InvalidDataException("This release needs a GitHub asset with a SHA-256 digest.");
+            return new(version, release.GetProperty("body").GetString() ?? "", release.GetProperty("html_url").GetString() ?? "", url, digest[7..]);
+        }
+        throw new InvalidDataException("The latest release has no Bento-win-x64.zip update package.");
+    }
+    public async System.Threading.Tasks.Task<string> DownloadAsync(AvailableUpdate update, System.Threading.CancellationToken cancellation = default)
+    {
+        string folder = Path.Combine(BentoSettings.DataDirectory, "Updates", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        string path = Path.Combine(folder, "Bento-win-x64.zip");
+        using var client = Client();
+        using var response = await client.GetAsync(update.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellation);
+        response.EnsureSuccessStatusCode();
+        if (response.Content.Headers.ContentLength > 128 * 1024 * 1024) throw new InvalidDataException("The update package is too large.");
+        await using (var input = await response.Content.ReadAsStreamAsync(cancellation))
+        await using (var output = File.Create(path))
+        {
+            byte[] buffer = new byte[81920]; long length = 0; int count;
+            while ((count = await input.ReadAsync(buffer, cancellation)) > 0)
+            {
+                if ((length += count) > 128 * 1024 * 1024) throw new InvalidDataException("The update package is too large.");
+                await output.WriteAsync(buffer.AsMemory(0, count), cancellation);
+            }
+        }
+        using var file = File.OpenRead(path);
+        if (!Convert.ToHexString(SHA256.HashData(file)).Equals(update.Digest, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("The download could not be verified. Try checking for updates again.");
+        return path;
+    }
+    public static (string Directory, PackageManifest Manifest) Stage(string package)
+    {
+        string folder = Path.Combine(BentoSettings.DataDirectory, "Updates", Guid.NewGuid().ToString("N"), "package");
+        var manifest = UpdatePackage.Extract(package, folder);
+        if (Version.Parse(manifest.Version) < Version.Parse(CurrentVersion)) throw new InvalidDataException("An older update cannot replace this version of Bento.");
+        return (folder, manifest);
+    }
+    public static void Install(string staged, PackageManifest manifest)
+    {
+        // Run the currently installed, trusted helper from a separate directory, never a helper from the incoming ZIP.
+        string helper = Path.Combine(Path.GetDirectoryName(staged)!, "helper"); Directory.CreateDirectory(helper);
+        foreach (string name in new[] { "Bento.Updater.exe", "Bento.Updater.dll", "Bento.Updater.deps.json", "Bento.Updater.runtimeconfig.json", "Bento.Core.dll" })
+            File.Copy(Path.Combine(AppContext.BaseDirectory, name), Path.Combine(helper, name));
+        string job = Path.Combine(helper, "job.json");
+        using var current = Process.GetCurrentProcess();
+        File.WriteAllText(job, JsonSerializer.Serialize(new { Staged = staged, Target = AppContext.BaseDirectory, ProcessId = Environment.ProcessId,
+            StartTimeUtcTicks = current.StartTime.ToUniversalTime().Ticks, manifest.Version }));
+        var info = new ProcessStartInfo(Path.Combine(helper, "Bento.Updater.exe")) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = helper };
+        info.ArgumentList.Add(job);
+        using var helperProcess = Process.Start(info) ?? throw new IOException("The updater could not start. Bento is still running.");
+        Application.Current.Shutdown();
+    }
+}
