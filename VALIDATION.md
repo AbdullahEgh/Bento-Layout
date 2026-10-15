@@ -9,6 +9,7 @@ Actual execution on this Windows x64 desktop, OS build `10.0.26200.0`, using a w
 | Full suite with native desktop integration | 105 passed, 0 failed |
 | Hold-to-split | All four directions, hold threshold, boundary jitter, target change and cancellation pass deterministic checks; production-controller hold changes real HWND placement |
 | Quick edge drop | Passed: swaps before the hold threshold without splitting |
+| Separate updater process | Passed: installed the actual 0.3.0 package into the portable app folder, restarted Bento, exited 0, and recorded success; all 14 installed payload hashes match. An earlier locked-file attempt reported failure and retained the previous file. |
 | Update transaction | Hash validation, traversal rejection, duplicate filename rejection, successful replacement and failed-startup rollback pass with temporary files |
 | Snap takeover lifecycle | Original-value restoration and crash recovery pass with an injected system-setting backend; actual system mutation is not performed by the automated suite |
 | New interface | Workspace, Gestures and Updates open and render; light/dark artifacts captured and inspected |
@@ -30,8 +31,8 @@ Actual execution on this Windows x64 desktop, OS build `10.0.26200.0`, using a w
 | Native window border resizing | Passed: native size change translates to ancestor splits and updates neighboring HWND geometry |
 | Cancel gesture without HWND movement | Passed |
 | Divider commit, undo/redo, removal/expansion, restore all | Passed |
-| Published application launch with `--smoke` | Passed: process exited with code 0 after two seconds |
-| Framework-dependent publication | Produced `artifacts/Bento` and `artifacts/Bento-win-x64.zip`; approximately 300 KB uncompressed, excluding the .NET runtime |
+| Published application launch with `--smoke` | Passed: process exited with code 0 |
+| Framework-dependent publication | Produced `artifacts/Bento` and `artifacts/Bento-win-x64.zip`; approximately 783 KiB uncompressed (442 KiB ZIP), excluding the .NET runtime |
 
 The sandboxed native run initially exposed an environment limitation: `RegisterHotKey` returned Windows error 5 (access denied). The same registration check passed outside the sandbox. The complete suite now contains 105 checks. Version 0.3.0 retains the earlier drag-query and preview caching optimizations and adds hold gestures, transitions, interface and updater coverage.
 
@@ -51,7 +52,7 @@ MindSpace's connected capabilities tool was called twice and returned `-32603: I
 - Two or more physical monitors with different DPI, negative origins, rotation, docking/undocking, resolution changes and taskbar changes. Negative-origin and odd-size arithmetic are covered by deterministic tests; hardware transitions are not.
 - Elevated/protected applications, applications with unusual frames, asynchronous geometry handling, or changing minimum-size policies. The MVP rejects reported failures and attempts rollback.
 - Long sessions, screen lock/unlock, remote desktop reconnection, and performance with many application windows.
-- End-to-end installation through the separate updater process, release downloads from a published GitHub release, actual Windows Snap takeover, and subjective animation quality across heavy applications need additional interactive validation. Transaction/rollback tests do not imply publisher signing or online release availability.
+- Release downloads through the in-app UI, actual Windows Snap takeover, and subjective animation quality across heavy applications need additional interactive validation. Transaction/rollback tests do not imply publisher signing or online release availability.
 
 ## Deliberate milestone limits
 

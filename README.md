@@ -46,7 +46,7 @@ Bento 0.3.0 opens a compact interface with Workspace, Gestures and Updates pages
 
 ## Updates
 
-The release source is [AbdullahEgh/Bento-Layout](https://github.com/AbdullahEgh/Bento-Layout). The repository is initially private. Public releases support direct in-app checks and downloads; private releases can be opened in the signed-in browser, downloaded, then selected with **Choose update file**. No GitHub credentials are collected by Bento. Optional startup checks are off by default.
+The release source is [AbdullahEgh/Bento-Layout](https://github.com/AbdullahEgh/Bento-Layout). The repository is public and supports direct in-app checks and downloads. Packages can also be downloaded in a browser and selected with **Choose update file**. No GitHub credentials are collected by Bento. Optional startup checks are off by default.
 
 Updates shows release notes and the last ten installation results. **Install and restart** validates all package file hashes, retains a backup and restores replaced files if copying or startup fails. Settings remain in Local AppData. GitHub downloads also require the release asset's SHA-256 digest. Checksums detect corruption, not publisher identity; local packages must come from your trusted Bento release source. This development release is not code-signed.
 
