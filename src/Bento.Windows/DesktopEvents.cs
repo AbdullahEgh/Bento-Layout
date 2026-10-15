@@ -33,6 +33,7 @@ public static class DesktopIntegration
         style = passThrough ? style | 0x20 : style & ~0x20L;
         Native.SetWindowLongPtr(hwnd, -20, (nint)style);
     }
-    public static void PositionOverlay(nint hwnd, Bento.Core.PixelRect bounds) =>
-        Native.SetWindowPos(hwnd, new nint(-1), bounds.X, bounds.Y, bounds.Width, bounds.Height, 0x0010);
+    public static void PositionOverlay(nint hwnd, Bento.Core.PixelRect bounds, bool topmost = true) =>
+        Native.SetWindowPos(hwnd, new nint(topmost ? -1 : -2), bounds.X, bounds.Y, bounds.Width, bounds.Height, 0x0010);
+    public static void PlaceBelow(nint hwnd, nint sibling) => Native.SetWindowPos(hwnd, sibling, 0, 0, 0, 0, 0x0013);
 }
