@@ -20,7 +20,8 @@ if ($Publish) {
     if ($LASTEXITCODE -ne 0) { throw 'Updater publish failed.' }
     $taskFiles = [ordered]@{}
     Get-ChildItem -LiteralPath './artifacts/Bento' -File | Where-Object Name -ne 'bento-release.json' | ForEach-Object { $taskFiles[$_.Name] = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
-    $taskVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $PSScriptRoot 'artifacts/Bento/Bento.dll')).ProductVersion
+    # Informational/ProductVersion can contain a Git hash; the updater requires a numeric release version.
+    $taskVersion = [Reflection.AssemblyName]::GetAssemblyName((Join-Path $PSScriptRoot 'artifacts/Bento/Bento.dll')).Version.ToString(3)
     [ordered]@{ AppId = 'Bento.Windows'; Version = $taskVersion; Platform = 'win-x64'; Files = $taskFiles } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath './artifacts/Bento/bento-release.json' -Encoding utf8
     Compress-Archive -Path './artifacts/Bento/*' -DestinationPath './artifacts/Bento-win-x64.zip' -Force
 }

@@ -16,14 +16,14 @@ The built executable is `src/Bento.UI/bin/Release/net10.0-windows/Bento.exe`. A 
 
 1. Open your applications. Launch Bento or press **Ctrl+Alt+B**. Eligible visible, non-minimized application windows are immediately moved and resized on their existing monitors.
 2. Use the applications normally. Bento leaves their content exposed and keeps the active application focused.
-3. Drag a real window by its title bar onto another window's region to swap them. **Hold near its left, right, top or bottom edge for 450 ms** to split it instead. The progress indicator changes to “Release to split” when ready. The hold delay is configurable, including immediate splitting at 0 ms.
+3. Drag a real window by its title bar onto another window's region to swap them. **Hold near its left, right, top or bottom edge for 900 ms** to split it instead. A text-free frosted highlight divides the existing target slot when ready. The hold delay is configurable from 0 to 2000 ms.
 4. Drag a small grip in a gap to resize neighboring regions. Resizing a native window's inner border also adjusts the corresponding split when released.
 
 Newly opened and restored windows join automatically; minimized and closed windows leave the tree and their neighbors expand. Membership is checked once per second. Unchanged membership preserves customized splits and does not repeatedly resize native windows. New windows split the largest feasible region; a complete reflow is used when necessary to satisfy constraints.
 
 The middle half of a region is its center zone. A drop in a gap or outside a monitor snaps a managed native window back into its committed region. Windows stay represented during swaps and splits. Minimum sizes can prevent a split or automatic arrangement; Bento reports the failure and retains the previous layout instead of silently omitting a window.
 
-Bento 0.3.0 opens a compact interface with Workspace, Gestures and Updates pages. The desktop itself has no blueprint or full-monitor interaction layer. A temporary, click-through rectangle shows the destination and split progress. Gaps contain small resize grips. Preview and grip windows do not activate. Native geometry changes once per commit, apart from the application's own move/resize gesture. DWM window copies animate the transition for 180 ms by default; protected or unsupported thumbnails fall back to direct placement. Reduced motion follows Windows and can also be selected in Bento.
+Bento 0.3.1 opens a compact interface with Workspace, Gestures and Updates pages. The desktop itself has no blueprint or full-monitor interaction layer. A temporary, text-free acrylic box highlights the existing destination slot and follows Windows appearance (a solid tint is used when the backdrop is unavailable). Gaps contain 40-DIP resize grips, revealed individually on hover or touch. Their black or white ink follows the local wallpaper color, and settings stays above them. Preview and grip windows do not activate. Native geometry changes once per commit, apart from the application's own move/resize gesture. DWM window copies animate the transition for 180 ms by default; protected or unsupported thumbnails fall back to direct placement. Reduced motion follows Windows and can also be selected in Bento.
 
 | Action | Control |
 | --- | --- |
@@ -50,7 +50,7 @@ The release source is [AbdullahEgh/Bento-Layout](https://github.com/AbdullahEgh/
 
 Updates shows release notes and the last ten installation results. **Install and restart** validates all package file hashes, retains a backup and restores replaced files if copying or startup fails. Settings remain in Local AppData. GitHub downloads also require the release asset's SHA-256 digest. Checksums detect corruption, not publisher identity; local packages must come from your trusted Bento release source. This development release is not code-signed.
 
-Publish `Bento-win-x64.zip` as a GitHub release asset with a tag matching the application version, for example `v0.3.0`. `build.ps1 -Publish` generates the required `bento-release.json` manifest. The updater is a small separate .NET process so it can replace files after Bento exits. It does not elevate privileges; use a writable portable installation folder.
+Publish `Bento-win-x64.zip` as a GitHub release asset with a tag matching the application version, for example `v0.3.1`. `build.ps1 -Publish` generates the required `bento-release.json` manifest. The updater is a small separate .NET process so it can replace files after Bento exits. It does not elevate privileges; use a writable portable installation folder.
 
 ## Build and test
 

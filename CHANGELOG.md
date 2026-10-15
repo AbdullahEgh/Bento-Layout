@@ -1,5 +1,15 @@
 # Bento releases
 
+## 0.3.1 — October 2026
+
+- Anchor split highlights to the existing target slot, before removing or reflowing the dragged window.
+- Replace slot instructions and progress bars with a text-free Windows acrylic surface that follows system appearance.
+- Increase the default split hold to 900 ms, configurable up to 2000 ms; preserve custom delay settings.
+- Fix dark-mode heading and dropdown text and update appearance when Windows preferences change.
+- Reveal only the hovered or touched divider; lengthen its grip from 24 to 40 DIPs and adapt its ink to the wallpaper beneath it.
+- Keep divider windows below the settings interface and support touch-driven divider resizing.
+- Verify with 112 passing checks on an interactive Windows desktop, including external HWND geometry and preview timing.
+
 ## 0.3.0 — October 2026
 
 - Hold at a target edge to split, with a progress indicator, edge hysteresis and configurable delay.
