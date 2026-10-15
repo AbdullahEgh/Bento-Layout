@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Bento.Core/Bento.Core.csproj" />
+    <Project Path="src/Bento.Windows/Bento.Windows.csproj" />
+    <Project Path="src/Bento.UI/Bento.UI.csproj" />
+    <Project Path="src/Bento.Updater/Bento.Updater.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Bento.Tests/Bento.Tests.csproj" />
+  </Folder>
+</Solution>
