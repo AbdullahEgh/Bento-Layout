@@ -161,7 +161,13 @@ internal static class NativeTests
                 var target = controller.Layout(monitor).Regions.Single(r => r.Window.WindowId == fixtures[0].Id).Bounds;
                 var point = new PixelPoint(target.X + target.Width / 2, target.Bottom - 12);
                 controller.BeginDrag(fixtures[2].Id); controller.PreviewDrag(point);
-                gestureTime += 500; controller.FinishDrag(point); Pump();
+                var originalBounds = fixtures.Select(w => native.VisibleBounds(w.Id)).ToArray();
+                gestureTime += controller.Settings.SplitHoldMs - 1; controller.PreviewDrag(point);
+                Equal(target, Application.Current!.Windows.OfType<DropPreviewWindow>().Single(w => w.IsVisible).PreviewBounds);
+                gestureTime += 1; controller.PreviewDrag(point);
+                Equal(SlotPreview.Bounds(target, Placement.Bottom, controller.Settings.Gap), Application.Current.Windows.OfType<DropPreviewWindow>().Single(w => w.IsVisible).PreviewBounds);
+                for (int i = 0; i < fixtures.Length; i++) Equal(originalBounds[i], native.VisibleBounds(fixtures[i].Id));
+                controller.FinishDrag(point); Pump();
                 Equal(3, controller.Layout(monitor).Regions.Count); VerifyBounds(controller.Layout(monitor), native);
                 var sourceBounds = controller.Layout(monitor).Regions.Single(r => r.Window.WindowId == fixtures[2].Id).Bounds;
                 var targetBounds = controller.Layout(monitor).Regions.Single(r => r.Window.WindowId == fixtures[0].Id).Bounds;
@@ -177,6 +183,30 @@ internal static class NativeTests
                 Equal(sourceBounds, controller.Layout(monitor).Regions.Single(r => r.Window.WindowId == fixtures[1].Id).Bounds);
                 VerifyBounds(controller.Layout(monitor), native);
             });
+            Run("Moving a sibling highlights the old slot even when removal expands its final geometry", () =>
+            {
+                static SplitNode Pair(LayoutNode node) => node is SplitNode { First: WindowNode, Second: WindowNode } pair ? pair
+                    : node is SplitNode split ? Pair(split.First is SplitNode ? split.First : split.Second) : throw new Exception("Missing sibling pair.");
+                var pair = Pair(controller.DisplayState.Roots[monitor.Id]!);
+                var source = (WindowNode)pair.First; var target = (WindowNode)pair.Second;
+                var original = controller.Layout(monitor).Regions.Single(r => r.Window.Id == target.Id).Bounds;
+                var point = pair.Axis == SplitAxis.Horizontal ? new PixelPoint(original.X + 8, original.Y + original.Height / 2)
+                    : new PixelPoint(original.X + original.Width / 2, original.Y + 8);
+                var placement = pair.Axis == SplitAxis.Horizontal ? Placement.Left : Placement.Top;
+                controller.BeginDrag(source.WindowId); controller.PreviewDrag(point);
+                gestureTime += controller.Settings.SplitHoldMs; controller.PreviewDrag(point);
+                var shown = Application.Current!.Windows.OfType<DropPreviewWindow>().Single(w => w.IsVisible).PreviewBounds;
+                Equal(SlotPreview.Bounds(original, placement, controller.Settings.Gap), shown);
+                Check(shown != controller.Layout(monitor).Regions.Single(r => r.Window.Id == source.Id).Bounds);
+                controller.CancelDrag();
+            });
+            Run("Wallpaper sampling reads the actual monitor through the Windows shell", () =>
+            {
+                var point = new PixelPoint(monitor.WorkArea.X + monitor.WorkArea.Width / 2, monitor.WorkArea.Y + monitor.WorkArea.Height / 2);
+                var wallpaper = DesktopWallpaper.At(point);
+                Check(wallpaper is not null && wallpaper.Monitor.Contains(point));
+                Check(WallpaperContrast.At(point) == Brushes.Black || WallpaperContrast.At(point) == Brushes.White);
+            });
             Run("Transition helpers close after motion completes", () =>
             { Pump(); Pump(); Check(!Application.Current!.Windows.Cast<Window>().Any(w => w.Title == "Bento transition")); });
             Run("All interface pages open and render without losing settings", () =>
@@ -186,6 +216,34 @@ internal static class NativeTests
                 { shell.SelectPage(page); shell.UpdateLayout(); CaptureWindow(shell, $"bento-{page.ToLowerInvariant()}.png"); }
                 AppTheme.Apply("Dark"); shell.UpdateLayout(); CaptureWindow(shell,"bento-dark.png"); AppTheme.Apply("Light");
                 shell.Close();
+            });
+            Run("Dark appearance gives headings and dropdowns light text", () =>
+            {
+                AppTheme.Apply("Dark"); var shell = new BentoWindow(controller); shell.Show(); shell.UpdateLayout();
+                var text = (SolidColorBrush)Application.Current!.Resources["Text"];
+                foreach (var label in Descendants<TextBlock>(shell).Where(t => t.Text is "Your workspace" or "Bento is active" or "Appearance" or "System"))
+                    Equal(text.Color, ((SolidColorBrush)label.Foreground).Color);
+                Equal(text.Color, ((SolidColorBrush)shell.Foreground).Color);
+                shell.Close(); AppTheme.Apply("System");
+            });
+            Run("Dividers are non-topmost and only the related hover reveals its longer grip", () =>
+            {
+                var handles = Application.Current!.Windows.OfType<DesktopDividerWindow>().ToArray();
+                foreach (var handle in handles)
+                {
+                    Check(!handle.Topmost);
+                    var grip = (Border)((Grid)handle.Content).Children[0];
+                    handle.RaiseEvent(new System.Windows.Input.MouseEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0) { RoutedEvent = UIElement.MouseLeaveEvent });
+                    Equal(0d, grip.Opacity); Check(Math.Max(grip.Width, grip.Height) >= 40);
+                }
+                handles[0].RaiseEvent(new System.Windows.Input.MouseEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0) { RoutedEvent = UIElement.MouseEnterEvent });
+                for (int i = 0; i < handles.Length; i++) Equal(i == 0 ? 1d : 0d, ((Border)((Grid)handles[i].Content).Children[0]).Opacity);
+                handles[0].RaiseEvent(new System.Windows.Input.MouseEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0) { RoutedEvent = UIElement.MouseLeaveEvent });
+                controller.ShowInterface(); Pump();
+                Check(Application.Current.Windows.OfType<BentoWindow>().Single().IsActive);
+                controller.Refresh();
+                foreach (var handle in Application.Current.Windows.OfType<DesktopDividerWindow>()) Check(!handle.Topmost);
+                Application.Current.Windows.OfType<BentoWindow>().Single().Close();
             });
             Run("Preview cancellation leaves external HWND unchanged", () =>
             {
@@ -200,6 +258,8 @@ internal static class NativeTests
                 controller.PreviewDrag(new(target.X + target.Width / 2, target.Y + target.Height / 2));
                 var previews = Application.Current!.Windows.OfType<DropPreviewWindow>().Where(w => w.IsVisible).ToArray();
                 Equal(1, previews.Length); Equal(target, previews[0].PreviewBounds);
+                Check(!Descendants<TextBlock>(previews[0]).Any()); Check(!Descendants<ProgressBar>(previews[0]).Any());
+                if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22621) && !SystemParameters.HighContrast) Check(previews[0].AcrylicEnabled);
                 previews[0].UpdateLayout();
                 CapturePreview(previews[0], "drop-preview.png");
                 controller.CancelDrag();
@@ -322,6 +382,15 @@ internal static class NativeTests
             if (Math.Abs(actual.X - expected.X) > 2 || Math.Abs(actual.Y - expected.Y) > 2 ||
                 Math.Abs(actual.Width - expected.Width) > 2 || Math.Abs(actual.Height - expected.Height) > 2)
                 throw new Exception($"Window {region.Window.WindowId}: expected {expected}; actual {actual}");
+        }
+    }
+    private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T match) yield return match;
+            foreach (var descendant in Descendants<T>(child)) yield return descendant;
         }
     }
     private static void WaitForCount(BentoController controller, DesktopMonitor monitor, int count)

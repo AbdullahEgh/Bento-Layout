@@ -14,6 +14,32 @@ internal static class InteractionTests
     public static void RunAll()
     {
         var bounds = new PixelRect(0, 0, 1000, 800); var id = Guid.NewGuid();
+        Run("Longer split delay migrates the old default and preserves custom choices", () =>
+        {
+            Equal(900, new BentoSettings().SplitHoldMs);
+            Equal(900, BentoSettings.Parse("{\"SplitHoldMs\":450}").SplitHoldMs);
+            Equal(700, BentoSettings.Parse("{\"SplitHoldMs\":700}").SplitHoldMs);
+            Equal(450, BentoSettings.Parse("{\"SplitHoldMs\":450,\"SchemaVersion\":2}").SplitHoldMs);
+            Check(new BentoSettings(SplitHoldMs: 2000).IsValid);
+            var gesture = new DragIntent();
+            gesture.Update("A", id, bounds, new(10, 400), 0, 900);
+            Check(!gesture.Update("A", id, bounds, new(10, 400), 899, 900).Armed);
+            Check(gesture.Update("A", id, bounds, new(10, 400), 900, 900).Armed);
+        });
+        Run("Slot preview keeps odd pixels and negative monitor origins within the existing slot", () =>
+        {
+            var slot = new PixelRect(-901, -51, 901, 701);
+            Equal(slot, SlotPreview.Bounds(slot, Placement.Center, 8));
+            var left = SlotPreview.Bounds(slot, Placement.Left, 8); var right = SlotPreview.Bounds(slot, Placement.Right, 8);
+            var top = SlotPreview.Bounds(slot, Placement.Top, 8); var bottom = SlotPreview.Bounds(slot, Placement.Bottom, 8);
+            Equal(slot.X, left.X); Equal(slot.Right, right.Right); Equal(left.Right + 8, right.X);
+            Equal(slot.Y, top.Y); Equal(slot.Bottom, bottom.Bottom); Equal(top.Bottom + 8, bottom.Y);
+        });
+        Run("Wallpaper contrast uses black on light colors and white on dark colors", () =>
+        {
+            Check(WallpaperContrast.UseBlack(255, 255, 255)); Check(!WallpaperContrast.UseBlack(0, 0, 0));
+            Check(WallpaperContrast.UseBlack(190, 190, 190)); Check(!WallpaperContrast.UseBlack(55, 55, 55));
+        });
         Run("Hold intent starts as a swap, then arms a split at the threshold", () =>
         {
             var gesture = new DragIntent();
@@ -46,7 +72,7 @@ internal static class InteractionTests
             for (int i=0;i<=100;i++) { var r=Motion.Interpolate(from,to,i/100d); Check(r.X>=from.X && r.X<=to.X && r.Width>=800 && r.Width<=900); }
         });
         Run("Settings reject unsafe ranges and retain earlier JSON defaults", () =>
-        { Check(!new BentoSettings(SplitHoldMs:-1).IsValid); Check(!new BentoSettings(AnimationMs:999).IsValid); Check(JsonSerializer.Deserialize<BentoSettings>("{\"Gap\":12}")!.SplitHoldMs == 450); });
+        { Check(!new BentoSettings(SplitHoldMs:-1).IsValid); Check(!new BentoSettings(AnimationMs:999).IsValid); Check(JsonSerializer.Deserialize<BentoSettings>("{\"Gap\":12}")!.SplitHoldMs == 900); });
         Run("GitHub repository parsing accepts URLs and rejects arbitrary endpoints", () =>
         {
             Equal("AbdullahEgh/Bento-Layout",UpdateService.NormalizeRepository("https://github.com/AbdullahEgh/Bento-Layout/"));
