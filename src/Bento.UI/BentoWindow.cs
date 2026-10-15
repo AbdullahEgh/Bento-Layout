@@ -54,7 +54,8 @@ public sealed class BentoWindow : Window
         var scroll = new ScrollViewer { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = new Thickness(0, 0, 8, 0) };
         main.Children.Add(scroll);
         var footer = new DockPanel { Margin = new Thickness(0, 18, 0, 0), LastChildFill = true };
-        save = new Button { Content = "Save changes", Style = (Style)FindResource("Primary"), MinWidth = 118 };
+        save = new Button { Content = Symbols.Caption("Save changes", "Save"), Style = (Style)FindResource("Primary"), MinWidth = 118 };
+        AutomationProperties.SetName(save, "Save changes");
         save.Click += (_, _) => Save(); DockPanel.SetDock(save, Dock.Right); footer.Children.Add(save);
         feedback.FontSize = 12; feedback.VerticalAlignment = VerticalAlignment.Center; feedback.Margin = new Thickness(0, 0, 12, 0); feedback.SetResourceReference(TextBlock.ForegroundProperty, "Secondary");
         footer.Children.Add(feedback); Grid.SetRow(footer, 1); main.Children.Add(footer); root.Children.Add(main); Content = root;
@@ -93,7 +94,10 @@ public sealed class BentoWindow : Window
         var labels = new StackPanel { Margin = new Thickness(0, 0, 18, 0), VerticalAlignment = VerticalAlignment.Center };
         labels.Children.Add(new TextBlock { Text = title, FontWeight = FontWeights.Medium });
         if (description.Length > 0) { var note = Label(description, true); note.FontSize = 12; note.Margin = new Thickness(0, 4, 0, 0); labels.Children.Add(note); }
-        row.Children.Add(labels); Grid.SetColumn(control, 1); control.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(control);
+        var caption = new DockPanel();
+        var icon = Symbols.Create(title, 20); icon.Margin = new Thickness(0, 0, 12, 0); icon.VerticalAlignment = VerticalAlignment.Center; icon.IsHitTestVisible = false;
+        DockPanel.SetDock(icon, Dock.Left); caption.Children.Add(icon); caption.Children.Add(labels);
+        row.Children.Add(caption); Grid.SetColumn(control, 1); control.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(control);
         AutomationProperties.SetName(control, title); parent.Children.Add(row);
     }
     private CheckBox Toggle(bool value, Action<bool> changed)
@@ -128,18 +132,22 @@ public sealed class BentoWindow : Window
         count.Text = $"{controller.ManagedCount} windows arranged"; count.SetResourceReference(TextBlock.ForegroundProperty, "Secondary"); count.Margin = new Thickness(0, 4, 0, 16);
         var intro = new StackPanel { Margin = new Thickness(2, 16, 2, 15) }; intro.Children.Add(status); intro.Children.Add(count);
         var actions = new StackPanel { Orientation = Orientation.Horizontal };
-        var arrange = new Button { Content = "Arrange windows", Style = (Style)FindResource("Primary"), Margin = new Thickness(0, 0, 8, 0) };
+        var arrange = new Button { Content = Symbols.Caption("Arrange windows", "Workspace"), Style = (Style)FindResource("Primary"), Margin = new Thickness(0, 0, 8, 0) };
+        AutomationProperties.SetName(arrange, "Arrange windows");
         arrange.Click += (_, _) => { controller.AutoArrangeAll(); feedback.Text = controller.Status; };
-        var pause = new Button { Content = controller.Automatic ? "Pause" : "Resume" };
-        pause.Click += (_, _) => { controller.SetAutomatic(!controller.Automatic); pause.Content = controller.Automatic ? "Pause" : "Resume"; };
+        var pause = new Button { Content = Symbols.Caption(controller.Automatic ? "Pause" : "Resume", controller.Automatic ? "Pause" : "Resume") };
+        AutomationProperties.SetName(pause, controller.Automatic ? "Pause" : "Resume");
+        pause.Click += (_, _) => { controller.SetAutomatic(!controller.Automatic); pause.Content = Symbols.Caption(controller.Automatic ? "Pause" : "Resume", controller.Automatic ? "Pause" : "Resume"); AutomationProperties.SetName(pause, controller.Automatic ? "Pause" : "Resume"); };
         actions.Children.Add(arrange); actions.Children.Add(pause); intro.Children.Add(actions); hero.Children.Add(intro);
         var layout = Card("Layout");
         Row(layout, "Space between windows", "Physical pixels", Range(draft.Gap, 4, 32, 2, " px", n => draft = draft with { Gap = n }));
         Row(layout, "Desktop margin", "Keep a little room around the edges", Range(draft.Margin, 0, 64, 2, " px", n => draft = draft with { Margin = n }));
+        Row(layout, "Background darkness", "Behind windows and grabbers · clear to black", Range(draft.BackgroundDarkness, 0, 100, 5, "%", n => draft = draft with { BackgroundDarkness = n }));
         var appearance = new ComboBox { ItemsSource = new[] { "System", "Light", "Dark" }, SelectedItem = draft.Theme };
         appearance.SelectionChanged += (_, _) => { draft = draft with { Theme = (string)appearance.SelectedItem }; Dirty(); };
         Row(layout, "Appearance", "Follow Windows or choose your own", appearance);
-        var restore = new Button { Content = "Restore original window positions", HorizontalAlignment = HorizontalAlignment.Left };
+        var restore = new Button { Content = Symbols.Caption("Restore original window positions", "Restore"), HorizontalAlignment = HorizontalAlignment.Left };
+        AutomationProperties.SetName(restore, "Restore original window positions");
         restore.Click += (_, _) => { controller.RestoreAll(); feedback.Text = controller.Status; SelectPage(page); }; content.Children.Add(restore);
     }
     private void Gestures()
@@ -178,10 +186,12 @@ public sealed class BentoWindow : Window
         Row(updates, "GitHub repository", "Your release source", repository);
         Row(updates, "Check when Bento starts", "Download and install only when you choose", Toggle(draft.CheckUpdates, v => draft = draft with { CheckUpdates = v }));
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 12, 0, 15) };
-        var check = new Button { Content = "Check for updates", Style = (Style)FindResource("Primary"), Margin = new Thickness(0, 0, 8, 0) };
-        var local = new Button { Content = "Choose update file…" }; buttons.Children.Add(check); buttons.Children.Add(local); updates.Children.Add(buttons);
+        var check = new Button { Content = Symbols.Caption("Check for updates", "Updates"), Style = (Style)FindResource("Primary"), Margin = new Thickness(0, 0, 8, 0) };
+        var local = new Button { Content = Symbols.Caption("Choose update file…", "Folder") }; buttons.Children.Add(check); buttons.Children.Add(local); updates.Children.Add(buttons);
+        AutomationProperties.SetName(check, "Check for updates"); AutomationProperties.SetName(local, "Choose update file…");
         var result = Label("", true); result.Margin = new Thickness(0, 0, 0, 12); updates.Children.Add(result);
-        var browser = new Button { Content = "View releases on GitHub", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 12) };
+        var browser = new Button { Content = Symbols.Caption("View releases on GitHub", "Link"), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 12) };
+        AutomationProperties.SetName(browser, "View releases on GitHub");
         browser.Click += (_, _) =>
         {
             try { string repo = UpdateService.NormalizeRepository(repository.Text); System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo($"https://github.com/{repo}/releases") { UseShellExecute = true }); }
@@ -199,7 +209,8 @@ public sealed class BentoWindow : Window
                 else
                 {
                     result.Text = $"Bento {update.Version} is available.\n\n{update.Notes}";
-                    var install = new Button { Content = $"Download {update.Version}", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 12) };
+                    var install = new Button { Content = Symbols.Caption($"Download {update.Version}", "Download"), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 12) };
+                    AutomationProperties.SetName(install, $"Download {update.Version}");
                     install.Click += async (_, _) =>
                     {
                         if (busy) return; busy = true; install.IsEnabled = false; result.Text = "Downloading and verifying…";
@@ -245,7 +256,8 @@ public sealed class BentoWindow : Window
         {
             var staged = UpdateService.Stage(package);
             result.Text = $"Bento {staged.Manifest.Version} is verified and ready. Your settings will be kept. Bento will restart.";
-            var restart = new Button { Content = "Install and restart", Style = (Style)FindResource("Primary"), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 12) };
+            var restart = new Button { Content = Symbols.Caption("Install and restart", "Updates"), Style = (Style)FindResource("Primary"), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 12) };
+            AutomationProperties.SetName(restart, "Install and restart");
             restart.Click += (_, _) => { try { UpdateService.Install(staged.Directory, staged.Manifest); } catch (Exception ex) { result.Text = ex.Message; } }; parent.Children.Add(restart);
         }
         catch (Exception ex) { result.Text = ex.Message; }

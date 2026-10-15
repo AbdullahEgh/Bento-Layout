@@ -10,12 +10,15 @@ public sealed class DesktopDividerWindow : Window
     private readonly Divider divider;
     private bool finishing;
     private readonly Border grip;
+    private bool resizing;
+    private PixelRect presentedBounds;
     public Guid SplitId => divider.SplitId;
     public PixelRect DesktopBounds => divider.Bounds;
 
     public DesktopDividerWindow(BentoController controller, DesktopMonitor monitor, Divider divider)
     {
         this.controller = controller; this.monitor = monitor; this.divider = divider;
+        presentedBounds = divider.Bounds;
         Title = "Bento divider";
         WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
         AllowsTransparency = true; Background = Brushes.Transparent;
@@ -32,8 +35,8 @@ public sealed class DesktopDividerWindow : Window
         };
         var area = new Grid { Background = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0)) };
         area.Children.Add(grip); Content = area;
-        MouseEnter += (_, _) => { RefreshContrast(); grip.Opacity = 1; };
-        MouseLeave += (_, _) => { if (!IsMouseCaptured && !AreAnyTouchesCaptured) grip.Opacity = 0; };
+        MouseEnter += (_, _) => { RefreshContrast(); grip.Opacity = resizing ? 1 : .65; };
+        MouseLeave += (_, _) => { if (!resizing && !IsMouseCaptured && !AreAnyTouchesCaptured) grip.Opacity = 0; };
         SourceInitialized += (_, _) =>
         {
             var handle = new WindowInteropHelper(this).Handle;
@@ -41,7 +44,27 @@ public sealed class DesktopDividerWindow : Window
             DesktopIntegration.PositionOverlay(handle, divider.Bounds, topmost: false);
         };
     }
-    public void RefreshContrast() => grip.Background = WallpaperContrast.At(new(divider.Bounds.X + divider.Bounds.Width / 2, divider.Bounds.Y + divider.Bounds.Height / 2));
+    public void RefreshContrast() => grip.Background = WallpaperContrast.At(new(presentedBounds.X + presentedBounds.Width / 2, presentedBounds.Y + presentedBounds.Height / 2), controller.Settings.BackgroundDarkness);
+    public void PresentResize(PixelRect bounds)
+    {
+        bool first = !resizing;
+        resizing = true; presentedBounds = bounds;
+        bool horizontal = divider.Axis == SplitAxis.Horizontal;
+        grip.Width = horizontal ? Math.Min(4, bounds.Width / monitor.Scale) : Math.Min(72, bounds.Width / monitor.Scale);
+        grip.Height = horizontal ? Math.Min(72, bounds.Height / monitor.Scale) : Math.Min(4, bounds.Height / monitor.Scale);
+        grip.CornerRadius = new CornerRadius(2); grip.Opacity = 1;
+        if (first) RefreshContrast();
+        DesktopIntegration.PositionOverlay(new WindowInteropHelper(this).Handle, bounds, topmost: false);
+    }
+    public void ResetPresentation()
+    {
+        resizing = false; presentedBounds = divider.Bounds;
+        bool horizontal = divider.Axis == SplitAxis.Horizontal;
+        grip.Width = horizontal ? 2 : Math.Min(40, divider.Bounds.Width / monitor.Scale);
+        grip.Height = horizontal ? Math.Min(40, divider.Bounds.Height / monitor.Scale) : 2;
+        grip.CornerRadius = new CornerRadius(1); grip.Opacity = IsMouseOver ? .65 : 0;
+        DesktopIntegration.PositionOverlay(new WindowInteropHelper(this).Handle, divider.Bounds, topmost: false);
+    }
 
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
     {

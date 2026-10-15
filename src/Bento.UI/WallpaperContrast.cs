@@ -11,12 +11,14 @@ public static class WallpaperContrast
         foreach (var item in cache.Values) item.Image.Dispose();
         cache.Clear();
     }
-    public static bool UseBlack(byte red, byte green, byte blue)
+    public static bool UseBlack(byte red, byte green, byte blue, int backgroundDarkness = 0)
     {
+        double remaining = 1 - Math.Clamp(backgroundDarkness, 0, 100) / 100d;
+        red = (byte)Math.Round(red * remaining); green = (byte)Math.Round(green * remaining); blue = (byte)Math.Round(blue * remaining);
         static double Linear(byte value) { double c = value / 255d; return c <= .04045 ? c / 12.92 : Math.Pow((c + .055) / 1.055, 2.4); }
         return .2126 * Linear(red) + .7152 * Linear(green) + .0722 * Linear(blue) > .179;
     }
-    public static Brush At(PixelPoint point)
+    public static Brush At(PixelPoint point, int backgroundDarkness = 0)
     {
         var info = DesktopWallpaper.At(point);
         var color = System.Drawing.SystemColors.Desktop;
@@ -55,6 +57,6 @@ public static class WallpaperContrast
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or System.Runtime.InteropServices.ExternalException) { }
         }
-        return UseBlack(color.R, color.G, color.B) ? Brushes.Black : Brushes.White;
+        return UseBlack(color.R, color.G, color.B, backgroundDarkness) ? Brushes.Black : Brushes.White;
     }
 }

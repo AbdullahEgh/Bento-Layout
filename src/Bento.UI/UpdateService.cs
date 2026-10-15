@@ -13,6 +13,7 @@ public sealed class UpdateService
 {
     public static string CurrentVersion => typeof(BentoController).Assembly.GetName().Version?.ToString(3) ?? "0.3.0";
     public static readonly ReleaseNote[] Releases = [
+        new("0.3.2", "October 2026", "Small controls, clearer feedback", ["Dim the background beneath the layout from clear to black, with 50% darkness by default.", "Original icons illustrate every setting and main action.", "Dragging a divider shows a longer, solid grabber instead of a full-length line.", "Grabbers adapt to wallpaper and background darkness; pausing removes the dimmer."]),
         new("0.3.1", "October 2026", "Quieter, clearer gestures", ["Split previews stay within the existing slot, with a text-free acrylic surface.", "A longer 900 ms hold, adjustable up to two seconds.", "Light text in dark mode and live Windows appearance updates.", "Longer dividers appear individually on hover or touch, adapt to wallpaper, and stay behind settings."]),
         new("0.3.0", "October 2026", "A desktop that follows your lead", ["Hold at a window edge to split, with visible progress and stable targets.", "Smoother window transitions, with a reduced-motion option.", "A new Bento interface, light and dark appearances, and original icons.", "Optional Windows edge-snap control with restoration on exit.", "GitHub release checks, verified update packages, and update history."]),
         new("0.2.1", "October 2026", "Lighter dragging", ["Reuse previews within the same destination zone.", "Reduce application queries at drag start."]),

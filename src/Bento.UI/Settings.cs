@@ -4,7 +4,8 @@ namespace Bento.UI;
 
 public sealed record BentoSettings(uint Modifiers = 3, uint Key = 0x42, int Gap = 8, int Margin = 8,
     int SplitHoldMs = 900, bool Animate = true, int AnimationMs = 180, bool SuppressWindowsSnap = false,
-    string Theme = "System", string UpdateRepository = "AbdullahEgh/Bento-Layout", bool CheckUpdates = false, int SchemaVersion = 2)
+    string Theme = "System", string UpdateRepository = "AbdullahEgh/Bento-Layout", bool CheckUpdates = false, int SchemaVersion = 2,
+    int BackgroundDarkness = 50)
 {
     public static string DataDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Bento");
     private static string PathName => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Bento", "settings.json");
@@ -27,7 +28,7 @@ public sealed record BentoSettings(uint Modifiers = 3, uint Key = 0x42, int Gap 
     }
     public bool IsValid => Gap is >= 4 and <= 32 && Margin is >= 0 and <= 64 &&
         ((Key is >= 0x30 and <= 0x39) || (Key is >= 0x41 and <= 0x5A)) && Modifiers is > 0 and <= 15 &&
-        SplitHoldMs is >= 0 and <= 2000 && AnimationMs is >= 80 and <= 400 && Theme is "System" or "Light" or "Dark";
+        BackgroundDarkness is >= 0 and <= 100 && SplitHoldMs is >= 0 and <= 2000 && AnimationMs is >= 80 and <= 400 && Theme is "System" or "Light" or "Dark";
     public void Save()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(PathName)!);

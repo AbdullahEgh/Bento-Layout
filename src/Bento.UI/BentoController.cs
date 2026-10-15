@@ -10,6 +10,7 @@ public sealed class BentoController : IDisposable
     private readonly DesktopEvents events;
     private readonly Forms.NotifyIcon tray;
     private readonly WindowController native = new();
+    private readonly Dictionary<string, DesktopBackdropWindow> backdrops = new();
     private readonly LayoutHistory history = new();
     private readonly Func<IReadOnlyList<AppWindow>>? windowSource;
     private readonly Func<long> clock;
@@ -105,6 +106,7 @@ public sealed class BentoController : IDisposable
     {
         if (enabled) { ArrangeDesktop(); return; }
         CancelDrag(); automatic = false; activeNativeDrag = 0;
+        CloseBackdrops();
         snapLease?.SetSuppressed(false); RefreshDesktopDividers();
     }
 
@@ -129,6 +131,7 @@ public sealed class BentoController : IDisposable
         automatic = true;
         snapLease?.SetSuppressed(Settings.SuppressWindowsSnap);
         Synchronize(geometryChanged);
+        RefreshBackdrops();
         RefreshDesktopDividers();
     }
     private void CloseDesktopHelpers()
@@ -214,6 +217,8 @@ public sealed class BentoController : IDisposable
         CancelDrag(); divider = value; dividerMonitor = monitor.Id; dragStart = history.Current;
         touchPoint = touch;
         timer.Interval = TimeSpan.FromMilliseconds(16);
+        foreach (var handle in dividers) if (handle.SplitId != value.SplitId) handle.Hide();
+        UpdatePreview(touch);
     }
     public void BeginNativeResize(long id)
     {
@@ -238,6 +243,7 @@ public sealed class BentoController : IDisposable
         RefreshMonitorGeometry();
         Windows = DiscoverWindows();
         Synchronize();
+        RefreshBackdrops();
     }
     private void RefreshMonitorGeometry()
     {
@@ -374,7 +380,7 @@ public sealed class BentoController : IDisposable
         nativeResizeWindow = 0; validPreview = false;
         timer.Interval = TimeSpan.FromSeconds(1);
         dropPreview?.Hide();
-        foreach (var handle in dividers) handle.Show();
+        foreach (var handle in dividers) { handle.ResetPresentation(); handle.Show(); }
         PlaceDividersBelowInterface();
     }
     public void Remove(long id)
@@ -423,6 +429,7 @@ public sealed class BentoController : IDisposable
                 if (WindowCatalog.IsMinimized(region.Window.WindowId) || native.VisibleBounds(region.Window.WindowId) != region.Bounds)
                     native.Move(region.Window.WindowId, region.Bounds);
             transition?.Play();
+
         }
         catch
         {
@@ -502,6 +509,15 @@ public sealed class BentoController : IDisposable
     private void PresentDropPreview()
     {
         if (preview is null || nativeResizeWindow != 0) { dropPreview?.Hide(); return; }
+        if (divider is not null && dividerMonitor is not null)
+        {
+            dropPreview?.Hide();
+            var monitor = monitors.Single(m => m.Id == dividerMonitor);
+            var boundary = Layout(monitor, preview).Dividers.Single(d => d.SplitId == divider.SplitId);
+            dividers.FirstOrDefault(h => h.SplitId == divider.SplitId)?.PresentResize(boundary.Bounds);
+            PlaceDividersBelowInterface();
+            return;
+        }
         foreach (var monitor in monitors)
         {
             var layout = Layout(monitor, preview);
@@ -518,6 +534,7 @@ public sealed class BentoController : IDisposable
     private void RefreshDesktopDividers()
     {
         if (Dragging) return;
+        RefreshBackdrops();
         foreach (var handle in dividers.ToArray()) handle.Close();
         dividers.Clear();
         if (!automatic) return;
@@ -533,10 +550,29 @@ public sealed class BentoController : IDisposable
         }
         catch (LayoutConstraintException) { /* Geometry may no longer fit after a display change. */ }
     }
+    private void CloseBackdrops()
+    {
+        foreach (var backdrop in backdrops.Values) backdrop.Close();
+        backdrops.Clear();
+    }
+    private void RefreshBackdrops()
+    {
+        var occupied = automatic ? monitors.Where(m => history.Current.Roots.GetValueOrDefault(m.Id) is not null).ToArray() : [];
+        foreach (string id in backdrops.Keys.Where(id => !occupied.Any(m => m.Id == id)).ToArray())
+        { backdrops[id].Close(); backdrops.Remove(id); }
+        var applications = Windows.Select(w => w.Id).ToList();
+        if (appWindow?.IsVisible == true) applications.Add(new WindowInteropHelper(appWindow).Handle.ToInt64());
+        foreach (var monitor in occupied)
+        {
+            if (!backdrops.TryGetValue(monitor.Id, out var backdrop)) backdrops[monitor.Id] = backdrop = new();
+            backdrop.Present(monitor, Settings.BackgroundDarkness, applications);
+        }
+    }
     public void Dispose()
     {
         Microsoft.Win32.SystemEvents.UserPreferenceChanged -= AppearanceChanged;
         WallpaperContrast.Invalidate();
+        CloseBackdrops();
         timer.Stop(); events.Dispose(); transition?.Dispose(); CloseDesktopHelpers(); appWindow?.Close();
         try { snapLease?.Dispose(); } catch { /* The recovery journal is kept for the next launch. */ }
         DesktopIntegration.UnregisterShortcut(source.Handle, 1); source.Dispose(); tray.Dispose();
