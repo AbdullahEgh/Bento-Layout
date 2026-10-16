@@ -1,4 +1,17 @@
-# macOS 0.2.0 validation — 2026-10-16
+# macOS 0.2.4 validation — 2026-10-16
+
+At code commit `33be2cb`, all 28 core tests, 36 disposable native checks and 11 external Accessibility fixture checks passed locally. The native checks include one final frame write per arranged window, no writes for an unchanged reflow, asynchronous native restoration, four-way split/center behavior, grip commit/cancel, and oversized/refusing-window exclusion. Preview bounds now equal the final candidate geometry after source removal and minimum-size clamping. Native preview views and settings icons were rendered and visually checked; preview fill alpha is 0.18 so the destination remains visible through the overlay.
+
+[GitHub compatibility run](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/38890228259) passed on both macOS 15 and 26: core tests, universal build, startup, native interaction harness, and signed OTA fixture. Minimum supported macOS remains 15. Intel is cross-compiled, not runtime-tested on Intel hardware.
+
+The installed 0.2.3 app successfully arranged four eligible windows while leaving one oversized window alone. With Dock/menu hiding enabled and edge snapping disabled, the corresponding macOS preference values changed as requested. Turning Bento off restored all five values exactly, including deleting keys originally absent. The temporary Dock/menu-hiding test choices were subsequently returned to off. A full login cycle has not been tested.
+
+Menu-bar routing was reviewed: left-click and the shortcut use the same quiet toggle action, and right-click/Control-click opens the menu. The desktop-control tool is not approved for SystemUIServer, so a physical menu-bar click could not be automated. Physical drag routing retains the virtual-display limitations documented below. The separate external AX fixture proves native geometry writes, not physical pointer routing across arbitrary third-party apps.
+
+[Release 0.2.4](https://github.com/AbdullahEgh/Bento-Layout/releases/tag/macos-v0.2.4), build 106, was published through the signed GitHub workflow. Its public ZIP and feed were downloaded and independently checked against the embedded Ed25519 public key; deep/strict code-signature verification passed and the executable contains arm64 and x86_64. Sparkle then installed it over 0.2.3 and relaunched `/Applications/Bento.app`; both the installed plist and app UI show 0.2.4. Windows `v0.3.6` remains the repository's latest release. The updated normal-launch app reports Accessibility blocked, so post-update desktop movement awaits re-enabling access. Installed settings icons were checked visually.
+
+## Historical 0.2.0 validation
+
 
 Current revision adds native interaction wiring, signed GitHub OTA and temporary activation preferences. The sections below the historical heading describe the earlier 0.1.0 milestone.
 
