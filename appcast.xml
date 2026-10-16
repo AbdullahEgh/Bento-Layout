@@ -4,14 +4,16 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.14</title>
-            <pubDate>Fri, 16 Oct 2026 20:24:45 +0000</pubDate>
-            <sparkle:version>117</sparkle:version>
-            <sparkle:shortVersionString>0.2.14</sparkle:shortVersionString>
+            <title>0.2.15</title>
+            <pubDate>Fri, 16 Oct 2026 20:35:01 +0000</pubDate>
+            <sparkle:version>118</sparkle:version>
+            <sparkle:shortVersionString>0.2.15</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.14
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.15
 
 What’s new
+
+- Fix Install and Relaunch stalling when the updater requests permission again after windows have been restored.
 
 - Turn Bento off and on without rebuilding your edited slots, display assignments, or floating-window choices.
 - Restore overflow windows to the Dock when resuming the same layout.
@@ -21,10 +23,10 @@ What’s new
 - Show clear swap, hold-to-split, and directional split feedback; ignore stationary clicks on drifted windows.
 - Restore newly admitted windows to their pre-drag positions when Bento is turned off.
 ]]></description>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.14/Bento-macos-universal.zip" length="3059668" type="application/octet-stream" sparkle:edSignature="easJ+x2o+2WMKUQLXMPUEvHh9Vw54MOsIW//HSI9Ezif6cJJm7EfD1ePzf2E1kI1orcjIQm+e0OX+km/WpxtBQ=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.15/Bento-macos-universal.zip" length="3060090" type="application/octet-stream" sparkle:edSignature="aylrPkKbn8b2ELCnfdllmmYMwhEk6sCcfNajTwt5J7GhK5ufWjNDw1FpvBcuQ/YscGARsxbKu8G5UzJY6wB+Cw=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: NYITmX0edFMtpOcQQzYKG/UYhSjy7icHdXpdATUpqJeAn5ejTF7X5j327ZQYsfCBgbrIX1Rob1VvTmxH42MjDA==
-length: 1880
+edSignature: WfLhWXKsBJMToLcMKJtnfJYVMVfaqAYOzsxGj/Dd0o3OXPHjHT9A18amrMIvNhrkrwF7RoiEwWAUfC+T92H2Dw==
+length: 1994
 -->
