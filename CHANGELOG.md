@@ -1,4 +1,4 @@
-## Unreleased — split and resize UX
+## Windows 0.3.9 / macOS 0.2.10 — split and resize UX
 
 - Preserve the exact grab point on macOS and Windows: pressing an off-center grip no longer recenters the split.
 - macOS coalesces live pointer samples, drains the last sample on release, and avoids replaying a resize animation after a live drag.
