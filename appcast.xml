@@ -4,15 +4,25 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.11</title>
-            <pubDate>Fri, 16 Oct 2026 19:02:23 +0000</pubDate>
-            <sparkle:version>114</sparkle:version>
-            <sparkle:shortVersionString>0.2.11</sparkle:shortVersionString>
+            <title>0.2.12</title>
+            <pubDate>Fri, 16 Oct 2026 19:18:43 +0000</pubDate>
+            <sparkle:version>115</sparkle:version>
+            <sparkle:shortVersionString>0.2.12</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.11/Bento-macos-universal.zip" length="2853301" type="application/octet-stream" sparkle:edSignature="IPJMYJ6Jz8EGmwGTWLTs7kbGAtvkJNGr6ZZeVvlK+AHrEKIHUHQ0FRhX3srYlnBaEmhnayjmRIrEQg+Lj/XcDQ=="></enclosure>
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.12
+
+What’s new
+
+- Calmer layouts: calculate available space before moving windows.
+- Reuse the least recently used window’s slot when the desktop is full, keeping other windows in place where possible.
+- Stop repeated layout attempts: allow only one correction for an unknown app size, with no automatic rearrangement animation.
+- Improve Install and Relaunch: restore windows once, avoid waiting for ongoing arrangement retries, and show a retry action if restoration is blocked.
+- Show these release points directly in the update popup.
+]]></description>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.12/Bento-macos-universal.zip" length="2921932" type="application/octet-stream" sparkle:edSignature="Uq2WMa3bxqi27kalY+erWNCld4JiHYyCkGuxmmxz8yE99jVlVdYxN5bTi1ZGJDAj5FNFgVjSRbTfSIKnXSi8AA=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: r6bjCRACVLNhoc6jfuxKwKg5o5DtxFdGp7adhI8cFaIO0AUSJtBMNqXOSPUZKhEb0u8tYjixsroUMFl6HwkGCA==
-length: 1063
+edSignature: lL4ELofHgpiL+t3rbobSPRQFMFDyLWXUtn9502EDUhGqkDUCqJcQTdb5rJHFtB/cB4NGb+0yY3U/Fuc+DZPOAw==
+length: 1704
 -->
