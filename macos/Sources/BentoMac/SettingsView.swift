@@ -54,7 +54,7 @@ struct SettingsView: View {
           }.onAppear { compact = geometry.size.width < 680 }
            .onChange(of: geometry.size.width) { _, width in compact = width < 680 }
         }.frame(minWidth: 340, minHeight: 420).foregroundStyle(BentoStyle.text).background(BentoStyle.page)
-            .disabled(model.busy || model.interacting || model.activating)
+            .disabled(model.interacting || (!model.applyingSettings && (model.busy || model.activating)))
             .onChange(of: model.settings.minimizeOverflow) { _, _ in model.saveSettings() }
             .onChange(of: model.settings.gap) { _, _ in model.saveSettings() }
             .onChange(of: model.settings.margin) { _, _ in model.saveSettings() }
@@ -116,7 +116,7 @@ struct SettingsView: View {
                     if model.settings.animate { rowLayout { settingLabel("Animation duration", symbol: "Duration"); Spacer(); Stepper("\(model.settings.animationMS) ms", value: $model.settings.animationMS, in: 80...400, step: 20).frame(width: 120) } }
                     Text("Motion follows macOS Reduce Motion. Background darkness applies while Bento is on.").font(.system(size: 11)).foregroundStyle(BentoStyle.secondary)
                     rowLayout { settingLabel("Appearance", symbol: "Appearance"); Spacer(); Picker("Appearance", selection: $model.settings.theme) { Text("System").tag("System"); Text("Light").tag("Light"); Text("Dark").tag("Dark") }.labelsHidden().frame(width: 130) }
-                    Text("Spacing changes apply the next time you arrange windows.").font(.system(size: 11)).foregroundStyle(BentoStyle.secondary).frame(maxWidth: .infinity, alignment: .leading)
+                    Text("Spacing updates live while Bento is on.").font(.system(size: 11)).foregroundStyle(BentoStyle.secondary).frame(maxWidth: .infinity, alignment: .leading)
                 }.font(.system(size: 12))
             }
             rowLayout {
@@ -129,7 +129,7 @@ struct SettingsView: View {
     private var activationOptions: some View {
         BentoCard {
                 VStack(alignment: .leading, spacing: 18) {
-                    Text("When Bento activates").font(.system(size: 14, weight: .semibold))
+                    Text("Desktop behavior").font(.system(size: 14, weight: .semibold))
                     Toggle(isOn: $model.settings.minimizeOverflow) { settingLabel("Minimize windows that do not fit", symbol: "Restore") }.toggleStyle(.switch)
                     Toggle(isOn: $model.settings.hideDock) { settingLabel("Automatically hide the Dock", symbol: "Dock") }.toggleStyle(.switch)
                     Toggle(isOn: $model.settings.hideMenuBar) { settingLabel("Automatically hide the menu bar", symbol: "MenuBar") }.toggleStyle(.switch)
@@ -139,8 +139,8 @@ struct SettingsView: View {
                             Text("Keep current setting").tag("Keep"); Text("On while active").tag("On"); Text("Off while active").tag("Off")
                         }.labelsHidden().frame(width: 175)
                     }
-                    Text("Applies on the next activation. Turning Bento off restores your previous settings. Dock and tiling changes briefly restart the Dock.").font(.system(size: 11)).lineSpacing(4).foregroundStyle(BentoStyle.secondary)
-                }.font(.system(size: 12)).disabled(model.active)
+                    Text("Changes apply live while Bento is on. Turning an option off restores your previous macOS setting. Dock and menu-bar changes briefly refresh the desktop.").font(.system(size: 11)).lineSpacing(4).foregroundStyle(BentoStyle.secondary)
+                }.font(.system(size: 12))
         }
     }
     private func settingLabel(_ title: String, symbol: String) -> some View {

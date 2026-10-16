@@ -14,7 +14,7 @@ private final class ExternalFixturePreferences: PreferenceBackend {
         var settings = MacSettings(); settings.onboardingComplete = true
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let preferences = ActivationOverrides(backend: ExternalFixturePreferences(), journal: output.appendingPathComponent("fixture-preferences.json"))
-        let model = WorkspaceController(system: system, settings: settings, preferences: preferences, backgroundMonitoring: false)
+        let model = WorkspaceController(system: system, settings: settings, preferences: preferences, persistSettings: { _ in }, backgroundMonitoring: false)
         var passed: [String] = []
         func check(_ value: Bool, _ title: String) throws {
             guard value else { throw NSError(domain: "ExternalAX", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(title): \(model.message ?? "geometry mismatch")"]) }
@@ -22,8 +22,8 @@ private final class ExternalFixturePreferences: PreferenceBackend {
             print("PASS: \(title)")
         }
         func layout() throws -> (String, LayoutResult) {
-            guard let display = DisplayArea.all(margin: settings.margin).first(where: { model.history.current.roots[$0.id] != nil }) else { throw LayoutError.missingTarget }
-            return (display.id, try LayoutEngine.calculate(model.history.current.roots[display.id], in: display.bounds, gap: settings.gap))
+            guard let display = DisplayArea.all(margin: model.layoutMargin).first(where: { model.history.current.roots[$0.id] != nil }) else { throw LayoutError.missingTarget }
+            return (display.id, try LayoutEngine.calculate(model.history.current.roots[display.id], in: display.bounds, gap: model.layoutGap))
         }
         func matches() throws -> Bool {
             try layout().1.regions.allSatisfy { region in
@@ -47,13 +47,19 @@ private final class ExternalFixturePreferences: PreferenceBackend {
                 try check(try matches() && next.windows.count == 3, "Real AX commits \(placement.rawValue) placement without losing windows")
             }
             let (display, beforeResize) = try layout(), divider = beforeResize.dividers[0]
-            let area = DisplayArea.all(margin: settings.margin).first { $0.id == display }!.bounds
-            let next = try InteractionGeometry.resize(model.history.current, display: display, divider: divider, pointer: Point(divider.bounds.x + 30, divider.bounds.y + 30), area: area, gap: settings.gap)
+            let area = DisplayArea.all(margin: model.layoutMargin).first { $0.id == display }!.bounds
+            let next = try InteractionGeometry.resize(model.history.current, display: display, divider: divider, pointer: Point(divider.bounds.x + 30, divider.bounds.y + 30), area: area, gap: model.layoutGap)
             try await model.finishInteraction(next, commit: true)
             try check(try matches(), "Real AX resizes neighboring external windows")
             await model.undo(); try check(try matches(), "Real AX undo")
             await model.undo(redo: true); try check(try matches(), "Real AX redo")
             let edited = model.history.current
+            model.settings.gap = 16; await model.applyLiveSettings()
+            try check(try model.layoutGap == 16 && model.history.current == edited && matches(), "Real AX gap changes update live without rebuilding the edited tree")
+            model.settings.margin = 16; await model.applyLiveSettings()
+            try check(try model.layoutMargin == 16 && model.history.current == edited && matches(), "Real AX margin changes resize the same slots live")
+            model.settings.gap = settings.gap; model.settings.margin = settings.margin
+            await model.applyLiveSettings()
             await model.restore()
             try check(initial.allSatisfy { system.accepted($0, originals[$0.id]!) }, "Real AX restores original external bounds")
             await model.toggleLayout()

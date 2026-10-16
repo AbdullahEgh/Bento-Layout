@@ -55,6 +55,7 @@ final class ManagedWindow {
     init(allowedPIDs: Set<pid_t>? = nil) { self.allowedPIDs = allowedPIDs }
     var trusted: Bool { AXIsProcessTrusted() }
     var pointerPressed: Bool { CGEventSource.buttonState(.combinedSessionState, button: .left) }
+    var tracksDesktopPointer: Bool { !NSApp.isActive }
     func window(at point: Point, in windows: [ManagedWindow]) -> ManagedWindow? {
         let desktop = AXUIElementCreateSystemWide()
         AXUIElementSetMessagingTimeout(desktop, 0.05)

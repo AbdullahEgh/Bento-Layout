@@ -66,14 +66,14 @@ struct DesktopInput {
         guard model.active, model.permission, !model.interacting else { if !model.interacting { removeHelpers() }; return }
         updateGrips(model.history.current)
     }
-    private func areas() -> [String: Rect] { if let gestureAreas { return gestureAreas }; return Dictionary(uniqueKeysWithValues: DisplayArea.all(margin: model.settings.margin).map { ($0.id, $0.bounds) }) }
+    private func areas() -> [String: Rect] { if let gestureAreas { return gestureAreas }; return Dictionary(uniqueKeysWithValues: DisplayArea.all(margin: model.layoutMargin).map { ($0.id, $0.bounds) }) }
     private func removeHelpers() { grips.values.forEach { $0.orderOut(nil) }; grips.removeAll(); preview.orderOut(nil); backdrop.hide() }
     private func updateGrips(_ workspace: Workspace) {
         hoverNeedsUpdate = true
         backdrop.show(darkness: model.settings.backgroundDarkness)
         let displays = areas(); var retained = Set<UUID>()
         for (display, root) in workspace.roots {
-            guard let area = displays[display], let layout = try? LayoutEngine.calculate(root, in: area, gap: model.settings.gap) else { continue }
+            guard let area = displays[display], let layout = try? LayoutEngine.calculate(root, in: area, gap: model.layoutGap) else { continue }
             for divider in layout.dividers {
                 retained.insert(divider.id)
                 let panel: GapPanel
@@ -121,11 +121,14 @@ struct DesktopInput {
         guard !model.busy, !model.activating else { return }
         if pressed && !wasPressed {
             pressedWindow = nil; pressedFrame = nil; pressPoint = state.point; escapeRequested = false
+            // Bento's settings controls may cover a tiled slot. Never bind a
+            // settings click or slider drag to a window underneath our own UI.
+            guard model.system.tracksDesktopPointer else { return }
             gestureAreas = nil; gestureAreas = areas()
             pressedWindow = model.system.window(at: pressPoint, in: model.windows)
             if pressedWindow == nil {
                 for (display, root) in model.history.current.roots {
-                    guard let area = gestureAreas?[display], let region = try? LayoutEngine.calculate(root, in: area, gap: model.settings.gap).regions.first(where: { $0.bounds.contains(pressPoint) }) else { continue }
+                    guard let area = gestureAreas?[display], let region = try? LayoutEngine.calculate(root, in: area, gap: model.layoutGap).regions.first(where: { $0.bounds.contains(pressPoint) }) else { continue }
                     pressedWindow = model.windows.first { $0.id == region.window.windowID }; break
                 }
             }
@@ -133,7 +136,7 @@ struct DesktopInput {
                model.system.frame(of: focused.element)?.contains(pressPoint) == true { pressedWindow = focused }
             if let window = pressedWindow {
                 for (display, root) in model.history.current.roots {
-                    guard let area = gestureAreas?[display], let region = try? LayoutEngine.calculate(root, in: area, gap: model.settings.gap).regions.first(where: { $0.window.windowID == window.id }) else { continue }
+                    guard let area = gestureAreas?[display], let region = try? LayoutEngine.calculate(root, in: area, gap: model.layoutGap).regions.first(where: { $0.window.windowID == window.id }) else { continue }
                     // A fast drag may already have moved before this first sample.
                     pressedFrame = region.bounds; break
                 }
@@ -186,7 +189,7 @@ struct DesktopInput {
     }
     private func updateDrop(state: DesktopInput) {
         do {
-            if let proposal = try session?.propose(pointer: state.point, areas: areas(), gap: model.settings.gap, hold: model.settings.splitHold, now: state.time) {
+            if let proposal = try session?.propose(pointer: state.point, areas: areas(), gap: model.layoutGap, hold: model.settings.splitHold, now: state.time) {
                 if candidate != proposal.workspace { trace?("drop proposal=\(proposal.placement.rawValue) bounds=\(proposal.bounds)") }
                 candidate = proposal.workspace; preview.present(proposal)
             } else {
@@ -199,14 +202,14 @@ struct DesktopInput {
         guard var next = snapshot else { return }
         for (display, root) in next.roots where root.windows.contains(where: { $0.windowID == window.id }) {
             guard let area = areas()[display] else { continue }
-            do { next.roots[display] = try InteractionGeometry.resizeWindow(root, windowID: window.id, requested: frame, area: area, gap: model.settings.gap); candidate = next }
+            do { next.roots[display] = try InteractionGeometry.resizeWindow(root, windowID: window.id, requested: frame, area: area, gap: model.layoutGap); candidate = next }
             catch { candidate = nil }
         }
     }
     func beginGrip(display: String, id: UUID) -> Bool {
         guard model.active, model.permission, !model.busy, !model.interacting, !finishing, !releasePending,
               let root = model.history.current.roots[display], let area = areas()[display],
-              let divider = try? LayoutEngine.calculate(root, in: area, gap: model.settings.gap).dividers.first(where: { $0.id == id }) else { return false }
+              let divider = try? LayoutEngine.calculate(root, in: area, gap: model.layoutGap).dividers.first(where: { $0.id == id }) else { return false }
         gestureAreas = areas()
         snapshot = model.history.current.reconciled(with: model.windows.map(\.leaf)); candidate = snapshot; grip = (display, divider)
         gripStart = input().point
@@ -217,7 +220,7 @@ struct DesktopInput {
     func moveGrip() {
         guard !finishing, !liveFailure, let grip, let original = snapshot, let area = areas()[grip.display] else { return }
         do {
-            let next = try InteractionGeometry.resize(original, display: grip.display, divider: grip.divider, pointer: input().point, area: area, gap: model.settings.gap, grabbedAt: gripStart)
+            let next = try InteractionGeometry.resize(original, display: grip.display, divider: grip.divider, pointer: input().point, area: area, gap: model.layoutGap, grabbedAt: gripStart)
             guard next != candidate else { return }
             candidate = next; pending = next
             if liveTask == nil {
@@ -226,7 +229,7 @@ struct DesktopInput {
                     while let next = self.pending {
                         self.pending = nil
                         do {
-                            try await self.model.apply(next, displays: DisplayArea.all(margin: self.model.settings.margin), liveResize: true)
+                            try await self.model.apply(next, displays: DisplayArea.all(margin: self.model.layoutMargin), liveResize: true)
                             // Move the hit surface with the applied sample, not ahead
                             // of the windows while a newer sample is still queued.
                             self.updateGrips(next)

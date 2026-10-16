@@ -92,6 +92,25 @@ final class LayoutTests: XCTestCase {
         let recovered = try AutoLayout.fitting([a, b], in: area, preserving: updated)
         assertValid(try LayoutEngine.calculate(recovered, in: area), in: area, count: 2)
     }
+    func testFocusedAppDoesNotCauseEvictionForAnIndividuallyImpossibleWindow() throws {
+        let bounds = Rect(0, 0, 600, 400)
+        let focused = window(350, 160), other = window(350, 160), impossible = window(700, 100)
+        let next = try AutoLayout.fitting([focused, other, impossible], in: bounds, prioritizing: [focused.windowID],
+            leastRecentlyUsed: [other.windowID, impossible.windowID, focused.windowID])
+        XCTAssertEqual(Set(next!.windows.map(\.windowID)), [focused.windowID, other.windowID])
+        assertValid(try LayoutEngine.calculate(next, in: bounds), in: bounds, count: 2)
+    }
+    func testAdmissionReflowsFragmentedSlotsBeforeEvictingAnApp() throws {
+        let bounds = Rect(0, 0, 1000, 700)
+        let a = window(200, 200), b = window(200, 200), incoming = window(700, 250)
+        let edited = LayoutNode.split(id: UUID(), axis: .horizontal, ratio: 0.5, first: .window(a), second: .window(b))
+        let next = try AutoLayout.fitting([a, b, incoming], in: bounds, preserving: edited,
+            prioritizing: [incoming.windowID], leastRecentlyUsed: [a.windowID, b.windowID])
+        XCTAssertEqual(Set(next!.windows.map(\.windowID)), [a.windowID, b.windowID, incoming.windowID])
+        assertValid(try LayoutEngine.calculate(next, in: bounds), in: bounds, count: 3)
+        let wide = try XCTUnwrap(LayoutEngine.calculate(next, in: bounds).regions.first { $0.window.windowID == incoming.windowID })
+        XCTAssertGreaterThanOrEqual(wide.bounds.width, 700)
+    }
     func testDockAdmissionEvictsOldestAndOnlyAsManyAsNeeded() throws {
         let bounds = Rect(0, 0, 600, 400)
         let recent = window(350, 160), oldest = window(350, 160), incoming = window(350, 160)

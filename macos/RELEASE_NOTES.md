@@ -1,13 +1,10 @@
-Bento for macOS 0.2.15
+Bento for macOS 0.2.16
 
 What’s new
 
-- Fix Install and Relaunch stalling when the updater requests permission again after windows have been restored.
-
-- Turn Bento off and on without rebuilding your edited slots, display assignments, or floating-window choices.
-- Restore overflow windows to the Dock when resuming the same layout.
-- Drag floating windows into a slot to split it without ejecting another window, using Bento’s shared placement rules.
-- Move windows onto an empty display through the same validated drop calculation.
-- Clamp divider moves to newly discovered app size limits within the existing split tree, with one bounded correction.
-- Show clear swap, hold-to-split, and directional split feedback; ignore stationary clicks on drifted windows.
-- Restore newly admitted windows to their pre-drag positions when Bento is turned off.
+- Change Dock hiding, menu-bar hiding, and native snapping while Bento is running. Turning an option off restores its previous macOS setting immediately.
+- Adjust window gaps and desktop margins live, with matching grabber positions. Rapid edits are combined, and updates wait until a window drag ends.
+- Preserve edited slots when available desktop space changes.
+- Calculate a fitting arrangement for a new app before minimizing another app when an edited layout is too restrictive.
+- Adapt to persistent app size changes, protect the focused or newly opened app, and stop repeating unchanged failed arrangements.
+- Prevent Bento settings clicks and slider drags from grabbing windows underneath the settings panel.

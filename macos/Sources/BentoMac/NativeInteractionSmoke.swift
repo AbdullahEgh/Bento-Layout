@@ -9,6 +9,8 @@ import BentoCore
     var focused: ManagedWindow?
     var pointed: ManagedWindow?
     var pointerHeld = false
+    var desktopPointerEnabled = true
+    override var tracksDesktopPointer: Bool { desktopPointerEnabled }
     var pressDuringDiscovery = false
     var undiscovered = Set<UUID>()
     var deadWindows = Set<UUID>()
@@ -69,7 +71,7 @@ private final class FixturePreferences: PreferenceBackend {
         var reduceMotion = false
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         var fixtureSettings = MacSettings(); fixtureSettings.animate = false; fixtureSettings.minimizeOverflow = false
-        let model = WorkspaceController(system: system, settings: fixtureSettings, preferences: ActivationOverrides(backend: preferences, journal: output.appendingPathComponent("fixture-preferences.json")), backgroundMonitoring: false, reduceMotion: { reduceMotion })
+        let model = WorkspaceController(system: system, settings: fixtureSettings, preferences: ActivationOverrides(backend: preferences, journal: output.appendingPathComponent("fixture-preferences.json")), persistSettings: { _ in }, backgroundMonitoring: false, reduceMotion: { reduceMotion })
         var input = DesktopInput(point: Point(0, 0), pressed: false, escape: false, time: 0)
         var gestureTrace: [String] = []
         let interactions = DesktopInteractions(model: model, input: { input }, automaticSampling: false, trace: { gestureTrace.append($0) })
@@ -81,8 +83,8 @@ private final class FixturePreferences: PreferenceBackend {
             passed.append(title)
         }
         func matchingGeometry() throws -> Bool {
-            for display in DisplayArea.all(margin: model.settings.margin) {
-                for region in try LayoutEngine.calculate(model.history.current.roots[display.id], in: display.bounds, gap: model.settings.gap).regions {
+            for display in DisplayArea.all(margin: model.layoutMargin) {
+                for region in try LayoutEngine.calculate(model.history.current.roots[display.id], in: display.bounds, gap: model.layoutGap).regions {
                     guard let record = system.records.first(where: { $0.0.id == region.window.windowID })?.0, system.accepted(record, region.bounds) else { return false }
                 }
             }
@@ -90,8 +92,8 @@ private final class FixturePreferences: PreferenceBackend {
         }
         func regions() throws -> (String, LayoutResult) {
             let key = model.history.current.roots.keys.sorted()[0]
-            let area = DisplayArea.all(margin: model.settings.margin).first { $0.id == key }!
-            return (key, try LayoutEngine.calculate(model.history.current.roots[key], in: area.bounds, gap: model.settings.gap))
+            let area = DisplayArea.all(margin: model.layoutMargin).first { $0.id == key }!
+            return (key, try LayoutEngine.calculate(model.history.current.roots[key], in: area.bounds, gap: model.layoutGap))
         }
         func settle() async { try? await Task.sleep(for: .milliseconds(180)); while model.interacting || model.busy { try? await Task.sleep(for: .milliseconds(50)) } }
         for index in 0..<3 {
@@ -151,6 +153,14 @@ private final class FixturePreferences: PreferenceBackend {
             interactions.sample(); input.pressed = false; interactions.sample()
             try check(!model.interacting && model.history.current == beforeMonitor, "A stationary click on a drifted native window never starts a relocation")
             try system.write(driftWindow, frame: driftSource.bounds); system.pointed = nil
+            system.desktopPointerEnabled = false
+            input = DesktopInput(point: Point(driftSource.bounds.x + 70, driftSource.bounds.y + 20), pressed: true, escape: false, time: 0.3)
+            interactions.sample()
+            try system.write(driftWindow, frame: driftFrame)
+            input.point.x += 50; interactions.sample(); input.pressed = false; interactions.sample()
+            try check(!model.interacting && model.history.current == beforeMonitor, "Dragging a Bento settings control cannot grab a tiled window underneath it")
+            system.desktopPointerEnabled = true
+            try system.write(driftWindow, frame: driftSource.bounds)
             func startDrag(source: Region, target: Point, time: Double) throws {
                 let record = system.records.first { $0.0.id == source.window.windowID }!.0
                 system.focused = record
@@ -240,8 +250,8 @@ private final class FixturePreferences: PreferenceBackend {
             input.point = Point(releaseStart.x + 20, releaseStart.y + 20); interactions.moveGrip()
             input.point = Point(releaseStart.x + 40, releaseStart.y + 40); interactions.moveGrip()
             await interactions.finish(cancel: false)
-            let releaseArea = DisplayArea.all(margin: model.settings.margin).first { $0.id == display }!.bounds
-            let expectedRelease = try InteractionGeometry.resize(beforeRelease, display: display, divider: releaseDivider, pointer: input.point, area: releaseArea, gap: model.settings.gap, grabbedAt: releaseStart)
+            let releaseArea = DisplayArea.all(margin: model.layoutMargin).first { $0.id == display }!.bounds
+            let expectedRelease = try InteractionGeometry.resize(beforeRelease, display: display, divider: releaseDivider, pointer: input.point, area: releaseArea, gap: model.layoutGap, grabbedAt: releaseStart)
             try check(try model.history.current == expectedRelease && matchingGeometry(), "Quick release drains the newest queued pointer sample")
             try check(!system.writes.isEmpty && system.writes.values.allSatisfy { $0 <= 2 }, "Delayed native resize release has no second animation")
             let releaseLayout = try regions().1
@@ -302,7 +312,7 @@ private final class FixturePreferences: PreferenceBackend {
             let failureCandidate = try model.history.current.placing(failureSource, on: failureDisplay, target: failureTarget.id, placement: .center)
             system.rejectOnce = failureTarget.windowID
             var rejected = false
-            do { try await model.apply(failureCandidate, displays: DisplayArea.all(margin: model.settings.margin)) } catch { rejected = true }
+            do { try await model.apply(failureCandidate, displays: DisplayArea.all(margin: model.layoutMargin)) } catch { rejected = true }
             try check(rejected && system.records.map { DesktopCoordinates.engine($0.1.frame) } == beforeFailure, "A rejected native write rolls back the batch")
             let rememberedBento = model.history.current
             system.deferWrites = true
@@ -313,11 +323,106 @@ private final class FixturePreferences: PreferenceBackend {
             await model.toggleLayout()
             try check(try model.history.current == rememberedBento && matchingGeometry(), "Toggling on resumes the edited Bento tree")
             await model.restore()
+            await model.arrange()
+            let beforeLiveSpacing = model.history.current
+            let originalGap = model.settings.gap, originalMargin = model.settings.margin
+            system.writes.removeAll()
+            model.settings.gap = originalGap + 2; model.scheduleSettingsUpdate()
+            model.settings.gap = originalGap + 4; model.scheduleSettingsUpdate()
+            model.settings.gap = originalGap + 6; model.scheduleSettingsUpdate()
+            for _ in 0..<200 {
+                if model.layoutGap == originalGap + 6 && !model.applyingSettings && !model.busy && !model.activating { break }
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+            interactions.synchronize()
+            try check(try model.layoutGap == originalGap + 6 && model.history.current == beforeLiveSpacing && matchingGeometry(), "Rapid gap edits apply live to the same split tree without an Arrange action")
+            try check(system.writes.values.allSatisfy { $0 == 1 }, "Rapid spacing changes coalesce to one native frame write per affected window")
+            let liveLayout = try regions().1
+            try check(interactions.helperFrames.allSatisfy { frame in liveLayout.dividers.contains { $0.bounds == frame } }, "Live gaps and grabber hit surfaces share the applied geometry")
+            let plannedGap = originalGap + 12
+            let planDisplay = try regions().0
+            let planned = try LayoutEngine.calculate(model.history.current.roots[planDisplay], in: DisplayArea.all(margin: model.layoutMargin).first { $0.id == planDisplay }!.bounds, gap: plannedGap)
+            let refusedRegion = planned.regions.first { region in
+                let record = system.records.first { $0.0.id == region.window.windowID }!.0
+                return system.frame(of: record.element) != region.bounds
+            }!
+            system.rejectOnce = refusedRegion.window.windowID
+            model.settings.gap = plannedGap; await model.applyLiveSettings()
+            try check(try model.layoutGap == originalGap + 6 && model.settings.gap == originalGap + 6 && model.history.current == beforeLiveSpacing && matchingGeometry(), "A refused live spacing write restores the previous gap and all slots instead of silently dropping an app")
+            model.settings.gap = originalGap + 7; await model.applyLiveSettings()
+            let exactGap = try regions().1.regions.allSatisfy { region in
+                let record = system.records.first { $0.0.id == region.window.windowID }!.0
+                return system.frame(of: record.element) == region.bounds
+            }
+            try check(model.layoutGap == originalGap + 7 && exactGap, "A single-point gap change reaches exact native geometry rather than being skipped by AX validation tolerance")
+            model.settings.gap = originalGap + 6; await model.applyLiveSettings()
+            system.pointerHeld = true
+            model.settings.gap = originalGap + 8; model.scheduleSettingsUpdate()
+            try? await Task.sleep(for: .milliseconds(220))
+            try check(model.layoutGap == originalGap + 6 && model.history.current == beforeLiveSpacing, "Spacing changes wait while the pointer is pressed")
+            system.pointerHeld = false
+            for _ in 0..<200 {
+                if model.layoutGap == originalGap + 8 && !model.applyingSettings && !model.busy { break }
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+            try check(try model.layoutGap == originalGap + 8 && matchingGeometry(), "Pending spacing updates apply after pointer release")
+            system.desktopPointerEnabled = false; system.pointerHeld = true
+            model.settings.gap = originalGap + 10; model.scheduleSettingsUpdate()
+            for _ in 0..<200 {
+                if model.layoutGap == originalGap + 10 && !model.applyingSettings && !model.busy { break }
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+            try check(try model.layoutGap == originalGap + 10 && matchingGeometry(), "Holding Bento's spacing control still updates gaps live while desktop drags remain protected")
+            system.pointerHeld = false; system.desktopPointerEnabled = true
+            model.settings.margin = originalMargin + 8
+            await model.applyLiveSettings()
+            try check(try model.layoutMargin == originalMargin + 8 && model.history.current == beforeLiveSpacing && matchingGeometry(), "Live margin changes resize the existing slots without rebuilding their identities")
+            model.settings.gap = originalGap; model.settings.margin = originalMargin
+            await model.applyLiveSettings()
+            let (growthDisplay, growthLayout) = try regions()
+            let growthSource = growthLayout.regions[0]
+            let growthRecord = system.records.first { $0.0.id == growthSource.window.windowID }!.0
+            let growthArea = DisplayArea.all(margin: model.layoutMargin).first { $0.id == growthDisplay }!.bounds
+            var grown = growthSource.bounds, newLimit = growthRecord.minimum
+            if grown.width < growthArea.width { grown.width += 40; newLimit.width = grown.width }
+            else { grown.height += 40; newLimit.height = grown.height }
+            system.nativeMinimum[growthRecord.id] = newLimit
+            try system.write(growthRecord, frame: grown)
+            let beforeGrowthWrites = system.writes
+            model.tick()
+            try check(system.writes == beforeGrowthWrites, "A single native size drift sample does not move other windows")
+            model.tick(); await Task.yield()
+            for _ in 0..<200 {
+                if !model.activating && !model.busy && growthRecord.minimum == newLimit { break }
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+            try check(try model.history.current.windows.contains { $0.windowID == growthRecord.id } && growthRecord.minimum == newLimit && matchingGeometry(), "A persistent app size change learns its constraint and adapts the layout automatically")
+            let correctedWrites = system.writes
+            model.tick(); await Task.yield(); model.tick(); await Task.yield()
+            try check(system.writes == correctedWrites, "A corrected native size does not cause repeated background reflows")
+            system.nativeMinimum.removeAll(); growthRecord.minimum = Size(160, 120)
+            await model.arrange(preserving: true); await model.restore()
             model.settings.hideDock = true; model.settings.hideMenuBar = true; model.settings.edgeSnapping = "Off"
             await model.arrange()
             try check(preferences.values.count == 5, "Activation options request Dock, menu bar and tiling overrides through the injected backend")
+            let preferenceLayout = model.history.current
+            model.settings.hideDock = false; await model.applyLiveSettings()
+            try check(preferences.values[PreferenceKey("com.apple.dock", "autohide")] == nil && preferences.values.count == 4, "Turning Dock hiding off live restores only its prior macOS preference")
+            model.settings.hideMenuBar = false; await model.applyLiveSettings()
+            try check(preferences.values[PreferenceKey("NSGlobalDomain", "_HIHideMenuBar")] == nil && preferences.values.count == 3, "Turning menu-bar hiding off live leaves native tiling settings intact")
+            model.settings.edgeSnapping = "Keep"; await model.applyLiveSettings()
+            try check(preferences.values.isEmpty, "Switching live native snapping back to Keep restores the previous values")
+            model.settings.hideDock = true; model.settings.hideMenuBar = true; await model.applyLiveSettings()
+            try check(try preferences.values.count == 2 && model.history.current == preferenceLayout && matchingGeometry(), "Re-enabling desktop options live preserves the edited layout and original restore baseline")
             await model.restore()
             try check(preferences.values.isEmpty, "Deactivation restores all injected preference values")
+            await model.arrange()
+            model.settings.hideDock = false
+            let livePreferenceUpdate = Task { await model.applyLiveSettings() }
+            try? await Task.sleep(for: .milliseconds(100))
+            await model.restore(); await livePreferenceUpdate.value
+            try check(!model.active && preferences.values.isEmpty && system.records.map { DesktopCoordinates.engine($0.1.frame) } == initial, "Turning Bento off during a live desktop update restores preferences and cannot reactivate a stale layout")
+            model.settings.hideDock = true
             await model.arrange(); system.focused = system.records[0].0
             await model.releaseActiveWindow()
             try check(model.history.current.windows.count == 2 && system.accepted(system.records[0].0, initial[0]), "Release active window restores it and expands neighbors")
@@ -350,7 +455,7 @@ private final class FixturePreferences: PreferenceBackend {
             await model.arrange()
             try check(try model.history.current.windows.count == 3 && matchingGeometry(), "Arrange all includes released windows again")
             await model.restore()
-            let area = DisplayArea.all(margin: model.settings.margin)[0].bounds
+            let area = DisplayArea.all(margin: model.layoutMargin)[0].bounds
             let oversized = system.records[0].0
             oversized.minimum = Size(area.width + 100, 120)
             system.writes.removeAll()
@@ -456,6 +561,10 @@ private final class FixturePreferences: PreferenceBackend {
             try check(model.active && system.isMinimized(oversized) && model.minimizedByBento.count == 1, "Overflow window is minimized without blocking fitting windows")
             await model.arrange(preserving: true)
             try check(system.isMinimized(oversized) && model.history.current.windows.count == 2, "Reflow retains ownership of minimized overflow")
+            model.settings.minimizeOverflow = false; await model.applyLiveSettings()
+            try check(!system.isMinimized(oversized) && model.minimizedByBento.isEmpty && model.history.current.windows.count == 2, "Turning overflow minimization off live restores Bento-owned windows without forcing them into slots")
+            model.settings.minimizeOverflow = true; await model.applyLiveSettings()
+            try check(system.isMinimized(oversized) && model.minimizedByBento.count == 1, "Turning overflow minimization on live minimizes only unplaced eligible windows")
             let overflowLayout = model.history.current
             await model.restore(); await model.toggleLayout()
             try check(try model.history.current == overflowLayout && system.isMinimized(oversized) && matchingGeometry(), "Toggle resume restores Dock overflow ownership without readmitting or moving other slots")

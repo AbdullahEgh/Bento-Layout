@@ -1,8 +1,8 @@
 import Foundation
 
 public enum AutoLayout {
-    /// Retain a valid edited layout where possible. If the full set cannot fit,
-    /// admit smaller windows first and leave the remaining windows outside the tree.
+    /// Retain a valid edited layout where possible. Priority admission tries a
+    /// fitting arrangement for all usable apps before evicting idle windows.
     /// Only capacity errors are recoverable; invalid geometry still fails explicitly.
     public static func fitting(_ windows: [WindowLeaf], in area: Rect, gap: Int = 8, preserving original: LayoutNode? = nil, prioritizing priority: Set<UUID> = [], leastRecentlyUsed: [UUID] = []) throws -> LayoutNode? {
         guard gap >= 0, area.width >= 0, area.height >= 0,
@@ -29,7 +29,9 @@ public enum AutoLayout {
                         priority: feasiblePriority, leastRecentlyUsed: leastRecentlyUsed)
                 }
             }
-            var candidates = windows.filter { !priority.contains($0.windowID) || feasiblePriority.contains($0.windowID) }
+            // An individually impossible app must never force a usable app out
+            // while we search for space for the focused/admitted window.
+            var candidates = windows.filter { $0.minimum.width <= area.width && $0.minimum.height <= area.height }
             let rank = Dictionary(leastRecentlyUsed.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: min)
             let evictionOrder = candidates.enumerated().filter { !feasiblePriority.contains($0.element.windowID) }.sorted {
                 let a = rank[$0.element.windowID] ?? -1, b = rank[$1.element.windowID] ?? -1
@@ -88,6 +90,12 @@ public enum AutoLayout {
         let incoming = windows.filter { priority.contains($0.windowID) }
         for window in incoming where !(root?.windows.contains { $0.windowID == window.windowID } ?? false) {
             if let inserted = try insertLocally(window, into: root, in: area, gap: gap) { root = inserted; continue }
+            // A fragmented edited tree is not proof that the apps cannot fit.
+            // Plan one full candidate in memory before minimizing an idle app.
+            do {
+                root = try arrange((root?.windows ?? []) + [window], in: area, gap: gap)
+                continue
+            } catch LayoutError.cannotFit { }
             for victim in victims where root?.windows.contains(where: { $0.windowID == victim.windowID }) == true {
                 let replacement = root!.replacing(victim.id, with: .window(window))
                 if let slot = try LayoutEngine.calculate(root, in: area, gap: gap).regions.first(where: { $0.window.windowID == victim.windowID }),

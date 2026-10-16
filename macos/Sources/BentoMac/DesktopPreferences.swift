@@ -26,7 +26,7 @@ final class DesktopPreferenceBackend: PreferenceBackend {
         }
         // Dock hosts both the Dock and native tiling. Restart only when an opted-in
         // override changed; no security setting, service or launch agent is modified.
-        if keys.contains(where: { $0.domain == "com.apple.dock" || $0.domain == "com.apple.WindowManager" }) {
+        if keys.contains(where: { $0.domain == "com.apple.dock" || $0.domain == "com.apple.WindowManager" || $0.name == "_HIHideMenuBar" }) {
             let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/killall"); process.arguments = ["Dock"]
             process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
             try process.run(); process.waitUntilExit()

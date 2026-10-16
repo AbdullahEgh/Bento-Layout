@@ -260,6 +260,58 @@ final class ActivationOverrideTests: XCTestCase {
         func refresh(_ keys: [PreferenceKey]) throws { refreshCount += 1; if refreshFails { throw CocoaError(.fileWriteUnknown) } }
     }
     private func temporaryJournal() -> URL { FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("session.json") }
+    func testLiveToggleRestoresOnlyItsOwnKeyAndKeepsOriginalBaseline() throws {
+        let backend = Backend(), url = temporaryJournal(), dock = PreferenceKey("dock", "autohide"), menu = PreferenceKey("global", "menu")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let off = try ActivationOverrides.boolean(false), on = try ActivationOverrides.boolean(true)
+        backend.values[menu] = off
+        let manager = ActivationOverrides(backend: backend, journal: url)
+        try manager.activate([dock: on, menu: on])
+        let refreshes = backend.refreshCount
+        try manager.update([dock: on, menu: on]); XCTAssertEqual(backend.refreshCount, refreshes)
+        try manager.update([menu: on]); XCTAssertNil(backend.values[dock]); XCTAssertEqual(backend.values[menu], on)
+        try manager.update([dock: on]); XCTAssertEqual(backend.values[menu], off); XCTAssertEqual(backend.values[dock], on)
+        try manager.update([:]); XCTAssertNil(backend.values[dock]); XCTAssertEqual(backend.values[menu], off)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+        try manager.update([dock: on]); try manager.restore(); XCTAssertNil(backend.values[dock])
+    }
+    func testLiveValueChangeKeepsFirstOriginalAndRespectsManualChange() throws {
+        let backend = Backend(), url = temporaryJournal(), key = PreferenceKey("tiling", "edge")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let off = try ActivationOverrides.boolean(false), on = try ActivationOverrides.boolean(true)
+        let manager = ActivationOverrides(backend: backend, journal: url)
+        try manager.activate([key: on]); try manager.update([key: off]); try manager.restore()
+        XCTAssertNil(backend.values[key])
+        try manager.activate([key: on]); backend.values[key] = off
+        let refreshes = backend.refreshCount
+        try manager.update([key: on]); XCTAssertEqual(backend.values[key], off); XCTAssertEqual(backend.refreshCount, refreshes)
+        try manager.update([:]); XCTAssertEqual(backend.values[key], off)
+    }
+    func testLiveRefreshFailureKeepsRecoverableOriginalValues() throws {
+        let backend = Backend(), url = temporaryJournal(), dock = PreferenceKey("dock", "hide"), menu = PreferenceKey("global", "menu")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let off = try ActivationOverrides.boolean(false), on = try ActivationOverrides.boolean(true)
+        backend.values[menu] = off
+        let manager = ActivationOverrides(backend: backend, journal: url)
+        try manager.activate([dock: on]); backend.refreshFails = true
+        XCTAssertThrowsError(try manager.update([menu: on]))
+        XCTAssertNil(backend.values[dock]); XCTAssertEqual(backend.values[menu], off)
+        backend.refreshFails = false; try manager.restore()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+    }
+    func testInterruptedLiveValueChangeRestoresEitherOwnedValue() throws {
+        let backend = Backend(), url = temporaryJournal(), key = PreferenceKey("tiling", "edge")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let off = try ActivationOverrides.boolean(false), on = try ActivationOverrides.boolean(true)
+        let entry = PreferenceChange(key: key, original: nil, applied: off, previouslyApplied: on)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        for interruptedValue in [on, off] {
+            try JSONEncoder().encode([entry]).write(to: url)
+            backend.values[key] = interruptedValue
+            try ActivationOverrides(backend: backend, journal: url).restore()
+            XCTAssertNil(backend.values[key])
+        }
+    }
     func testExactRestorationAndAbsentKeyDeletion() throws {
         let backend = Backend(), url = temporaryJournal(), dock = PreferenceKey("dock", "autohide"), menu = PreferenceKey("global", "menu")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }

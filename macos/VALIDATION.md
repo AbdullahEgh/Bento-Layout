@@ -178,3 +178,10 @@ Live transition tracing uses the local macOS `Interaction` log category without 
 The live 0.2.13 → 0.2.14 installation initially paused for restoration and subsequently completed through the updater. Reviewing the retry path identified an untested repeated Sparkle relaunch-delegate request after preparation: returning `true` with `installationPrepared == true` would discard its continuation and leave relaunch postponed. The delegate now returns `false` after preparation, allowing Sparkle to continue normally. The native harness exercises the first request, failed restoration, retry, successful continuation and second delegate decision.
 
 Local 0.2.15 verification: 40 core tests and 91 isolated native checks passed. The updater checks now cover the repeated relaunch-delegate decision. External AX runs require the normal desktop manager to be closed so it cannot adopt or minimize fixture windows; runs made while it was active were rejected as interference, not counted as passing QA.
+
+### 0.2.16 live desktop settings and adaptive workspace QA
+
+- 46 core tests passed, including per-key live preference restoration, unchanged updates, manual OS choices, refresh failure recovery, and interrupted preference transitions.
+- 111 isolated native checks passed. New checks cover coalesced and single-point gap changes, live margins and grabber geometry, desktop-drag deferral, held settings controls, rollback after a refused spacing write, live Dock/menu-bar/snapping and overflow settings, automatic adaptation to persistent native size changes, and cancellation during desktop updates.
+- The planner tests cover reflowing fragmented slots before LRU eviction and excluding individually impossible apps before sacrificing usable windows.
+- Separate-process Accessibility checks include live gaps and margins; real desktop preference and installed OTA checks are performed after publication. Fixture preference backends and settings persistence remain isolated from user configuration.
