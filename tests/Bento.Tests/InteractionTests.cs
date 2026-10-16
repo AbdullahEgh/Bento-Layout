@@ -14,6 +14,35 @@ internal static class InteractionTests
     public static void RunAll()
     {
         var bounds = new PixelRect(0, 0, 1000, 800); var id = Guid.NewGuid();
+        Run("Shortcut settings migrate enabled and preserve disabled custom keys", () =>
+        {
+            Check(BentoSettings.Parse("{}").ShortcutEnabled);
+            var settings = new BentoSettings(Modifiers: 6, Key: 0x4A, ShortcutEnabled: false);
+            var restored = BentoSettings.Parse(JsonSerializer.Serialize(settings));
+            Check(!restored.ShortcutEnabled); Equal("Ctrl+Shift+J", restored.Shortcut);
+        });
+        Run("Saved Bento restores split ratios with new window handles and collapses missing apps", () =>
+        {
+            var root = new SplitNode(Guid.NewGuid(), SplitAxis.Horizontal, .65, WindowNode.Create(1, new(180, 120)), WindowNode.Create(2, new(180, 120)));
+            var state = new WorkspaceState().WithRoot("A", root);
+            var windows = new[] { new AppWindow(1, 10, "First", new(180, 120)), new AppWindow(2, 20, "Second", new(180, 120)) };
+            var saved = SavedBentoLayout.Capture(state, windows, w => w.ProcessId.ToString());
+            saved = JsonSerializer.Deserialize<SavedBentoLayout>(JsonSerializer.Serialize(saved))!;
+            var reopened = windows.Select(w => w with { Id = w.Id + 100 }).ToArray();
+            var restored = saved.Restore(reopened, ["A"], w => w.ProcessId.ToString());
+            Equal(.65, ((SplitNode)restored.Roots["A"]!).Ratio);
+            Check(restored.Windows.Select(w => w.WindowId).SequenceEqual(new long[] { 101, 102 }));
+            Equal(101L, ((WindowNode)saved.Restore([reopened[0]], ["A"], w => w.ProcessId.ToString()).Roots["A"]!).WindowId);
+        });
+        Run("Saved Bento matches distinct windows from the same app by title", () =>
+        {
+            var state = new WorkspaceState().WithRoot("A", new SplitNode(Guid.NewGuid(), SplitAxis.Vertical, .4,
+                WindowNode.Create(1, new(180, 120)), WindowNode.Create(2, new(180, 120))));
+            var windows = new[] { new AppWindow(1, 10, "One", new(180, 120)), new AppWindow(2, 10, "Two", new(180, 120)) };
+            var saved = SavedBentoLayout.Capture(state, windows, _ => "editor");
+            var restored = saved.Restore(windows.Reverse().Select(w => w with { Id = w.Id + 100 }).ToArray(), ["A"], _ => "editor");
+            Check(restored.Windows.Select(w => w.WindowId).SequenceEqual(new long[] { 101, 102 }));
+        });
         Run("Background darkness is bounded and old settings default to fifty percent", () =>
         {
             Equal(50, BentoSettings.Parse("{\"Gap\":12}").BackgroundDarkness);

@@ -15,6 +15,21 @@ namespace Bento.Tests;
 
 internal static class NativeTests
 {
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern nint GetWindow(nint handle, uint command);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern nint WindowFromPoint(System.Drawing.Point point);
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern int GetWindowText(nint handle, System.Text.StringBuilder text, int length);
+    [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    private static extern nint GetWindowLongPtr(nint handle, int index);
+    private static bool IsAbove(Window upper, Window lower)
+    {
+        nint target = new System.Windows.Interop.WindowInteropHelper(lower).Handle;
+        for (nint next = GetWindow(new System.Windows.Interop.WindowInteropHelper(upper).Handle, 2); next != 0; next = GetWindow(next, 2))
+            if (next == target) return true;
+        return false;
+    }
     internal static int Fixture(string title)
     {
         var app = new Application();
@@ -76,6 +91,7 @@ internal static class NativeTests
             { Equal(fixtureCount, fixtures.Select(w => w.ProcessId).Distinct().Count()); Check(fixtures.All(w => w.ProcessId != Environment.ProcessId)); });
             var native = new WindowController();
             var originals = fixtures.Select(w => native.Capture(w.Id)).ToArray();
+            var preBentoBounds = fixtures.Select(w => native.VisibleBounds(w.Id)).ToArray();
             long gestureTime = 0;
             using var controller = new BentoController(() => WindowCatalog.Discover(includeMinimized: false)
                 .Where(w => w.Title.StartsWith(prefix, StringComparison.Ordinal)).OrderBy(w => w.Title).ToArray(),
@@ -234,16 +250,44 @@ internal static class NativeTests
                     Check(!handle.Topmost);
                     var grip = (Border)((Grid)handle.Content).Children[0];
                     handle.RaiseEvent(new System.Windows.Input.MouseEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0) { RoutedEvent = UIElement.MouseLeaveEvent });
-                    Equal(0d, grip.Opacity); Check(Math.Max(grip.Width, grip.Height) >= 40);
+                    Equal(0d, (double)grip.GetAnimationBaseValue(UIElement.OpacityProperty)); Check(Math.Max(grip.Width, grip.Height) >= 40);
                 }
                 handles[0].RaiseEvent(new System.Windows.Input.MouseEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0) { RoutedEvent = UIElement.MouseEnterEvent });
-                for (int i = 0; i < handles.Length; i++) Equal(i == 0 ? .65 : 0d, ((Border)((Grid)handles[i].Content).Children[0]).Opacity);
+                for (int i = 0; i < handles.Length; i++) Equal(i == 0 ? 1d : 0d, (double)((Border)((Grid)handles[i].Content).Children[0]).GetAnimationBaseValue(UIElement.OpacityProperty));
                 handles[0].RaiseEvent(new System.Windows.Input.MouseEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0) { RoutedEvent = UIElement.MouseLeaveEvent });
                 controller.ShowInterface(); Pump();
                 Check(Application.Current.Windows.OfType<BentoWindow>().Single().IsActive);
                 controller.Refresh();
-                foreach (var handle in Application.Current.Windows.OfType<DesktopDividerWindow>()) Check(!handle.Topmost);
+                for (int i = 0; i < 8; i++) Pump(); // Includes the periodic background re-stack.
+                foreach (var handle in Application.Current.Windows.OfType<DesktopDividerWindow>())
+                {
+                    Check(!handle.Topmost);
+                    Check(IsAbove(Application.Current.Windows.OfType<BentoWindow>().Single(), handle));
+                    Check(IsAbove(handle, Application.Current.Windows.OfType<DesktopBackdropWindow>().Single()));
+                }
                 Application.Current.Windows.OfType<BentoWindow>().Single().Close();
+            });
+            Run("Grabber hit surfaces remain reachable after application windows move above them", () =>
+            {
+                controller.ShowInterface();
+                var settingsWindow = Application.Current!.Windows.OfType<BentoWindow>().Single();
+                settingsWindow.WindowState = WindowState.Minimized;
+                foreach (var fixture in fixtures) DesktopIntegration.RaiseOverlay((nint)fixture.Id);
+                controller.Refresh(); Pump();
+                foreach (var handle in Application.Current!.Windows.OfType<DesktopDividerWindow>())
+                {
+                    var bounds = handle.DesktopBounds;
+                    var expected = new System.Windows.Interop.WindowInteropHelper(handle).Handle;
+                    var hit = WindowFromPoint(new System.Drawing.Point(bounds.X + bounds.Width / 2, bounds.Y + bounds.Height / 2));
+                    if (hit != expected)
+                    {
+                        var title = new System.Text.StringBuilder(256); GetWindowText(hit, title, 256);
+                        bool above = false;
+                        for (nint next = GetWindow(expected, 2); next != 0; next = GetWindow(next, 2)) if (next == hit) { above = true; break; }
+                        throw new Exception($"Gap {bounds}: expected grabber {expected}, hit {hit} ({title}); helper bounds {native.VisibleBounds(expected.ToInt64())}; helper visible {handle.IsVisible}; above hit {above}; style {GetWindowLongPtr(expected, -20):X}.");
+                    }
+                }
+                settingsWindow.Close();
             });
             Run("Preview cancellation leaves external HWND unchanged", () =>
             {
@@ -303,7 +347,7 @@ internal static class NativeTests
                 controller.FinishDrag(new(divider.ParentBounds.X + (int)(divider.ParentBounds.Width * .6), divider.ParentBounds.Y + 200)); Pump();
                 VerifyBounds(controller.Layout(monitor), native);
             });
-            Run("Divider drag uses only a longer solid grabber and cancels without moving applications", () =>
+            Run("Divider drag resizes applications live with a longer same-width grabber and cancellation restores them", () =>
             {
                 var before = fixtures.Select(w => native.VisibleBounds(w.Id)).ToArray();
                 var boundary = controller.Layout(monitor).Dividers.First();
@@ -313,11 +357,44 @@ internal static class NativeTests
                 Check(!Application.Current!.Windows.OfType<DropPreviewWindow>().Any(w => w.IsVisible));
                 var active = Application.Current.Windows.OfType<DesktopDividerWindow>().Single(w => w.IsVisible);
                 var grip = (Border)((Grid)active.Content).Children[0];
-                Equal(72d, Math.Max(grip.Width, grip.Height)); Equal(1d, grip.Opacity);
+                Equal(104d, Math.Max((double)grip.GetAnimationBaseValue(FrameworkElement.WidthProperty), (double)grip.GetAnimationBaseValue(FrameworkElement.HeightProperty)));
+                Equal(2d, Math.Min(grip.Width, grip.Height)); Equal(1d, (double)grip.GetAnimationBaseValue(UIElement.OpacityProperty));
                 Equal(controller.Layout(monitor).Dividers.Single(d => d.SplitId == boundary.SplitId).Bounds, native.VisibleBounds(new System.Windows.Interop.WindowInteropHelper(active).Handle.ToInt64()));
+                VerifyBounds(controller.Layout(monitor), native);
+                Check(fixtures.Where((w, i) => native.VisibleBounds(w.Id) != before[i]).Any());
+                controller.CancelDrag(); Equal(40d, Math.Max((double)grip.GetAnimationBaseValue(FrameworkElement.WidthProperty), (double)grip.GetAnimationBaseValue(FrameworkElement.HeightProperty)));
                 for (int i = 0; i < fixtures.Length; i++) Equal(before[i], native.VisibleBounds(fixtures[i].Id));
-                controller.CancelDrag(); Equal(40d, Math.Max(grip.Width, grip.Height));
                 Equal(boundary.Bounds, native.VisibleBounds(new System.Windows.Interop.WindowInteropHelper(active).Handle.ToInt64()));
+            });
+            Run("Grabber finishes its quick length animation and retains its window on release", () =>
+            {
+                var boundary = controller.Layout(monitor).Dividers.First();
+                var point = new PixelPoint(boundary.Bounds.X + boundary.Bounds.Width / 2, boundary.Bounds.Y + boundary.Bounds.Height / 2);
+                var handle = Application.Current!.Windows.OfType<DesktopDividerWindow>().Single(w => w.SplitId == boundary.SplitId);
+                controller.BeginDivider(monitor, boundary, point); Pump(); Pump();
+                var grip = (Border)((Grid)handle.Content).Children[0];
+                Equal(104d, Math.Max(grip.Width, grip.Height)); Equal(2d, Math.Min(grip.Width, grip.Height));
+                controller.FinishDrag(point); Pump(); Pump();
+                Check(ReferenceEquals(handle, Application.Current.Windows.OfType<DesktopDividerWindow>().Single(w => w.SplitId == boundary.SplitId)));
+                Equal(40d, Math.Max(grip.Width, grip.Height));
+            });
+            Run("Turning Bento off restores the pre-Bento positions and on resumes the edited split", () =>
+            {
+                var bentoBounds = fixtures.Select(w => native.VisibleBounds(w.Id)).ToArray();
+                controller.ToggleBento(); Pump(); Check(!controller.Automatic);
+                for (int i = 0; i < fixtures.Length; i++) Equal(preBentoBounds[i], native.VisibleBounds(fixtures[i].Id));
+                Check(!Application.Current!.Windows.OfType<DesktopDividerWindow>().Any(w => w.IsVisible));
+                controller.ToggleBento(); Pump(); Check(controller.Automatic);
+                for (int i = 0; i < fixtures.Length; i++) Equal(bentoBounds[i], native.VisibleBounds(fixtures[i].Id));
+            });
+            Run("Each activation remembers the user's latest floating window positions", () =>
+            {
+                controller.SetAutomatic(false); Pump();
+                var moved = new PixelRect(monitor.WorkArea.X + 40, monitor.WorkArea.Y + 40, 500, 350);
+                native.Move(fixtures[0].Id, moved);
+                controller.SetAutomatic(true); Pump(); controller.SetAutomatic(false); Pump();
+                Equal(moved, native.VisibleBounds(fixtures[0].Id));
+                controller.SetAutomatic(true); Pump(); VerifyBounds(controller.Layout(monitor), native);
             });
             Run("Desktop background dims the usable area and supports clear, half and full darkness", () =>
             {
