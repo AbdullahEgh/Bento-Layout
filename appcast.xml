@@ -1,0 +1,18 @@
+<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Bento</title>
+        <item>
+            <title>0.2.0</title>
+            <pubDate>Fri, 16 Oct 2026 09:54:31 +0000</pubDate>
+            <sparkle:version>101</sparkle:version>
+            <sparkle:shortVersionString>0.2.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.0/Bento-macos-universal.zip" length="2567440" type="application/octet-stream" sparkle:edSignature="XtxhNzmro+NGIMyoIPqK8LEDH4joSATDLj5BIjete3kWPQoIcmtEZqvUw7GDwPV9nf/WP5B6PHwUjzvaRsi6DA=="></enclosure>
+        </item>
+    </channel>
+</rss><!-- sparkle-signatures:
+edSignature: V2N4/wf72En5vEdM2RZYFPQKumHG6+mIE8Z2z/FSjn5GrOotBhk2fIBhQHO9fKHKp+SF0l4nyMwYXbjpQFJDBQ==
+length: 1060
+-->
