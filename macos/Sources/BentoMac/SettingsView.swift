@@ -32,7 +32,7 @@ struct SettingsView: View {
                     case "What's New": whatsNew
                     default: about
                     }
-                    if let message = model.message { Text(message).font(.system(size: 12)).foregroundStyle(BentoStyle.secondary).textSelection(.enabled) }
+                    if model.page != "Workspace", let message = model.message { Text(message).font(.system(size: 12)).foregroundStyle(BentoStyle.secondary).textSelection(.enabled) }
                 }.padding(30).frame(maxWidth: .infinity, alignment: .leading)
             }
         }.frame(width: 820, height: 620).foregroundStyle(BentoStyle.text).background(BentoStyle.page)
@@ -56,14 +56,18 @@ struct SettingsView: View {
             Text("Your desktop, with a little breathing room.").font(.system(size: 13)).foregroundStyle(BentoStyle.secondary)
             BentoCard {
                 VStack(alignment: .leading, spacing: 18) {
-                    HStack { Circle().fill(model.active ? BentoStyle.accent : BentoStyle.secondary).frame(width: 8, height: 8); Text(model.active ? "Bento is arranging your windows" : "Bento is off").font(.system(size: 14, weight: .medium)); Spacer() }
+                    HStack { Circle().fill(!model.permission ? .orange : model.active ? BentoStyle.accent : BentoStyle.secondary).frame(width: 8, height: 8); Text(!model.permission ? "Accessibility access needed" : model.active ? "Bento is arranging your windows" : "Bento is off").font(.system(size: 14, weight: .medium)); Spacer() }
                     Text("\(model.windows.count) eligible windows · \(model.settings.shortcut.label)").font(.system(size: 12)).foregroundStyle(BentoStyle.secondary)
                     HStack {
-                        Button { model.toggle() } label: { Text(model.active ? "Turn Bento off" : "Arrange windows") }.buttonStyle(PrimaryButtonStyle()).disabled(model.busy || !model.permission)
+                        Button {
+                            if model.permission { model.toggle() }
+                            else { model.system.requestPermission(); model.system.openPermissionSettings() }
+                        } label: { Text(!model.permission ? "Enable Accessibility" : model.active ? "Turn Bento off" : "Arrange windows") }.buttonStyle(PrimaryButtonStyle()).disabled(model.busy)
                         Button("Restore originals") { Task { await model.restore() } }.disabled(model.busy)
                     }
-                    if !model.permission { Button("Allow Accessibility access") { model.system.requestPermission(); model.system.openPermissionSettings() } }
+                    if !model.permission { Text("In System Settings → Privacy & Security → Accessibility, enable this copy: \(Bundle.main.bundlePath). If access stays blocked after an update, remove the old Bento entry and add this app again.").font(.system(size: 11)).lineSpacing(3).foregroundStyle(BentoStyle.secondary).textSelection(.enabled) }
                     else { HStack { Text("Accessibility connected").foregroundStyle(BentoStyle.accent); Spacer(); Button("Refresh windows") { model.refresh() } }.font(.system(size: 11)) }
+                    if let message = model.message { Text(message).font(.system(size: 12)).foregroundStyle(BentoStyle.secondary).textSelection(.enabled) }
                 }
             }
             activationOptions
@@ -154,11 +158,12 @@ struct SettingsView: View {
             Text("Bento for macOS \(updater.version)").font(.system(size: 18, weight: .semibold))
             BentoCard {
                 VStack(alignment: .leading, spacing: 14) {
-                    ForEach(["Click the menu-bar icon to toggle; right-click for the full menu.", "Drag title bars to swap or hold at an edge to split a slot.", "Resize neighbors with gap grips or a window's inner border.", "Release a window, save layouts, and undo or redo your changes.", "Choose your shortcut, background darkness and animation speed.", "Optional Dock, menu-bar and edge-snapping settings restore when Bento turns off.", "Signed Mac updates are delivered from Bento's GitHub repository."], id: \.self) { Text($0).font(.system(size: 12)).lineSpacing(4) }
+                    ForEach(["Settings are a normal window; other apps can cover them.", "Missing Accessibility access is shown at the top of Workspace, with the exact app to enable.", "Clicking the menu-bar icon while access is blocked opens permission guidance. Once access is enabled, Bento refreshes automatically.", "Activation failures appear beside the Arrange button."], id: \.self) { Text($0).font(.system(size: 12)).lineSpacing(4) }
                 }
             }
             DisclosureGroup("Update Log") {
                 VStack(alignment: .leading, spacing: 12) {
+                    Text("0.2.0 · Real-window layout, swaps, edge splits, resizing, edited-layout resume, saved layouts, configurable shortcut, background darkness, login startup and signed GitHub OTA.")
                     Text("0.1.0 · Native Mac preview, onboarding, layout engine and original Bento artwork.")
                     ForEach(updater.installationHistory, id: \.self) { Text($0) }
                 }.font(.system(size: 11)).foregroundStyle(BentoStyle.secondary).padding(.top, 12)

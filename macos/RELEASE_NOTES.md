@@ -1,10 +1,8 @@
-Bento for macOS 0.2.0 brings the native Bento layout to Mac with the original artwork and onboarding.
+Bento for macOS 0.2.1 fixes settings-window stacking and makes blocked activation clear.
 
-- Left-click the menu-bar icon to toggle; right-click for the menu. Turning Bento back on resumes your edited layout.
-- Drag title bars to swap or hold at any edge to split. Resize neighbors with gap grips or a native inner border.
-- Arrange all, release a window, save/restore layouts, and undo/redo.
-- Configurable shortcut, background darkness and reduced-motion-aware animation.
-- Optional Start at login and temporary Dock/menu-bar/edge-snapping controls.
-- Universal Apple Silicon/Intel app, macOS 15 or later. Signed OTA updates use this repository and a free Ed25519 key.
+- Settings behave like a normal window, so another app can cover them.
+- Workspace shows **Accessibility access needed** instead of a disabled Arrange button with an unexplained Off status.
+- The menu-bar button stays clickable while off and opens permission guidance when access is missing.
+- Activation errors appear beside Arrange, and the permission state refreshes automatically.
 
-For the first installation, download the ZIP and place Bento.app in Applications. Allow Accessibility access so Bento can move windows. This release is ad-hoc signed and is not Apple-notarized.
+If macOS blocks Accessibility after an update, enable `/Applications/Bento.app` in System Settings → Privacy & Security → Accessibility. If an old entry no longer works, remove it and add the installed app again.

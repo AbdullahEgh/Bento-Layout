@@ -66,3 +66,9 @@ Launch the stable `Bento.app` bundle and grant it Accessibility in System Settin
 Physical mouse/keyboard routing is not established by the supplied-pointer harness or the real AX fixture. The desktop-control attempt changed the active virtual-display/window geometry during testing; it did not provide a reliable physical gesture result. The current Remio virtual display can be narrow/portrait. Starting minima were reduced to 160 × 120 and actual application restrictions are learned from rejected native sizes, followed by bounded reflow retries. All 22 native fixture checks and all 11 external AX checks then passed on the narrow display.
 
 Start at login is implemented with SMAppService on Mac and the per-user Run entry on Windows. The option remains off unless selected. A complete sign-out/sign-in cycle has not been performed. Windows compilation/tests run in the repository workflow rather than on this Mac.
+
+## Published 0.2.0 deployment
+
+GitHub Mac/Windows builds and the signed Mac release workflow passed at `9c40363`. The Windows build reported 91 checks, no warnings/errors. Mac 0.2.0 build 101, the public signed feed and its archive were downloaded and independently verified against the embedded production key. The installed `/Applications/Bento.app` subsequently changed from build 2 to build 101 and relaunched through Sparkle’s update flow. The owner then reported missing activation; the installed app’s own UI showed Accessibility denied and Arrange disabled. The desktop-control tool is not approved for System Settings, so granting/regranting access requires the owner.
+
+The 0.2.1 follow-up makes that state explicit and removes the floating settings level. Windows 0.3.6 removes the periodic settings raise, with a separate HWND-order regression check in CI.

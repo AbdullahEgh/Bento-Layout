@@ -25,7 +25,7 @@ public sealed class BentoWindow : Window
     public BentoWindow(BentoController controller)
     {
         this.controller = controller; draft = controller.Settings;
-        Title = "Bento"; Icon = AppIcons.Image; Width = 850; Height = 650; MinWidth = 740; MinHeight = 540;
+        Title = "Bento"; Icon = AppIcons.Image; Width = 850; Height = 650; MinWidth = 740; MinHeight = 540; Topmost = false;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         SetResourceReference(BackgroundProperty, "Page");
         SetResourceReference(ForegroundProperty, "Text");

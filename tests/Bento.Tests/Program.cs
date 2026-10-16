@@ -11,6 +11,12 @@ internal static class Program
     private static int Main(string[] args)
     {
         if (args.FirstOrDefault() == "--fixture") return NativeTests.Fixture(args[1]);
+        if (args.Contains("--settings-order-smoke"))
+        {
+            NativeTests.SettingsOrderSmoke();
+            Console.WriteLine($"RESULT: {passed} passed, {failed} failed");
+            return failed == 0 ? 0 : 1;
+        }
         if (args.Contains("--interactive"))
         {
             int countIndex = Array.IndexOf(args, "--windows");

@@ -37,6 +37,27 @@ internal static class NativeTests
             Content = new TextBlock { Text = title, FontSize = 28, Margin = new Thickness(30) } });
         return 0;
     }
+    internal static void SettingsOrderSmoke()
+    {
+        if (Application.Current is null)
+        {
+            var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("pack://application:,,,/Bento;component/Theme.xaml") });
+        }
+        using var controller = new BentoController(() => [], new BentoSettings(ShortcutEnabled: false));
+        controller.ShowInterface(); Pump();
+        var settings = Application.Current!.Windows.OfType<BentoWindow>().Single();
+        var other = new Window { Title = "Disposable foreground window", Width = 360, Height = 260 };
+        try
+        {
+            other.Show(); other.Activate(); Pump();
+            Run("Settings are not topmost", () => Check(!settings.Topmost));
+            Run("Foreground fixture starts above settings", () => Check(IsAbove(other, settings)));
+            for (int i = 0; i < 3; i++) { controller.Refresh(); Pump(); }
+            Run("Desktop refresh keeps settings behind another window", () => Check(IsAbove(other, settings)));
+        }
+        finally { other.Close(); settings.Close(); }
+    }
     internal static void RunAll(bool interactive = false, int fixtureCount = 3)
     {
         if (fixtureCount is < 3 or > 12 || (!interactive && fixtureCount != 3))

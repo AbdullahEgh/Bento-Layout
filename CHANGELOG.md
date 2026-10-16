@@ -1,5 +1,11 @@
 # Bento releases
 
+## Windows 0.3.6 / macOS 0.2.1 — October 2026
+
+- Settings use normal window stacking on both systems. Windows background maintenance no longer raises settings over another app.
+- Mac Workspace distinguishes missing Accessibility access from Bento being off, shows the exact installed app path, and places activation errors beside Arrange.
+- The Mac menu-bar control stays clickable while off and opens permission guidance when access is missing. Permission changes refresh automatically.
+
 ## Windows 0.3.5 — October 2026
 
 - Add Workspace → Start at login, saved through Windows' per-user Run entry.

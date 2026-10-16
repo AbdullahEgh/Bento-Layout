@@ -106,7 +106,7 @@ import Carbon.HIToolbox
     private func updateMenu() {
         let menu = NSMenu()
         func item(_ title: String, _ action: Selector) { let i = NSMenuItem(title: title, action: action, keyEquivalent: ""); i.target = self; menu.addItem(i) }
-        item(model.active ? "Turn Bento off" : "Arrange windows", #selector(toggle))
+        item(!model.permission ? "Enable Accessibility…" : model.active ? "Turn Bento off" : "Arrange windows", #selector(toggle))
         item("Arrange all windows", #selector(arrangeAll))
         item("Release active window", #selector(releaseActive))
         item("Restore original positions", #selector(restore))
@@ -118,8 +118,10 @@ import Carbon.HIToolbox
         item("Check for updates…", #selector(checkUpdates))
         menu.addItem(.separator()); item("Quit Bento", #selector(quit))
         statusMenu = menu
-        statusItem.button?.appearsDisabled = !model.active
-        statusItem.button?.toolTip = model.active ? "Bento is on — click to restore windows; right-click for menu" : "Bento is off — click to arrange windows; right-click for menu"
+        statusItem.button?.isEnabled = true
+        statusItem.button?.appearsDisabled = false
+        statusItem.button?.alphaValue = model.active ? 1 : 0.75
+        statusItem.button?.toolTip = !model.permission ? "Bento needs Accessibility access — click to enable" : model.active ? "Bento is on — click to restore windows; right-click for menu" : "Bento is off — click to arrange windows; right-click for menu"
     }
     @objc private func statusClicked() {
         guard let button = statusItem.button else { return }
@@ -128,6 +130,11 @@ import Carbon.HIToolbox
         } else { toggle() }
     }
     @objc private func toggle() {
+        model.permission = model.system.trusted
+        guard model.permission else {
+            model.page = "Workspace"; model.message = WindowFailure.permission.localizedDescription
+            showWindow(onboarding: false); model.system.requestPermission(); return
+        }
         Task {
             await model.toggleLayout()
             updateMenu()
@@ -172,7 +179,7 @@ import Carbon.HIToolbox
         let panel = NSWindow(contentViewController: host)
         panel.title = "Bento"; panel.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
         panel.titlebarAppearsTransparent = true; panel.titleVisibility = .hidden
-        panel.level = .floating
+        panel.level = .normal
         panel.isReleasedWhenClosed = false
         panel.setContentSize(NSSize(width: onboarding ? 940 : 820, height: onboarding ? 650 : 620))
         panel.center(); panel.makeKeyAndOrderFront(nil); window = panel

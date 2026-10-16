@@ -26,13 +26,15 @@ public_key="$(cat "$fixture/public.txt")"
 /usr/bin/codesign --verify --deep --strict "$fixture/Bento.app"
 /usr/bin/ditto -c -k --keepParent "$fixture/Bento.app" "$fixture/stage/Bento-macos-universal.zip"
 tools="$mac_root/.build/artifacts/macos/Sparkle/bin"
-if ! "$tools/generate_appcast" --ed-key-file "$fixture/fixture.key" --download-url-prefix 'https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.0/' --maximum-deltas 0 -o "$fixture/stage/appcast.xml" "$fixture/stage" > "$fixture/generate.log" 2>&1; then
+release_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$fixture/Bento.app/Contents/Info.plist")"
+release_tag="macos-v$release_version"
+if ! "$tools/generate_appcast" --ed-key-file "$fixture/fixture.key" --download-url-prefix "https://github.com/AbdullahEgh/Bento-Layout/releases/download/$release_tag/" --maximum-deltas 0 -o "$fixture/stage/appcast.xml" "$fixture/stage" > "$fixture/generate.log" 2>&1; then
   echo 'Fixture appcast generation failed.' >&2; exit 1
 fi
 "$tools/sign_update" --verify --ed-key-file "$fixture/fixture.key" "$fixture/stage/appcast.xml" > "$fixture/verify.log" 2>&1
-"$swift_bin" -module-cache-path "$mac_root/.build/release-tools-cache" "$mac_root/scripts/verify-update.swift" "$fixture/Bento.app/Contents/Info.plist" "$fixture/stage/appcast.xml" "$fixture/stage/Bento-macos-universal.zip" macos-v0.2.0
+"$swift_bin" -module-cache-path "$mac_root/.build/release-tools-cache" "$mac_root/scripts/verify-update.swift" "$fixture/Bento.app/Contents/Info.plist" "$fixture/stage/appcast.xml" "$fixture/stage/Bento-macos-universal.zip" "$release_tag"
 printf 'corrupt' >> "$fixture/stage/Bento-macos-universal.zip"
-if "$swift_bin" -module-cache-path "$mac_root/.build/release-tools-cache" "$mac_root/scripts/verify-update.swift" "$fixture/Bento.app/Contents/Info.plist" "$fixture/stage/appcast.xml" "$fixture/stage/Bento-macos-universal.zip" macos-v0.2.0 > "$fixture/corrupt.log" 2>&1; then
+if "$swift_bin" -module-cache-path "$mac_root/.build/release-tools-cache" "$mac_root/scripts/verify-update.swift" "$fixture/Bento.app/Contents/Info.plist" "$fixture/stage/appcast.xml" "$fixture/stage/Bento-macos-universal.zip" "$release_tag" > "$fixture/corrupt.log" 2>&1; then
   echo 'Corruption was not rejected.' >&2; exit 1
 fi
 printf 'GitHub OTA fixture passed: ad-hoc app, signed feed/archive, corruption rejected. No Developer ID or Keychain key was used.\n'

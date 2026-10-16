@@ -81,7 +81,12 @@ struct SavedWorkspace: Codable {
         do { try settings.save(); onSettingsChange?() } catch { message = "Could not save settings: \(error.localizedDescription)" }
     }
     private func tick() {
-        permission = system.trusted
+        let currentPermission = system.trusted
+        if permission != currentPermission {
+            permission = currentPermission
+            if permission && !active && !busy && !activating { refresh() }
+            onStateChange?()
+        }
         if active && !permission { active = false; recoverDesktopPreferences(); message = "Bento paused because Accessibility access was removed. Enable access, then arrange again."; onStateChange?() }
         guard permission, !busy, !interacting, !activating else { return }
         if active {

@@ -13,6 +13,7 @@ public sealed class UpdateService
 {
     public static string CurrentVersion => typeof(BentoController).Assembly.GetName().Version?.ToString(3) ?? "0.3.0";
     public static readonly ReleaseNote[] Releases = [
+        new("0.3.6", "October 2026", "Settings stay where you leave them", ["Bento settings behave like a normal window. Switching to another app keeps that app in front.", "Desktop grip maintenance no longer brings settings back above other applications."]),
         new("0.3.5", "October 2026", "Ready when you sign in", ["Start at login is available in Workspace. Save changes to enable or disable it for your Windows account.", "Bento opens quietly in the tray on sign-in, using the current installation folder.", "Left-click the tray icon to toggle Bento; right-click for its menu."]),
         new("0.3.4", "October 2026", "One click, two workspaces", ["Click the tray icon or press Ctrl+Alt+B to toggle Bento; change or disable the shortcut in Gestures.", "Save Bento keeps a reusable layout locally for future launches.", "Distinct active and inactive tray icons, with a grouped menu that follows Windows appearance.", "A longer, slim held grabber with quick, smooth fade and length transitions."]),
         new("0.3.3", "October 2026", "Windows that follow your hand", ["Neighboring windows resize live as you drag a divider.", "The active grabber gets longer while keeping its original slim thickness.", "Grabbers stay bright above the dark background and below settings.", "A softer glass slot preview with aligned corners and subtle highlights."]),

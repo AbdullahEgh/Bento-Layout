@@ -87,10 +87,11 @@ public sealed class BentoController : IDisposable
         // HWND_NOTOPMOST does not raise an already non-topmost window. Explicitly
         // lift the narrow input surfaces above application frames after activation.
         foreach (var handle in dividers.Where(h => h.IsVisible)) DesktopIntegration.RaiseOverlay(new WindowInteropHelper(handle).Handle);
-        if (appWindow?.IsVisible == true && appWindow.WindowState != WindowState.Minimized)
+        if (appWindow?.IsVisible == true && appWindow.IsActive && appWindow.WindowState != WindowState.Minimized)
         {
             var sibling = new WindowInteropHelper(appWindow).Handle;
-            DesktopIntegration.RaiseOverlay(sibling);
+            // Keep helpers below focused settings without raising the settings window
+            // again when the user switches to another application.
             foreach (var handle in dividers) DesktopIntegration.PlaceBelow(new WindowInteropHelper(handle).Handle, sibling);
         }
         RefreshBackdrops();
