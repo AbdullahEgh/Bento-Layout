@@ -61,7 +61,7 @@ public sealed class BentoController : IDisposable
         if (windowSource is null) snapLease = new SnapLease(Path.Combine(BentoSettings.DataDirectory, "snap-lease.txt"));
         source = new HwndSource(new HwndSourceParameters("Bento hotkeys") { Width = 0, Height = 0, WindowStyle = 0 });
         source.AddHook(WndProc);
-        bool shortcut = DesktopIntegration.RegisterShortcut(source.Handle, 1, Settings.Modifiers, Settings.Key);
+        bool shortcut = !Settings.ShortcutEnabled || DesktopIntegration.RegisterShortcut(source.Handle, 1, Settings.Modifiers, Settings.Key);
         int shortcutError = DesktopIntegration.ShortcutError;
         events = new DesktopEvents();
         events.NativeDrag += OnNativeDrag;
@@ -118,7 +118,7 @@ public sealed class BentoController : IDisposable
     private static void Dispatch(Action action) => Application.Current.Dispatcher.BeginInvoke(action);
     private nint WndProc(nint hwnd, int message, nint wparam, nint lparam, ref bool handled)
     {
-        if (message == 0x312) { ToggleBento(); handled = true; }
+        if (message == 0x312) { if (Settings.ShortcutEnabled) ToggleBento(); handled = true; }
         if (message is 0x7E or 0x2E0 or 0x1A)
             Dispatch(RefreshMonitorGeometry);
         return 0;
@@ -524,13 +524,13 @@ public sealed class BentoController : IDisposable
         if (!settings.IsValid) { Report("Please check the settings values."); return false; }
         if (Dragging || activeNativeDrag != 0) { Report("Finish dragging before changing settings."); return false; }
         var old = Settings;
-        bool changed = settings.Key != old.Key || settings.Modifiers != old.Modifiers;
+        bool changed = settings.ShortcutEnabled != old.ShortcutEnabled || settings.Key != old.Key || settings.Modifiers != old.Modifiers;
         if (changed)
         {
             DesktopIntegration.UnregisterShortcut(source.Handle, 1);
-            if (!DesktopIntegration.RegisterShortcut(source.Handle, 1, settings.Modifiers, settings.Key))
+            if (settings.ShortcutEnabled && !DesktopIntegration.RegisterShortcut(source.Handle, 1, settings.Modifiers, settings.Key))
             {
-                DesktopIntegration.RegisterShortcut(source.Handle, 1, old.Modifiers, old.Key);
+                if (old.ShortcutEnabled) DesktopIntegration.RegisterShortcut(source.Handle, 1, old.Modifiers, old.Key);
                 Report("That shortcut is in use. Try another combination."); return false;
             }
         }
@@ -546,7 +546,7 @@ public sealed class BentoController : IDisposable
             Settings = old;
             try { snapLease?.SetSuppressed(automatic && old.SuppressWindowsSnap); } catch { }
             try { Apply(history.Current, history.Current); } catch { /* Preserve the original failure report. */ }
-            if (changed) { DesktopIntegration.UnregisterShortcut(source.Handle, 1); DesktopIntegration.RegisterShortcut(source.Handle, 1, old.Modifiers, old.Key); }
+            if (changed) { DesktopIntegration.UnregisterShortcut(source.Handle, 1); if (old.ShortcutEnabled) DesktopIntegration.RegisterShortcut(source.Handle, 1, old.Modifiers, old.Key); }
             Report(ex.Message); return false;
         }
     }

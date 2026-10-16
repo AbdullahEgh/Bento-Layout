@@ -5,7 +5,7 @@ namespace Bento.UI;
 public sealed record BentoSettings(uint Modifiers = 3, uint Key = 0x42, int Gap = 8, int Margin = 8,
     int SplitHoldMs = 900, bool Animate = true, int AnimationMs = 180, bool SuppressWindowsSnap = false,
     string Theme = "System", string UpdateRepository = "AbdullahEgh/Bento-Layout", bool CheckUpdates = false, int SchemaVersion = 2,
-    int BackgroundDarkness = 50)
+    int BackgroundDarkness = 50, bool ShortcutEnabled = true)
 {
     public static string DataDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Bento");
     private static string PathName => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Bento", "settings.json");

@@ -182,7 +182,8 @@ public sealed class BentoWindow : Window
         Row(gestures, "Transition duration", "Short and quiet", Range(draft.AnimationMs, 80, 400, 20, " ms", n => draft = draft with { AnimationMs = n }));
         var windows = Card("Windows integration");
         Row(windows, "Let Bento handle edge snapping", "Temporarily disables Windows Snap for all apps.\nRestored when Bento pauses or exits.", Toggle(draft.SuppressWindowsSnap, v => draft = draft with { SuppressWindowsSnap = v }));
-        var hotkey = new TextBox { Text = draft.Shortcut, IsReadOnly = true, Width = 160, ToolTip = "Click, then press a modifier plus a letter or number." };
+        var hotkey = new TextBox { Text = draft.Shortcut, IsReadOnly = true, IsEnabled = draft.ShortcutEnabled, Width = 140, ToolTip = "Click, then press a modifier plus a letter or number." };
+        AutomationProperties.SetName(hotkey, "Shortcut keys");
         hotkey.PreviewKeyDown += (_, e) =>
         {
             if (e.Key is Key.Tab or Key.Escape) return;
@@ -191,7 +192,12 @@ public sealed class BentoWindow : Window
             uint modifiers = ((m & ModifierKeys.Alt) != 0 ? 1u : 0) | ((m & ModifierKeys.Control) != 0 ? 2u : 0) | ((m & ModifierKeys.Shift) != 0 ? 4u : 0) | ((m & ModifierKeys.Windows) != 0 ? 8u : 0);
             draft = draft with { Key = vk, Modifiers = modifiers }; hotkey.Text = draft.Shortcut; Dirty();
         };
-        Row(windows, "Toggle Bento shortcut", "Restore your windows or turn Bento on", hotkey);
+        var shortcutControls = new StackPanel { Orientation = Orientation.Horizontal };
+        var shortcutEnabled = Toggle(draft.ShortcutEnabled, enabled => { draft = draft with { ShortcutEnabled = enabled }; hotkey.IsEnabled = enabled; });
+        shortcutEnabled.Margin = new Thickness(0, 0, 10, 0);
+        AutomationProperties.SetName(shortcutEnabled, "Enable toggle shortcut");
+        shortcutControls.Children.Add(shortcutEnabled); shortcutControls.Children.Add(hotkey);
+        Row(windows, "Toggle Bento shortcut", "Change the keys or turn the shortcut off", shortcutControls);
     }
     private void Updates()
     {
