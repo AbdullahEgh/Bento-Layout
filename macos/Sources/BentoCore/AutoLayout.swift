@@ -14,7 +14,13 @@ public enum AutoLayout {
             let key = Key(start: start, count: count, width: width, height: height)
             if failed.contains(key) { return nil }
             let wide = Double(width) >= Double(height) * 1.35
-            let counts = (1..<count).sorted { abs(Double($0) - Double(count) / 2) == abs(Double($1) - Double(count) / 2) ? $0 < $1 : abs(Double($0) - Double(count) / 2) < abs(Double($1) - Double(count) / 2) }
+            let midpoint = Double(count) / 2.0
+            let counts: [Int] = (1..<count).sorted { (a: Int, b: Int) -> Bool in
+                let distanceA = abs(Double(a) - midpoint)
+                let distanceB = abs(Double(b) - midpoint)
+                if distanceA == distanceB { return a < b }
+                return distanceA < distanceB
+            }
             for horizontal in [wide, !wide] {
                 for firstCount in counts {
                     let length = (horizontal ? width : height) - gap
