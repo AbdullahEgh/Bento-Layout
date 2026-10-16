@@ -6,8 +6,11 @@ struct MacSettings: Codable {
     var gap = 8; var margin = 8; var splitHold = 900; var theme = "System"
     var onboardingComplete = false
     var hideDock = false; var hideMenuBar = false; var edgeSnapping = "Keep"
+    var shortcut = ShortcutConfig()
+    var backgroundDarkness = 50
+    var animate = true; var animationMS = 180
     init() {}
-    enum CodingKeys: String, CodingKey { case gap, margin, splitHold, theme, onboardingComplete, hideDock, hideMenuBar, edgeSnapping }
+    enum CodingKeys: String, CodingKey { case gap, margin, splitHold, theme, onboardingComplete, hideDock, hideMenuBar, edgeSnapping, shortcut, backgroundDarkness, animate, animationMS }
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         gap = try values.decodeIfPresent(Int.self, forKey: .gap) ?? 8
@@ -18,13 +21,18 @@ struct MacSettings: Codable {
         hideDock = try values.decodeIfPresent(Bool.self, forKey: .hideDock) ?? false
         hideMenuBar = try values.decodeIfPresent(Bool.self, forKey: .hideMenuBar) ?? false
         edgeSnapping = try values.decodeIfPresent(String.self, forKey: .edgeSnapping) ?? "Keep"
+        shortcut = try values.decodeIfPresent(ShortcutConfig.self, forKey: .shortcut) ?? ShortcutConfig()
+        backgroundDarkness = try values.decodeIfPresent(Int.self, forKey: .backgroundDarkness) ?? 50
+        animate = try values.decodeIfPresent(Bool.self, forKey: .animate) ?? true
+        animationMS = try values.decodeIfPresent(Int.self, forKey: .animationMS) ?? 180
     }
     static var directory: URL { FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Bento", isDirectory: true) }
     static var url: URL { directory.appendingPathComponent("settings-macos.json") }
     static func load() -> MacSettings {
         guard let data = try? Data(contentsOf: url), let settings = try? JSONDecoder().decode(MacSettings.self, from: data),
               (4...32).contains(settings.gap), (0...64).contains(settings.margin), (0...2000).contains(settings.splitHold),
-              ["System", "Light", "Dark"].contains(settings.theme), ["Keep", "On", "Off"].contains(settings.edgeSnapping) else { return MacSettings() }
+              ["System", "Light", "Dark"].contains(settings.theme), ["Keep", "On", "Off"].contains(settings.edgeSnapping), settings.shortcut.valid,
+              (0...100).contains(settings.backgroundDarkness), (80...400).contains(settings.animationMS) else { return MacSettings() }
         return settings
     }
     func save() throws {
@@ -53,8 +61,11 @@ struct SavedWorkspace: Codable {
     private var originals: [UUID: (ManagedWindow, Rect)] = [:]
     private var timer: Timer?
     private var lastDisplays: [DisplayArea] = []
+    private var released = Set<UUID>()
+    private var lastBento: Workspace?
     private var activationGeneration = 0
     var onStateChange: (() -> Void)?
+    var onSettingsChange: (() -> Void)?
     var cancelInteraction: (() async -> Void)?
     private let desktopPreferences: ActivationOverrides
 
@@ -65,14 +76,17 @@ struct SavedWorkspace: Codable {
         permission = self.system.trusted
         if backgroundMonitoring { timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in Task { @MainActor in self?.tick() } } }
     }
-    func saveSettings() { do { try settings.save() } catch { message = "Could not save settings: \(error.localizedDescription)" } }
+    func saveSettings() {
+        guard settings.shortcut.valid else { message = "Choose at least one modifier for the shortcut."; onSettingsChange?(); return }
+        do { try settings.save(); onSettingsChange?() } catch { message = "Could not save settings: \(error.localizedDescription)" }
+    }
     private func tick() {
         permission = system.trusted
         if active && !permission { active = false; recoverDesktopPreferences(); message = "Bento paused because Accessibility access was removed. Enable access, then arrange again."; onStateChange?() }
-        guard permission, !busy, !interacting else { return }
+        guard permission, !busy, !interacting, !activating else { return }
         if active {
             do {
-                let current = try system.discover()
+                let current = try system.discover().filter { !released.contains($0.id) }
                 let displaysChanged = DisplayArea.all(margin: settings.margin) != lastDisplays
                 if displaysChanged || Set(current.map(\.id)) != Set(windows.map(\.id)) { windows = current; Task { await arrange(preserving: !displaysChanged) } }
             } catch { message = error.localizedDescription }
@@ -81,25 +95,27 @@ struct SavedWorkspace: Codable {
     func refresh() {
         permission = system.trusted
         guard permission else { return }
-        do { windows = try system.discover(); message = windows.isEmpty ? "Open an application window to begin." : nil }
+        do { windows = try system.discover().filter { !released.contains($0.id) }; message = windows.isEmpty ? "Open an application window to begin." : nil }
         catch { message = error.localizedDescription }
     }
-    func toggle() { Task { if active { await restore() } else { await arrange() } } }
+    func toggle() { Task { await toggleLayout() } }
+    func toggleLayout() async { if active { await restore() } else { await arrange(resuming: lastBento != nil) } }
     private func display(for window: ManagedWindow, displays: [DisplayArea]) -> DisplayArea? {
         displays.max { a, b in
             func overlap(_ r: Rect) -> Int { max(0, min(r.right, window.frame.right) - max(r.x, window.frame.x)) * max(0, min(r.bottom, window.frame.bottom) - max(r.y, window.frame.y)) }
             return overlap(a.bounds) < overlap(b.bounds)
         }
     }
-    func arrange(preserving: Bool = false) async {
+    func arrange(preserving: Bool = false, retryConstraints: Int = 3, resuming: Bool = false) async {
         guard !busy, !interacting, !activating else { return }
         activating = true; defer { activating = false }
         let generation = activationGeneration
         let wasActive = active
         do {
-            let current = try system.discover(); windows = current
+            if !preserving { released.removeAll() }
+            let current = try system.discover().filter { !released.contains($0.id) }; windows = current
             guard !current.isEmpty else {
-                if preserving { history.commit(Workspace()) }
+                if preserving { history.commit(Workspace()); onStateChange?() }
                 message = "Open an application window to begin."; return
             }
             if !wasActive {
@@ -108,11 +124,12 @@ struct SavedWorkspace: Codable {
             }
             guard generation == activationGeneration else { return }
             let displays = DisplayArea.all(margin: settings.margin)
-            var next = preserving ? history.current : Workspace()
+            let retainTree = preserving || resuming
+            var next = preserving ? history.current : resuming ? lastBento ?? Workspace() : Workspace()
             for leaf in next.windows where !current.contains(where: { $0.id == leaf.windowID }) { next = next.removing(leaf.windowID) }
             for area in displays {
                 let members = current.filter { display(for: $0, displays: displays)?.id == area.id }
-                if preserving {
+                if retainTree {
                     var root = next.roots[area.id]
                     // Remove members that moved to another display before inserting them there.
                     for leaf in root?.windows ?? [] where !members.contains(where: { $0.id == leaf.windowID }) { root = root?.removing(leaf.windowID) }
@@ -129,6 +146,10 @@ struct SavedWorkspace: Codable {
         } catch {
             message = error.localizedDescription
             if !wasActive { do { try desktopPreferences.restore() } catch { message = "\(message ?? "") \(error.localizedDescription)" } }
+            if case WindowFailure.minimumSize = error, retryConstraints > 0 {
+                activating = false
+                await arrange(preserving: preserving, retryConstraints: retryConstraints - 1, resuming: resuming)
+            }
         }
     }
     func apply(_ workspace: Workspace, displays: [DisplayArea]) async throws {
@@ -156,9 +177,35 @@ struct SavedWorkspace: Codable {
             if originals[window.id] == nil { originals[window.id] = (window, frame) }
         }
         do {
+            if settings.animate && !interacting && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                let steps = 6
+                for step in 1..<steps {
+                    let t = Double(step) / Double(steps), eased = t * t * (3 - 2 * t)
+                    for (index, entry) in plan.enumerated() {
+                        let start = rollback[index].1, end = entry.1
+                        func blend(_ a: Int, _ b: Int) -> Int { Int((Double(a) + Double(b - a) * eased).rounded()) }
+                        try system.write(entry.0, frame: Rect(blend(start.x, end.x), blend(start.y, end.y), blend(start.width, end.width), blend(start.height, end.height)))
+                    }
+                    try await Task.sleep(for: .milliseconds(settings.animationMS / steps))
+                }
+            }
             for (window, rect) in plan { try system.write(window, frame: rect) }
             try await Task.sleep(for: .milliseconds(100))
-            for (window, rect) in plan where !system.accepted(window, rect) { throw WindowFailure.rejected(window.title) }
+            let rejected = plan.filter { !system.accepted($0.0, $0.1) }
+            if CommandLine.arguments.contains("--fixture-pid") {
+                for (window, wanted) in rejected { print("Rejected fixture bounds: \(window.title), wanted=\(wanted), actual=\(String(describing: system.frame(of: window.element)))") }
+            }
+            var constrained = Set<String>()
+            for (window, wanted) in rejected {
+                guard let actual = system.frame(of: window.element) else { continue }
+                if actual.width > wanted.width + 2 || actual.height > wanted.height + 2 {
+                    if actual.width > wanted.width + 2 { window.minimum.width = max(window.minimum.width, actual.width) }
+                    if actual.height > wanted.height + 2 { window.minimum.height = max(window.minimum.height, actual.height) }
+                    constrained.insert(window.application)
+                }
+            }
+            if !constrained.isEmpty { throw WindowFailure.minimumSize(constrained.sorted().joined(separator: ", ")) }
+            if let first = rejected.first { throw WindowFailure.rejected(first.0.title) }
         } catch {
             var failed = 0
             for (window, frame) in rollback { do { try system.write(window, frame: frame) } catch { failed += 1 } }
@@ -171,6 +218,7 @@ struct SavedWorkspace: Codable {
         if interacting { await cancelInteraction?() }
         while busy { try? await Task.sleep(for: .milliseconds(50)) }
         busy = true; defer { busy = false }
+        if !history.current.windows.isEmpty { lastBento = history.current }
         var remaining: [UUID: (ManagedWindow, Rect)] = [:]
         for (id, entry) in originals {
             // A closed process needs no restoration. Existing windows that refuse it remain retryable.
@@ -178,7 +226,7 @@ struct SavedWorkspace: Codable {
             do { try system.write(entry.0, frame: entry.1); if !system.accepted(entry.0, entry.1) { remaining[id] = entry } }
             catch { remaining[id] = entry }
         }
-        originals = remaining; active = false; history = LayoutHistory(); onStateChange?()
+        originals = remaining; released.removeAll(); active = false; history = LayoutHistory(); onStateChange?()
         message = remaining.isEmpty ? nil : "\(remaining.count) window(s) could not be restored. Allow Accessibility access and try Restore again."
         do { try desktopPreferences.restore() } catch { message = error.localizedDescription }
     }
@@ -189,6 +237,16 @@ struct SavedWorkspace: Codable {
             try FileManager.default.createDirectory(at: MacSettings.directory, withIntermediateDirectories: true)
             try JSONEncoder().encode(SavedWorkspace(version: 1, platform: "macOS", workspace: history.current, applications: matches)).write(to: SavedWorkspace.url, options: .atomic)
             message = "Bento layout saved on this Mac."
+        } catch { message = error.localizedDescription }
+    }
+    func releaseActiveWindow() async {
+        guard active, !busy, !interacting, !activating else { return }
+        guard let window = system.focusedWindow(in: windows) else { message = "Focus the window you want to release, then right-click Bento."; return }
+        let next = history.current.removing(window.id)
+        do {
+            try await apply(next, displays: DisplayArea.all(margin: settings.margin))
+            released.insert(window.id); windows.removeAll { $0.id == window.id }; history.commit(next)
+            message = "Window released. Arrange all windows to include it again."; onStateChange?()
         } catch { message = error.localizedDescription }
     }
     func loadLayout() async {
@@ -239,10 +297,15 @@ struct SavedWorkspace: Codable {
         let wasActive = active, generation = activationGeneration
         var candidate = history; let next = redo ? candidate.redo() : candidate.undo()
         do {
+            windows = try system.discover()
             if !wasActive && !next.windows.isEmpty { try desktopPreferences.activate(settings.desktopOverrides()); try await Task.sleep(for: .milliseconds(500)) }
             guard generation == activationGeneration else { return }
             try await apply(next, displays: DisplayArea.all(margin: settings.margin))
             guard generation == activationGeneration else { return }
+            let nextIDs = Set(next.windows.map(\.windowID))
+            released.subtract(nextIDs)
+            released.formUnion(history.current.windows.map(\.windowID).filter { !nextIDs.contains($0) })
+            windows.removeAll { released.contains($0.id) }
             history = candidate; active = !next.windows.isEmpty
             if !active { try desktopPreferences.restore() }
             onStateChange?()

@@ -125,13 +125,27 @@ private final class FixturePreferences: PreferenceBackend {
             var rejected = false
             do { try await model.apply(model.history.current, displays: DisplayArea.all(margin: model.settings.margin)) } catch { rejected = true }
             try check(rejected && system.records.map { DesktopCoordinates.engine($0.1.frame) } == beforeFailure, "A rejected native write rolls back the batch")
+            let rememberedBento = model.history.current
             await model.restore(); interactions.synchronize()
             try check(system.records.map { DesktopCoordinates.engine($0.1.frame) } == initial && interactions.helperFrames.isEmpty, "Turning Bento off restores fixtures and removes helpers")
+            await model.toggleLayout()
+            try check(try model.history.current == rememberedBento && matchingGeometry(), "Toggling on resumes the edited Bento tree")
+            await model.restore()
             model.settings.hideDock = true; model.settings.hideMenuBar = true; model.settings.edgeSnapping = "Off"
             await model.arrange()
             try check(preferences.values.count == 5, "Activation options request Dock, menu bar and tiling overrides through the injected backend")
             await model.restore()
             try check(preferences.values.isEmpty, "Deactivation restores all injected preference values")
+            await model.arrange(); system.focused = system.records[0].0
+            await model.releaseActiveWindow()
+            try check(model.history.current.windows.count == 2 && system.accepted(system.records[0].0, initial[0]), "Release active window restores it and expands neighbors")
+            await model.undo()
+            try check(try model.history.current.windows.count == 3 && matchingGeometry(), "Undo release returns the window to Bento")
+            await model.undo(redo: true)
+            try check(try model.history.current.windows.count == 2 && matchingGeometry(), "Redo release leaves the window floating")
+            await model.arrange()
+            try check(try model.history.current.windows.count == 3 && matchingGeometry(), "Arrange all includes released windows again")
+            await model.restore()
             let activating = Task { await model.arrange() }
             try? await Task.sleep(for: .milliseconds(100)); await model.restore(); await activating.value
             try check(!model.active && system.records.map { DesktopCoordinates.engine($0.1.frame) } == initial, "Restoring during activation cancels the pending arrangement")

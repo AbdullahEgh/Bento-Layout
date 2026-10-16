@@ -1,5 +1,19 @@
 # Bento releases
 
+## Windows 0.3.5 — October 2026
+
+- Add Workspace → Start at login, saved through Windows' per-user Run entry.
+- Login launches keep settings closed and open Bento in the tray.
+- Keep left-click toggle and right-click menu behavior.
+
+## macOS 0.2.0 — October 2026
+
+- Native Mac app, original Bento artwork, four-screen onboarding, real-window layout, swaps, four-direction edge splits, gap and native-border resizing.
+- Left-click the menu-bar icon to toggle and resume edited layouts; right-click for arrange, release, save, restore, undo/redo, settings and updates.
+- Configurable shortcut, background darkness, reduced-motion-aware native animation and animated grips.
+- Temporary Dock/menu-bar/edge-tiling settings with restoration, and optional Start at login using Apple's Login Items service.
+- Free Ed25519-signed Sparkle releases and feed hosted in this repository; separate Mac publishing workflow.
+
 ## 0.3.4 — October 2026
 
 - Click the tray icon to toggle Bento and restore the positions captured before activation; resume the latest edited Bento layout when re-enabled.

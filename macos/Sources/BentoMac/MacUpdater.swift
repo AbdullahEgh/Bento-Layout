@@ -10,6 +10,7 @@ import BentoCore
     @Published private(set) var automaticallyChecks = false
     @Published private(set) var automaticallyInstalls = false
     @Published private(set) var pendingInstallation = false
+    @Published private(set) var installationHistory: [String] = []
     var beforeInstall: (() async -> Bool)?
     private var controller: SPUStandardUpdaterController?
     private var observation: NSKeyValueObservation?
@@ -17,6 +18,14 @@ import BentoCore
     var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.0" }
     func start() {
         guard controller == nil else { return }
+        let defaults = UserDefaults.standard
+        var history = defaults.stringArray(forKey: "BentoVersionHistory") ?? []
+        if defaults.string(forKey: "BentoLastLaunchedVersion") != version {
+            history.insert("Version \(version) first opened · \(Date.now.formatted(date: .abbreviated, time: .omitted))", at: 0)
+            history = Array(history.prefix(10))
+            defaults.set(history, forKey: "BentoVersionHistory"); defaults.set(version, forKey: "BentoLastLaunchedVersion")
+        }
+        installationHistory = history
         do {
             let info = Bundle.main.infoDictionary ?? [:]
             try UpdateConfiguration.validate(feed: (info["SUFeedURL"] as? String).flatMap(URL.init(string:)), publicKey: info["SUPublicEDKey"] as? String, developmentBuild: info["BentoDevelopmentBuild"] as? Bool ?? true)

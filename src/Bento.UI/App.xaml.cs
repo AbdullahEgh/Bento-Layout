@@ -24,7 +24,7 @@ public partial class App : Application
             controller.ArrangeDesktop();
             if (!e.Args.Contains("--smoke"))
             {
-                controller.ShowInterface(e.Args.Contains("--updates") ? "Updates" : "Workspace");
+                if (!e.Args.Contains("--login")) controller.ShowInterface(e.Args.Contains("--updates") ? "Updates" : "Workspace");
                 if (controller.Settings.CheckUpdates && !string.IsNullOrWhiteSpace(controller.Settings.UpdateRepository)) _ = CheckForUpdates();
             }
             if (e.Args.Contains("--smoke"))

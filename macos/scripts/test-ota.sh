@@ -19,6 +19,7 @@ SWIFT
 "$swift_bin" -module-cache-path "$mac_root/.build/release-tools-cache" "$fixture/key.swift" "$fixture"
 /usr/bin/ditto "$repo_root/artifacts/macos/Bento.app" "$fixture/Bento.app"
 public_key="$(cat "$fixture/public.txt")"
+/usr/libexec/PlistBuddy -c 'Delete :SUPublicEDKey' "$fixture/Bento.app/Contents/Info.plist" >/dev/null 2>&1 || true
 /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $public_key" "$fixture/Bento.app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Set :BentoDevelopmentBuild false' "$fixture/Bento.app/Contents/Info.plist"
 /usr/bin/codesign --force --sign - "$fixture/Bento.app" > "$fixture/sign.log" 2>&1

@@ -38,6 +38,7 @@ if [[ -n "${BENTO_MARKETING_VERSION:-}" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $BENTO_MARKETING_VERSION" "$app/Contents/Info.plist"
 fi
 if [[ "${BENTO_OTA_RELEASE:-0}" == "1" ]]; then
+  if [[ -z "${BENTO_UPDATE_PUBLIC_KEY:-}" && -f "$mac_root/UpdatePublicKey.txt" ]]; then BENTO_UPDATE_PUBLIC_KEY="$(cat "$mac_root/UpdatePublicKey.txt")"; fi
   [[ "$architecture" == "universal" && -n "${BENTO_UPDATE_PUBLIC_KEY:-}" ]] || { echo 'OTA release requires a Bento public update-signing key and a universal build.' >&2; exit 1; }
   [[ "$BENTO_UPDATE_PUBLIC_KEY" =~ ^[A-Za-z0-9+/]{43}=$ ]] || { echo 'Invalid Ed25519 public key.' >&2; exit 1; }
   /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $BENTO_UPDATE_PUBLIC_KEY" "$app/Contents/Info.plist"

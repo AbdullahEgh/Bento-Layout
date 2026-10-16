@@ -3,12 +3,13 @@ import ApplicationServices
 import BentoCore
 
 enum WindowFailure: LocalizedError {
-    case permission, unavailable(String), rejected(String)
+    case permission, unavailable(String), rejected(String), minimumSize(String)
     var errorDescription: String? {
         switch self {
         case .permission: return "Allow Bento in System Settings → Privacy & Security → Accessibility, then return here."
         case .unavailable(let title): return "“\(title)” is no longer available."
         case .rejected(let title): return "“\(title)” did not accept its new size. Bento attempted to restore the previous positions."
+        case .minimumSize(let apps): return "\(apps) needs more space than its Bento slot. Bento restored the previous positions; minimize a window or use a larger display."
         }
     }
 }
@@ -39,9 +40,9 @@ final class ManagedWindow {
     let id: UUID; let element: AXUIElement; let pid: pid_t
     var title: String; let application: String; let bundleID: String
     var frame: Rect
-    // macOS does not expose a universal minimum window size. Use a conservative
-    // fallback, then verify every native application of geometry.
-    var minimum = Size(320, 240)
+    // AX has no universal minimum-size attribute. Start small enough for narrow
+    // displays, then learn actual app constraints from verified native writes.
+    var minimum = Size(160, 120)
     init(id: UUID = UUID(), element: AXUIElement, pid: pid_t, title: String, application: String, bundleID: String, frame: Rect) {
         self.id = id; self.element = element; self.pid = pid; self.title = title; self.application = application; self.bundleID = bundleID; self.frame = frame
     }
@@ -50,6 +51,8 @@ final class ManagedWindow {
 
 @MainActor class MacWindowSystem {
     private var known: [ManagedWindow] = []
+    private let allowedPIDs: Set<pid_t>?
+    init(allowedPIDs: Set<pid_t>? = nil) { self.allowedPIDs = allowedPIDs }
     var trusted: Bool { AXIsProcessTrusted() }
     func requestPermission() {
         let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
@@ -74,7 +77,7 @@ final class ManagedWindow {
         guard trusted else { throw WindowFailure.permission }
         let visible = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
         var found: [ManagedWindow] = []
-        for application in NSWorkspace.shared.runningApplications where application.activationPolicy == .regular && application.processIdentifier != ProcessInfo.processInfo.processIdentifier && !application.isHidden {
+        for application in NSWorkspace.shared.runningApplications where application.activationPolicy == .regular && application.processIdentifier != ProcessInfo.processInfo.processIdentifier && !application.isHidden && (allowedPIDs == nil || allowedPIDs!.contains(application.processIdentifier)) {
             let app = AXUIElementCreateApplication(application.processIdentifier)
             AXUIElementSetMessagingTimeout(app, 0.15)
             guard let windows = attribute(app, kAXWindowsAttribute) as? [AXUIElement] else { continue }

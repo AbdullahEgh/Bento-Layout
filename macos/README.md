@@ -34,7 +34,7 @@ Light and dark appearance follow the system or the selected setting. Onboarding 
 
 ## Implemented in this milestone
 
-- Menu-bar app, native settings and fixed Control–Option–B toggle; shortcut registration failure leaves the menu-bar controls available.
+- Menu-bar left-click toggle, right-click menu, native settings and configurable (or disableable) Control–Option–B toggle; shortcut registration failure leaves the menu-bar controls available.
 - Accessibility permission checks and public AX window discovery. The app excludes its own windows, hidden apps, minimized/fullscreen/fixed-size windows, and windows without matching public on-screen metadata.
 - Automatic constraint-aware recursive arrangement on each window's current display; display work areas exclude the Dock and menu bar.
 - Swift port of Windows automatic layout, insertion/removal, four-direction placement, center swapping, ratio resizing, bounded undo/redo and hold-to-split intent policy, connected to the native interaction controller.
@@ -57,9 +57,9 @@ Windows saved files use executable paths and monitor names. Mac saved files are 
 
 ## Current limits
 
-This is a Mac development preview, not full Windows feature parity. Backdrop dimming, thumbnail transitions, configurable shortcuts and floating-window release controls remain to be integrated. The default hold delay is 900 ms. Physical title-bar routing, real third-party AX behavior and system preference effects still need an interactive pass; the isolated native harness supplies pointer samples and controls only disposable windows.
+The Mac version includes backdrop dimming, configurable shortcuts, floating-window release, saved layouts, undo/redo, edited-layout resume and Start at login. Native window interpolation replaces Windows-only DWM thumbnail transitions. The default hold delay is 900 ms. Physical title-bar routing, real third-party AX behavior and system preference effects still need an interactive pass; the isolated native harness supplies pointer samples and controls only disposable windows.
 
-Minimum window sizes use a conservative 320 × 240 point fallback because a universal minimum-size AX attribute is unavailable. An app may still refuse a resize; the controller checks actual bounds and attempts rollback. Writes across multiple apps cannot be atomic. Restoration is best effort when an app exits or access is revoked. Hard crashes cannot restore the session-only original-position snapshot. No automatic app launching, Spaces switching or full-screen management is performed.
+Minimum window sizes start at 160 × 120 points because a universal minimum-size AX attribute is unavailable. Rejected native sizes teach Bento an app’s actual minimum, followed by a bounded reflow retry. An app may still refuse a resize; the controller checks actual bounds and attempts rollback. Writes across multiple apps cannot be atomic. Restoration is best effort when an app exits or access is revoked. Hard crashes cannot restore the session-only original-position snapshot. No automatic app launching, Spaces switching or full-screen management is performed.
 
 ## Validation
 
@@ -71,6 +71,12 @@ Render the real SwiftUI onboarding screens without arranging any windows:
 artifacts/macos/Bento.app/Contents/MacOS/Bento --render-preview /tmp/bento-preview
 ```
 
-This renders eight PNGs (four steps in light and dark). `--smoke` exits before window discovery or arrangement. GitHub Actions builds an artifact; it does not publish a release or require signing secrets.
+This renders eight PNGs (four steps in light and dark). `--smoke` exits before window discovery or arrangement. The normal Mac checks build an artifact without signing secrets. The separate **Publish macOS app and OTA** workflow uses the encrypted release secret to publish the Mac ZIP and signed feed.
 
 `--render-settings /tmp/bento-settings` renders Workspace, Gestures and Updates in light/dark. `--interaction-smoke /tmp/bento-interactions` exercises the production gesture controller against disposable native NSWindows using an injected window backend and supplied input; it does not touch other apps or OS preferences. `macos/scripts/test-ota.sh` generates a disposable key and verifies an ad-hoc app's signed archive/feed and corruption rejection without Developer ID or Keychain changes.
+
+## Start at login
+
+Workspace → **Start at login** uses Apple’s `SMAppService.mainApp`. macOS owns the registration state and may require approval in System Settings → General → Login Items. Login launches stay in the menu bar once onboarding is complete. The option defaults to off; no login registration is enabled by tests. Keep the app in a stable Applications folder.
+
+`macos/scripts/test-external-ax.sh` builds a separate disposable app and verifies real AX discovery, arrangement, all four split directions, swap, resize, undo/redo and restoration. Only the fixture process can be touched. Physical pointer routing, sign-out/login and full online updater relaunch remain separate interactive checks.

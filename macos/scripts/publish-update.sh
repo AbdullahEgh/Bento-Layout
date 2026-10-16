@@ -31,5 +31,7 @@ else
 fi
 cp "$stage/appcast.xml" "$feed_checkout/appcast.xml"
 git -C "$feed_checkout" add appcast.xml
-git -C "$feed_checkout" commit -m "Publish signed macOS feed for $release_tag"
+if ! git -C "$feed_checkout" diff --cached --quiet; then
+  git -C "$feed_checkout" -c user.name='Bento Releases' -c user.email='AbdullahEgh@users.noreply.github.com' commit -m "Publish signed macOS feed for $release_tag"
+fi
 git -C "$feed_checkout" push origin HEAD:macos-updates

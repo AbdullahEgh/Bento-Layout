@@ -15,5 +15,9 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      - run: dotnet build Bento.slnx -c Release
-      - run: dotnet run --project tests/Bento.Tests -c Release --no-build
+      - name: Build, test and package Windows app
+        run: ./build.ps1 -Publish
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Bento-windows
+          path: artifacts/Bento-win-x64.zip

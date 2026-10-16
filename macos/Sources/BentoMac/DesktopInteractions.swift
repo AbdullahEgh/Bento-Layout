@@ -13,10 +13,12 @@ struct DesktopInput {
 @MainActor final class DesktopInteractions {
     private let model: WorkspaceController
     private let input: () -> DesktopInput
+    private let trace: ((String) -> Void)?
     private var pulse: Timer?
     private var spaceObserver: NSObjectProtocol?
     private var grips: [UUID: GapPanel] = [:]
     private let preview = DestinationPanel()
+    private let backdrop = DesktopBackdrop()
     private var wasPressed = false, waitForRelease = false, finishing = false
     private var pressedWindow: ManagedWindow?
     private var pressedFrame: Rect?
@@ -29,8 +31,8 @@ struct DesktopInput {
     private var pending: Workspace?
     private var liveTask: Task<Void, Never>?
     private var liveFailure = false
-    init(model: WorkspaceController, input: (() -> DesktopInput)? = nil, automaticSampling: Bool = true) {
-        self.model = model; self.input = input ?? { DesktopInput.current() }
+    init(model: WorkspaceController, input: (() -> DesktopInput)? = nil, automaticSampling: Bool = true, trace: ((String) -> Void)? = nil) {
+        self.model = model; self.input = input ?? { DesktopInput.current() }; self.trace = trace
         guard automaticSampling else { return }
         pulse = Timer(timeInterval: 1 / 45, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.sample() } }
         RunLoop.main.add(pulse!, forMode: .common)
@@ -48,8 +50,9 @@ struct DesktopInput {
         updateGrips(model.history.current)
     }
     private func areas() -> [String: Rect] { Dictionary(uniqueKeysWithValues: DisplayArea.all(margin: model.settings.margin).map { ($0.id, $0.bounds) }) }
-    private func removeHelpers() { grips.values.forEach { $0.orderOut(nil) }; grips.removeAll(); preview.orderOut(nil) }
+    private func removeHelpers() { grips.values.forEach { $0.orderOut(nil) }; grips.removeAll(); preview.orderOut(nil); backdrop.hide() }
     private func updateGrips(_ workspace: Workspace) {
+        backdrop.show(darkness: model.settings.backgroundDarkness)
         let displays = areas(); var retained = Set<UUID>()
         for (display, root) in workspace.roots {
             guard let area = displays[display], let layout = try? LayoutEngine.calculate(root, in: area, gap: model.settings.gap) else { continue }
@@ -65,6 +68,8 @@ struct DesktopInput {
                     grips[divider.id] = panel
                 }
                 panel.setFrame(DesktopCoordinates.appKit(divider.bounds), display: true)
+                panel.gripView.animate = model.settings.animate
+                panel.gripView.lightInk = model.settings.backgroundDarkness >= 40 || NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
                 panel.gripView.dragging = grip?.divider.id == divider.id
                 panel.gripView.needsDisplay = true
                 if !panel.isVisible { panel.orderFrontRegardless() }
@@ -87,7 +92,7 @@ struct DesktopInput {
         if grip != nil { return }
         guard !model.busy else { return }
         if pressed {
-            if !wasPressed { pressedWindow = nil; pressedFrame = nil; pressPoint = input().point }
+            if !wasPressed { pressedWindow = nil; pressedFrame = nil; pressPoint = input().point; trace?("Pointer down: \(pressPoint)") }
             if pressedWindow == nil, let window = model.system.focusedWindow(in: model.windows), model.history.current.windows.contains(where: { $0.windowID == window.id }) {
                 pressedWindow = window; pressedFrame = model.system.frame(of: window.element)
             }
@@ -99,6 +104,7 @@ struct DesktopInput {
                 snapshot = model.history.current; session = DropSession(workspace: model.history.current, source: source)
                 let onBorder = abs(pressPoint.x - before.x) <= 6 || abs(pressPoint.x - before.right) <= 6 || abs(pressPoint.y - before.y) <= 6 || abs(pressPoint.y - before.bottom) <= 6
                 nativeResize = resized && (!moved || onBorder); model.interacting = true
+                trace?(nativeResize ? "Native resize detected" : "Native title-bar drag detected")
                 grips.values.forEach { $0.orderOut(nil) }
             }
             if nativeResize { updateNativeResize(window: window, frame: current) }
@@ -160,6 +166,7 @@ struct DesktopInput {
         finishing = true; pending = nil; preview.orderOut(nil)
         if let liveTask { await liveTask.value }
         let next = cancel || liveFailure ? original : candidate ?? original
+        trace?("Gesture finish: cancel=\(cancel), candidate=\(candidate != nil)")
         do { try await model.finishInteraction(next, commit: !cancel && !liveFailure && candidate != nil) }
         catch {
             let failure = error.localizedDescription
@@ -168,6 +175,7 @@ struct DesktopInput {
         }
         snapshot = nil; candidate = nil; session = nil; grip = nil; pressedWindow = nil; pressedFrame = nil
         liveTask = nil; liveFailure = false; nativeResize = false; model.interacting = false; finishing = false
+        model.onStateChange?()
         synchronize()
     }
 }
@@ -206,7 +214,11 @@ struct DesktopInput {
 @MainActor final class GripView: NSView {
     let axis: Axis
     var onBegin: (() -> Bool)?, onDrag: (() -> Void)?, onEnd: ((Bool) -> Void)?
-    var dragging = false, hovering = false
+    var animate = true, lightInk = true
+    var dragging = false { didSet { if oldValue != dragging { transition() } } }
+    var hovering = false { didSet { if oldValue != hovering { transition() } } }
+    private var displayedLength = 40.0, displayedAlpha = 0.0
+    private var animation: Timer?
     private var tracking: NSTrackingArea?
     init(axis: Axis) { self.axis = axis; super.init(frame: .zero); setAccessibilityElement(true); setAccessibilityRole(.splitter); setAccessibilityLabel("Resize neighboring windows") }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
@@ -224,11 +236,29 @@ struct DesktopInput {
     override func mouseDragged(with event: NSEvent) { if dragging { onDrag?() } }
     override func mouseUp(with event: NSEvent) { if dragging { onDrag?(); onEnd?(false) }; dragging = false; needsDisplay = true }
     override func cancelOperation(_ sender: Any?) { if dragging { onEnd?(true) }; dragging = false; needsDisplay = true }
+    private func transition() {
+        animation?.invalidate()
+        let oldLength = displayedLength, oldAlpha = displayedAlpha
+        let length = dragging ? 104.0 : 40.0, alpha = hovering || dragging ? 0.85 : 0.0
+        guard animate, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { displayedLength = length; displayedAlpha = alpha; needsDisplay = true; return }
+        let start = ProcessInfo.processInfo.systemUptime
+        animation = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in
+            MainActor.assumeIsolated {
+                guard let self else { timer.invalidate(); return }
+                let t = min(1, (ProcessInfo.processInfo.systemUptime - start) / 0.12), eased = t * t * (3 - 2 * t)
+                self.displayedLength = oldLength + (length - oldLength) * eased
+                self.displayedAlpha = oldAlpha + (alpha - oldAlpha) * eased
+                self.needsDisplay = true
+                if t >= 1 { timer.invalidate() }
+            }
+        }
+        RunLoop.main.add(animation!, forMode: .common)
+    }
     override func draw(_ dirtyRect: NSRect) {
         NSColor.clear.setFill(); dirtyRect.fill(using: .copy)
-        guard hovering || dragging else { return }
-        let length = min(dragging ? 104.0 : 40.0, axis == .horizontal ? bounds.height : bounds.width)
+        guard displayedAlpha > 0 else { return }
+        let length = min(displayedLength, axis == .horizontal ? bounds.height : bounds.width)
         let rect = axis == .horizontal ? NSRect(x: bounds.midX - 1, y: bounds.midY - length / 2, width: 2, height: length) : NSRect(x: bounds.midX - length / 2, y: bounds.midY - 1, width: length, height: 2)
-        NSColor.labelColor.withAlphaComponent(0.85).setFill(); NSBezierPath(roundedRect: rect, xRadius: 1, yRadius: 1).fill()
+        (lightInk ? NSColor.white : .black).withAlphaComponent(displayedAlpha).setFill(); NSBezierPath(roundedRect: rect, xRadius: 1, yRadius: 1).fill()
     }
 }

@@ -14,15 +14,38 @@ import Carbon.HIToolbox
 }
 
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
-    let model = WorkspaceController()
+    let model: WorkspaceController = {
+        if let flag = CommandLine.arguments.firstIndex(of: "--fixture-pid"), CommandLine.arguments.count > flag + 1, let pid = Int32(CommandLine.arguments[flag + 1]) {
+            var settings = MacSettings(); settings.onboardingComplete = true; settings.splitHold = 0
+            return WorkspaceController(system: MacWindowSystem(allowedPIDs: [pid]), settings: settings)
+        }
+        return WorkspaceController()
+    }()
     let updater = MacUpdater()
     private var interactions: DesktopInteractions?
     private var statusItem: NSStatusItem!
+    private var statusMenu = NSMenu()
     private var window: NSWindow?
     private var hotKey: GlobalHotKey?
+    private var registeredShortcut: ShortcutConfig?
     private var canTerminate = false
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.applicationIconImage = BentoStyle.icon
+        if let flag = CommandLine.arguments.firstIndex(of: "--external-ax-smoke"), CommandLine.arguments.count > flag + 2, let pid = Int32(CommandLine.arguments[flag + 1]) {
+            Task {
+                do { try await ExternalAXSmoke.run(pid: pid, output: URL(fileURLWithPath: CommandLine.arguments[flag + 2])); exit(0) }
+                catch { fputs("External AX smoke failed: \(error.localizedDescription)\n", stderr); exit(1) }
+            }
+            return
+        }
+        if CommandLine.arguments.contains("--diagnose-windows") {
+            do {
+                let found = try model.system.discover()
+                print("Accessibility: \(model.system.trusted); eligible windows: \(found.count)")
+                for window in found { print("\(window.application): \(window.frame)") }
+            } catch { print(error.localizedDescription) }
+            exit(model.system.trusted ? 0 : 2)
+        }
         if let flag = CommandLine.arguments.firstIndex(of: "--interaction-smoke"), CommandLine.arguments.count > flag + 1 {
             Task {
                 do { try await NativeInteractionSmoke.run(at: URL(fileURLWithPath: CommandLine.arguments[flag + 1])); exit(0) }
@@ -41,7 +64,7 @@ import Carbon.HIToolbox
             existing.activate(); exit(0)
         }
         model.recoverDesktopPreferences()
-        interactions = DesktopInteractions(model: model)
+        interactions = DesktopInteractions(model: model, trace: CommandLine.arguments.contains("--fixture-pid") ? { print($0) } : nil)
         model.cancelInteraction = { [weak self] in await self?.interactions?.finish(cancel: true) }
         updater.beforeInstall = { [weak self] in
             guard let self else { return false }
@@ -66,30 +89,80 @@ import Carbon.HIToolbox
                 lines.move(to: NSPoint(x: 7, y: 2)); lines.line(to: NSPoint(x: 7, y: 16))
                 lines.move(to: NSPoint(x: 7, y: 9)); lines.line(to: NSPoint(x: 17, y: 9)); lines.stroke(); return true
             }
-            image.isTemplate = true; button.image = image; button.toolTip = "Bento — window layouts"
+            image.isTemplate = true; button.image = image
+            button.target = self; button.action = #selector(statusClicked)
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            button.setAccessibilityLabel("Bento — toggle layout; right-click for menu")
         }
-        updateMenu(); model.onStateChange = { [weak self] in self?.updateMenu(); self?.interactions?.synchronize() }
-        hotKey = GlobalHotKey { [weak self] in self?.model.toggle() }
-        if hotKey?.registered == false { model.message = "The ⌃⌥B shortcut is unavailable. Use Bento in the menu bar." }
-        showWindow(onboarding: !model.settings.onboardingComplete)
+        updateMenu(); model.onStateChange = { [weak self] in self?.updateMenu(); self?.interactions?.synchronize(); self?.writeFixtureState() }
+        model.onSettingsChange = { [weak self] in self?.configureShortcut(); self?.interactions?.synchronize() }
+        configureShortcut()
+        let launchEvent = NSAppleEventManager.shared().currentAppleEvent
+        let launchedAtLogin = launchEvent?.eventID == kAEOpenApplication && launchEvent?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
+        if CommandLine.arguments.contains("--fixture-auto-start") { Task { await model.arrange() } }
+        else if !launchedAtLogin || !model.settings.onboardingComplete { showWindow(onboarding: !model.settings.onboardingComplete) }
+        model.refresh()
     }
     private func updateMenu() {
         let menu = NSMenu()
         func item(_ title: String, _ action: Selector) { let i = NSMenuItem(title: title, action: action, keyEquivalent: ""); i.target = self; menu.addItem(i) }
         item(model.active ? "Turn Bento off" : "Arrange windows", #selector(toggle))
+        item("Arrange all windows", #selector(arrangeAll))
+        item("Release active window", #selector(releaseActive))
         item("Restore original positions", #selector(restore))
+        item("Save Bento", #selector(saveLayout))
+        item("Restore saved layout", #selector(loadLayout))
+        item("Undo", #selector(undo)); item("Redo", #selector(redo))
         menu.addItem(.separator())
         item("Settings…", #selector(settings)); item("View onboarding…", #selector(onboarding))
         item("Check for updates…", #selector(checkUpdates))
         menu.addItem(.separator()); item("Quit Bento", #selector(quit))
-        statusItem.menu = menu
+        statusMenu = menu
+        statusItem.button?.appearsDisabled = !model.active
+        statusItem.button?.toolTip = model.active ? "Bento is on — click to restore windows; right-click for menu" : "Bento is off — click to arrange windows; right-click for menu"
     }
-    @objc private func toggle() { model.toggle() }
+    @objc private func statusClicked() {
+        guard let button = statusItem.button else { return }
+        if NSApp.currentEvent?.type == .rightMouseUp || NSApp.currentEvent?.modifierFlags.contains(.control) == true {
+            statusMenu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.minY), in: button)
+        } else { toggle() }
+    }
+    @objc private func toggle() {
+        Task {
+            await model.toggleLayout()
+            updateMenu()
+            if model.message != nil { model.page = "Workspace"; showWindow(onboarding: false) }
+        }
+    }
+    private func configureShortcut() {
+        guard registeredShortcut != model.settings.shortcut else { return }
+        hotKey = nil; registeredShortcut = model.settings.shortcut
+        hotKey = GlobalHotKey(config: model.settings.shortcut) { [weak self] in self?.toggle() }
+        if hotKey?.registered == false { model.message = "The \(model.settings.shortcut.label) shortcut is unavailable. Choose another combination or use Bento in the menu bar." }
+    }
+    @objc private func arrangeAll() { Task { await model.arrange(); updateMenu(); if model.message != nil { showWindow(onboarding: false) } } }
+    @objc private func releaseActive() { Task { await model.releaseActiveWindow() } }
+    @objc private func saveLayout() { model.saveLayout() }
+    @objc private func loadLayout() { Task { await model.loadLayout() } }
+    @objc private func undo() { Task { await model.undo() } }
+    @objc private func redo() { Task { await model.undo(redo: true) } }
+    private func writeFixtureState() {
+        guard CommandLine.arguments.contains("--fixture-pid"), let flag = CommandLine.arguments.firstIndex(of: "--fixture-state"), CommandLine.arguments.count > flag + 1 else { return }
+        let records = model.windows.map { window -> [String: Any] in
+            let rect = model.system.frame(of: window.element) ?? window.frame
+            return ["title": window.title, "x": rect.x, "y": rect.y, "width": rect.width, "height": rect.height]
+        }
+        let object: [String: Any] = ["active": model.active, "windows": records, "message": model.message ?? "", "layout": (try? String(data: JSONEncoder().encode(model.history.current), encoding: .utf8)) ?? ""]
+        try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]).write(to: URL(fileURLWithPath: CommandLine.arguments[flag + 1]), options: .atomic)
+    }
     @objc private func restore() { Task { await model.restore() } }
     @objc private func settings() { showWindow(onboarding: false) }
     @objc private func onboarding() { showWindow(onboarding: true) }
     @objc private func quit() { NSApp.terminate(nil) }
     @objc private func checkUpdates() { if updater.ready { updater.check() } else { model.page = "Updates"; showWindow(onboarding: false) } }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showWindow(onboarding: !model.settings.onboardingComplete); return true
+    }
     func showWindow(onboarding: Bool) {
         window?.close()
         let content: AnyView
@@ -180,8 +253,10 @@ struct ThemedRoot: View {
     private var reference: EventHotKeyRef?, handler: EventHandlerRef?
     let action: () -> Void
     private(set) var registered = false
-    init(action: @escaping () -> Void) {
+    init(config: ShortcutConfig = ShortcutConfig(), action: @escaping () -> Void) {
         self.action = action
+        guard config.enabled else { registered = true; return }
+        guard config.valid, let code = config.keyCode else { return }
         var event = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         let context = Unmanaged.passUnretained(self).toOpaque()
         let installed = InstallEventHandler(GetApplicationEventTarget(), { _, _, context in
@@ -191,7 +266,7 @@ struct ThemedRoot: View {
             return noErr
         }, 1, &event, context, &handler)
         guard installed == noErr else { return }
-        registered = RegisterEventHotKey(UInt32(kVK_ANSI_B), UInt32(controlKey | optionKey), EventHotKeyID(signature: 0x424E544F, id: 1), GetApplicationEventTarget(), 0, &reference) == noErr
+        registered = RegisterEventHotKey(code, config.modifiers, EventHotKeyID(signature: 0x424E544F, id: 1), GetApplicationEventTarget(), 0, &reference) == noErr
     }
     deinit { if let reference { UnregisterEventHotKey(reference) }; if let handler { RemoveEventHandler(handler) } }
 }

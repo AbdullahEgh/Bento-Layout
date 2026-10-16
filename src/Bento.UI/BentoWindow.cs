@@ -19,6 +19,7 @@ public sealed class BentoWindow : Window
     private BentoSettings draft;
     private string page = "Workspace";
     private bool busy;
+    private bool? draftStartAtLogin;
     private readonly System.Threading.CancellationTokenSource lifetime = new();
 
     public BentoWindow(BentoController controller)
@@ -125,6 +126,7 @@ public sealed class BentoWindow : Window
         {
             if (!string.IsNullOrWhiteSpace(draft.UpdateRepository)) draft = draft with { UpdateRepository = UpdateService.NormalizeRepository(draft.UpdateRepository) };
             if (!controller.UpdateSettings(draft)) { feedback.Text = controller.Status; return false; }
+            if (draftStartAtLogin is bool startAtLogin) { LoginStartup.SetEnabled(startAtLogin); draftStartAtLogin = null; }
             feedback.Text = "Changes saved"; return true;
         }
         catch (Exception ex) { feedback.Text = ex.Message; return false; }
@@ -162,6 +164,12 @@ public sealed class BentoWindow : Window
         var appearance = new ComboBox { ItemsSource = new[] { "System", "Light", "Dark" }, SelectedItem = draft.Theme };
         appearance.SelectionChanged += (_, _) => { draft = draft with { Theme = (string)appearance.SelectedItem }; Dirty(); };
         Row(layout, "Appearance", "Follow Windows or choose your own", appearance);
+        var startup = Card("Startup");
+        try
+        {
+            Row(startup, "Start at login", "Open Bento in the tray when you sign in.\nUses this installation folder; no administrator access needed.", Toggle(draftStartAtLogin ?? LoginStartup.IsEnabled, enabled => draftStartAtLogin = enabled));
+        }
+        catch (Exception ex) { startup.Children.Add(Label($"Could not read Start at login: {ex.Message}", true)); }
         var restore = new Button { Content = Symbols.Caption("Restore original window positions", "Restore"), HorizontalAlignment = HorizontalAlignment.Left };
         AutomationProperties.SetName(restore, "Restore original window positions");
         restore.Click += (_, _) => { controller.RestoreAll(); feedback.Text = controller.Status; SelectPage(page); }; content.Children.Add(restore);

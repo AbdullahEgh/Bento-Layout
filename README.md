@@ -55,6 +55,8 @@ Bento 0.3.4 opens a compact interface with Workspace, Gestures, Updates and What
 
 **Let Bento handle edge snapping**, under Gestures, temporarily disables the Windows window-arrangement setting for all applications while Bento is active. It is off by default. Pausing, restoring windows or exiting restores the previous value. A journal recovers an interrupted session on the next launch; Windows sign-out also resets this session-only setting. It does not change security settings.
 
+Workspace → **Start at login** enables Bento for your Windows account after **Save changes**. It uses a quoted path to this installation in the per-user Run entry and opens quietly in the tray at sign-in. Disable it in Bento to remove the entry; re-enable after moving the portable folder. The Mac version offers its own Login Items option.
+
 ## Updates
 
 The release source is [AbdullahEgh/Bento-Layout](https://github.com/AbdullahEgh/Bento-Layout). The repository is public and supports direct in-app checks and downloads. Packages can also be downloaded in a browser and selected with **Choose update file**. No GitHub credentials are collected by Bento. Optional startup checks are off by default.
@@ -99,7 +101,7 @@ Trees use horizontal (left/right) or vertical (top/bottom) binary splits. Removi
 
 Native changes capture rollback geometry and check whether applications accepted the requested bounds. Restoration is best effort if a process exits or denies access. HWND/process identity checks prevent restoring a recycled handle owned by another process. Bento runs at normal privileges: elevated or protected windows may refuse control and produce a clear error.
 
-Original app artwork is in `src/Bento.UI/Assets`: an SVG master, a 1024 px PNG and a Windows ICO with seven resolutions. `tools/Make-Icons.ps1` regenerates the PNG/ICO. Interface symbols are original vector paths. Visual principles follow [Apple's Human Interface Guidelines](https://developer.apple.com/design/human-interface-guidelines/app-icons/) while the current implementation remains native WPF. Layout and gesture policies are platform independent; macOS window control and UI are future work.
+Original app artwork is in `src/Bento.UI/Assets`: an SVG master, a 1024 px PNG and a Windows ICO with seven resolutions. `tools/Make-Icons.ps1` regenerates the PNG/ICO. Interface symbols are original vector paths. Visual principles follow [Apple's Human Interface Guidelines](https://developer.apple.com/design/human-interface-guidelines/app-icons/) while the current implementation remains native WPF. Layout and gesture policies are platform independent; the native macOS adapter and interface are in `macos/`.
 
 ## MVP scope and validation
 
