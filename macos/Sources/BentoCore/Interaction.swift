@@ -46,9 +46,11 @@ public struct DropProposal {
 public struct DropSession {
     public let original: Workspace
     public let source: WindowLeaf
+    public private(set) var conflictBounds: Rect?
     private var intent = DragIntent()
     public init(workspace: Workspace, source: WindowLeaf) { original = workspace; self.source = source }
     public mutating func propose(pointer: Point, areas: [String: Rect], gap: Int, hold: Int, now: Double) throws -> DropProposal? {
+        conflictBounds = nil
         guard let (display, area) = areas.first(where: { $0.value.contains(pointer) }), let root = original.roots[display],
               let target = try LayoutEngine.calculate(root, in: area, gap: gap).regions.first(where: { $0.bounds.contains(pointer) }),
               target.window.windowID != source.windowID else { intent.reset(); return nil }
@@ -67,9 +69,19 @@ public struct DropSession {
                     }
                 }
             }
-        } catch LayoutError.cannotFit { return nil }
+        } catch LayoutError.cannotFit { conflictBounds = target.bounds; return nil }
         guard let destination else { throw LayoutError.missingTarget }
         return DropProposal(workspace: next, bounds: destination, placement: gesture.placement, neighbors: neighbors,
                             progress: gesture.progress, waitingForSplit: gesture.waitingForSplit)
+    }
+}
+
+/// A shared, time-based curve keeps a batch of windows moving together.
+public enum WindowMotion {
+    public static func frame(from: Rect, to: Rect, progress: Double) -> Rect {
+        let t = max(0, min(1, progress.isFinite ? progress : 1))
+        let eased = t * t * (3 - 2 * t)
+        func mix(_ a: Int, _ b: Int) -> Int { Int((Double(a) + (Double(b) - Double(a)) * eased).rounded()) }
+        return Rect(mix(from.x, to.x), mix(from.y, to.y), mix(from.width, to.width), mix(from.height, to.height))
     }
 }

@@ -202,7 +202,7 @@ internal static class NativeTests
                 gestureTime += controller.Settings.SplitHoldMs - 1; controller.PreviewDrag(point);
                 Equal(target, Application.Current!.Windows.OfType<DropPreviewWindow>().Single(w => w.IsVisible).PreviewBounds);
                 gestureTime += 1; controller.PreviewDrag(point);
-                Equal(SlotPreview.Bounds(target, Placement.Bottom, controller.Settings.Gap), Application.Current.Windows.OfType<DropPreviewWindow>().Single(w => w.IsVisible).PreviewBounds);
+                Equal(controller.Layout(monitor).Regions.Single(r => r.Window.WindowId == fixtures[2].Id).Bounds, Application.Current.Windows.OfType<DropPreviewWindow>().Single(w => w.IsVisible).PreviewBounds);
                 for (int i = 0; i < fixtures.Length; i++) Equal(originalBounds[i], native.VisibleBounds(fixtures[i].Id));
                 controller.FinishDrag(point); Pump();
                 Equal(3, controller.Layout(monitor).Regions.Count); VerifyBounds(controller.Layout(monitor), native);
@@ -220,7 +220,7 @@ internal static class NativeTests
                 Equal(sourceBounds, controller.Layout(monitor).Regions.Single(r => r.Window.WindowId == fixtures[1].Id).Bounds);
                 VerifyBounds(controller.Layout(monitor), native);
             });
-            Run("Moving a sibling highlights the old slot even when removal expands its final geometry", () =>
+            Run("Moving a sibling previews its final geometry after source removal", () =>
             {
                 static SplitNode Pair(LayoutNode node) => node is SplitNode { First: WindowNode, Second: WindowNode } pair ? pair
                     : node is SplitNode split ? Pair(split.First is SplitNode ? split.First : split.Second) : throw new Exception("Missing sibling pair.");
@@ -233,8 +233,7 @@ internal static class NativeTests
                 controller.BeginDrag(source.WindowId); controller.PreviewDrag(point);
                 gestureTime += controller.Settings.SplitHoldMs; controller.PreviewDrag(point);
                 var shown = Application.Current!.Windows.OfType<DropPreviewWindow>().Single(w => w.IsVisible).PreviewBounds;
-                Equal(SlotPreview.Bounds(original, placement, controller.Settings.Gap), shown);
-                Check(shown != controller.Layout(monitor).Regions.Single(r => r.Window.Id == source.Id).Bounds);
+                Equal(controller.Layout(monitor).Regions.Single(r => r.Window.Id == source.Id).Bounds, shown);
                 controller.CancelDrag();
             });
             Run("Wallpaper sampling reads the actual monitor through the Windows shell", () =>
@@ -288,7 +287,7 @@ internal static class NativeTests
                 }
                 Application.Current.Windows.OfType<BentoWindow>().Single().Close();
             });
-            Run("Grabber hit surfaces remain reachable after application windows move above them", () =>
+            Run("Grabbers remain below applications and above the background", () =>
             {
                 controller.ShowInterface();
                 var settingsWindow = Application.Current!.Windows.OfType<BentoWindow>().Single();
@@ -299,13 +298,14 @@ internal static class NativeTests
                 {
                     var bounds = handle.DesktopBounds;
                     var expected = new System.Windows.Interop.WindowInteropHelper(handle).Handle;
-                    var hit = WindowFromPoint(new System.Drawing.Point(bounds.X + bounds.Width / 2, bounds.Y + bounds.Height / 2));
-                    if (hit != expected)
+                    var backdrop = Application.Current.Windows.OfType<DesktopBackdropWindow>().First();
+                    Check(IsAbove(handle, backdrop));
+                    foreach (var fixture in fixtures)
                     {
-                        var title = new System.Text.StringBuilder(256); GetWindowText(hit, title, 256);
-                        bool above = false;
-                        for (nint next = GetWindow(expected, 2); next != 0; next = GetWindow(next, 2)) if (next == hit) { above = true; break; }
-                        throw new Exception($"Gap {bounds}: expected grabber {expected}, hit {hit} ({title}); helper bounds {native.VisibleBounds(expected.ToInt64())}; helper visible {handle.IsVisible}; above hit {above}; style {GetWindowLongPtr(expected, -20):X}.");
+                        bool belowApplication = false;
+                        for (nint next = GetWindow((nint)fixture.Id, 2); next != 0; next = GetWindow(next, 2))
+                            if (next == expected) { belowApplication = true; break; }
+                        Check(belowApplication);
                     }
                 }
                 settingsWindow.Close();

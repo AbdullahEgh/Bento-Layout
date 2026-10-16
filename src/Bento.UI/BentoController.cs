@@ -22,6 +22,9 @@ public sealed class BentoController : IDisposable
     private DropIntent intent;
     private PixelRect dropTargetBounds;
     private PixelPoint? touchPoint;
+    private readonly Dictionary<long, (AppWindow Window, WindowSnapshot Snapshot)> minimizedByBento = new();
+    private readonly HashSet<long> reopened = new();
+    public int MinimizedCount => minimizedByBento.Count;
     private readonly HashSet<long> released = new();
     private bool automatic;
     private WorkspaceState? lastBento;
@@ -84,16 +87,11 @@ public sealed class BentoController : IDisposable
     private void PlaceDividersBelowInterface()
     {
         if (disposed) return;
-        // HWND_NOTOPMOST does not raise an already non-topmost window. Explicitly
-        // lift the narrow input surfaces above application frames after activation.
-        foreach (var handle in dividers.Where(h => h.IsVisible)) DesktopIntegration.RaiseOverlay(new WindowInteropHelper(handle).Handle);
-        if (appWindow?.IsVisible == true && appWindow.IsActive && appWindow.WindowState != WindowState.Minimized)
-        {
-            var sibling = new WindowInteropHelper(appWindow).Handle;
-            // Keep helpers below focused settings without raising the settings window
-            // again when the user switches to another application.
-            foreach (var handle in dividers) DesktopIntegration.PlaceBelow(new WindowInteropHelper(handle).Handle, sibling);
-        }
+        var applications = Windows.Select(w => w.Id).ToList();
+        if (appWindow?.IsVisible == true && appWindow.WindowState != WindowState.Minimized)
+            applications.Add(new WindowInteropHelper(appWindow).Handle.ToInt64());
+        foreach (var handle in dividers.Where(h => h.IsVisible))
+            DesktopIntegration.PlaceBehindApplications(new WindowInteropHelper(handle).Handle, applications);
         RefreshBackdrops();
     }
     private void AppearanceChanged(object sender, Microsoft.Win32.UserPreferenceChangedEventArgs args) => Dispatch(() =>
@@ -168,8 +166,19 @@ public sealed class BentoController : IDisposable
         if (automatic && !Dragging && activeNativeDrag == 0) Synchronize();
         PlaceDividersBelowInterface();
     }
-    private IReadOnlyList<AppWindow> DiscoverWindows(bool useCache = true) => windowSource?.Invoke() ?? WindowCatalog.Discover(includeMinimized: false,
-        cache: useCache ? Windows.ToDictionary(w => w.Id) : null);
+    private IReadOnlyList<AppWindow> DiscoverWindows(bool useCache = true)
+    {
+        var visible = (windowSource?.Invoke() ?? WindowCatalog.Discover(includeMinimized: false,
+            cache: useCache ? Windows.ToDictionary(w => w.Id) : null)).ToList();
+        foreach (var (id, entry) in minimizedByBento.ToArray())
+        {
+            if (!WindowCatalog.Exists(id)) { minimizedByBento.Remove(id); continue; }
+            if (visible.Any(w => w.Id == id) && !WindowCatalog.IsMinimized(id))
+            { reopened.Add(id); minimizedByBento.Remove(id); }
+            else if (WindowCatalog.IsMinimized(id) && !visible.Any(w => w.Id == id)) visible.Add(entry.Window);
+        }
+        return visible;
+    }
     public void AutoArrangeAll()
     {
         if (activeNativeDrag != 0) return;
@@ -183,7 +192,7 @@ public sealed class BentoController : IDisposable
     {
         string membership = string.Join(";", Windows.Where(w => !released.Contains(w.Id)).OrderBy(w => w.Id)
             .Select(w => $"{w.Id}:{w.ProcessId}:{w.MonitorId}:{w.Minimum}")) + string.Join(";", monitors);
-        if (!rebuild && failedMembership == membership) return;
+        if (!rebuild && reopened.Count == 0 && failedMembership == membership) return;
         try
         {
             var eligible = Windows.Where(w => !released.Contains(w.Id)).ToArray();
@@ -198,23 +207,27 @@ public sealed class BentoController : IDisposable
             {
                 var assigned = eligible.Where(w => (string.IsNullOrEmpty(w.MonitorId) ? monitors.FirstOrDefault()?.Id : w.MonitorId) == monitor.Id).ToArray();
                 var existing = state.Roots.GetValueOrDefault(monitor.Id);
-                // A manually dragged window remains in its committed monitor until the user moves it again.
-                var additions = assigned.Where(w => !state.Windows.Any(n => n.WindowId == w.Id)).ToArray();
-                var retained = LayoutEngine.Windows(existing).ToArray();
-                if (rebuild || (existing is null && additions.Length > 0))
-                {
-                    var group = rebuild ? assigned.Select(w => WindowNode.Create(w.Id, w.Minimum)).ToArray()
-                        : retained.Concat(additions.Select(w => WindowNode.Create(w.Id, w.Minimum))).ToArray();
-                    state = state.WithRoot(monitor.Id, AutoLayout.Arrange(group, Area(monitor), Settings.Gap));
-                    changed = true;
-                }
-                else foreach (var window in additions)
-                {
-                    existing = AutoLayout.Insert(existing, WindowNode.Create(window.Id, window.Minimum), Area(monitor), Settings.Gap);
-                    state = state.WithRoot(monitor.Id, existing); changed = true;
-                }
+                var group = assigned.Select(w => WindowNode.Create(w.Id, w.Minimum)).ToArray();
+                var root = AutoLayout.Fitting(group, Area(monitor), Settings.Gap, rebuild ? null : existing, reopened);
+                if (!Equals(root, existing)) changed = true;
+                state = state.WithRoot(monitor.Id, root);
             }
-            if (changed && !Commit(state, restoreRemoved: false)) failedMembership = membership;
+            if (changed && !Commit(state)) { failedMembership = membership; return; }
+            var included = state.Windows.Select(w => w.WindowId).ToHashSet();
+            foreach (long id in included) minimizedByBento.Remove(id);
+            if (Settings.MinimizeOverflow)
+                foreach (var window in eligible.Where(w => !included.Contains(w.Id) && !minimizedByBento.ContainsKey(w.Id)))
+                {
+                    if (WindowCatalog.IsMinimized(window.Id)) continue;
+                    try
+                    {
+                        var snapshot = native.Capture(window.Id);
+                        native.Minimize(window.Id);
+                        if (WindowCatalog.IsMinimized(window.Id)) minimizedByBento[window.Id] = (window, snapshot);
+                    }
+                    catch { /* Unsupported apps stay visible without blocking the rest. */ }
+                }
+            reopened.Clear();
         }
         catch (Exception ex) { failedMembership = membership; Report(ex.Message); }
     }
@@ -393,7 +406,15 @@ public sealed class BentoController : IDisposable
             PresentDropPreview();
         }
         catch (Exception ex) when (ex is LayoutConstraintException or InvalidOperationException or System.ComponentModel.Win32Exception)
-        { if (liveResizeStart is not null) CancelDrag(); preview = null; previewDestination = null; dropPreview?.Hide(); Status = ex.Message; }
+        {
+            if (liveResizeStart is not null) CancelDrag();
+            preview = null; previewDestination = null; validPreview = false;
+            var monitor = monitors.FirstOrDefault(m => Area(m).Contains(point));
+            if (incoming is not null && monitor is not null)
+                (dropPreview ??= new DropPreviewWindow()).Present(dropTargetBounds, monitor.Scale, false, Placement.Center, 0, conflict: true);
+            else dropPreview?.Hide();
+            Status = ex.Message;
+        }
     }
     public void FinishDrag(PixelPoint? position = null)
     {
@@ -445,6 +466,7 @@ public sealed class BentoController : IDisposable
         try
         {
             Validate(state); Apply(history.Current, state, restoreRemoved, animate); history.Commit(state); failedMembership = null;
+            if (windowSource is null && state.Windows.Any()) SavedBentoLayout.Capture(state, Windows).Save();
             Status = "Windows arranged on the desktop.";
             RefreshDesktopDividers(); return true;
         }
@@ -462,15 +484,21 @@ public sealed class BentoController : IDisposable
             foreach (var id in next.Windows.Select(w => w.WindowId))
                 if (!originals.ContainsKey(id)) originals[id] = native.Capture(id);
             var nextIds = next.Windows.Select(w => w.WindowId).ToHashSet();
-            foreach (var old in previous.Windows.Where(w => restoreRemoved && !nextIds.Contains(w.WindowId)))
-                if (originals.TryGetValue(old.WindowId, out var original)) native.Restore(original);
+            var removed = previous.Windows.Where(w => restoreRemoved && !nextIds.Contains(w.WindowId))
+                .Where(w => originals.ContainsKey(w.WindowId)).Select(w => originals[w.WindowId]).ToArray();
             var regions = monitors.SelectMany(m => Layout(m, next).Regions).ToArray();
             transition?.Dispose(); transition = null;
-            if (animate && Settings.Animate && SystemParameters.ClientAreaAnimation && regions.Length <= 16)
+            if (animate && Settings.Animate && SystemParameters.ClientAreaAnimation && regions.Length + removed.Length <= 16)
             {
-                try { transition = new DesktopTransition(regions.Select(r => (r.Window.WindowId, native.VisibleBounds(r.Window.WindowId), r.Bounds)), Settings.AnimationMs); }
-                catch { transition = null; /* Unsupported/protected thumbnails fall back to a direct placement. */ }
+                try
+                {
+                    var moves = regions.Select(r => (r.Window.WindowId, native.VisibleBounds(r.Window.WindowId), r.Bounds))
+                        .Concat(removed.Select(s => (s.WindowId, native.VisibleBounds(s.WindowId), s.VisibleBounds)));
+                    transition = new DesktopTransition(moves, Settings.AnimationMs);
+                }
+                catch { transition = null; }
             }
+            foreach (var original in removed) native.Restore(original);
             foreach (var region in regions)
                 if (WindowCatalog.IsMinimized(region.Window.WindowId) || native.VisibleBounds(region.Window.WindowId) != region.Bounds)
                     native.Move(region.Window.WindowId, region.Bounds);
@@ -513,7 +541,12 @@ public sealed class BentoController : IDisposable
         if (Commit(new WorkspaceState()))
         {
             if (previous.Windows.Any()) lastBento = previous;
-            automatic = false; released.Clear();
+            foreach (var (id, entry) in minimizedByBento.ToArray())
+            {
+                try { native.Restore(entry.Snapshot); minimizedByBento.Remove(id); }
+                catch (Exception ex) { Report(ex.Message); }
+            }
+            automatic = false; released.Clear(); reopened.Clear();
             snapLease?.SetSuppressed(false);
             Status = "Windows restored · automatic arrangement paused · activate Bento again to resume";
             RefreshDesktopDividers();
@@ -572,11 +605,11 @@ public sealed class BentoController : IDisposable
         {
             var layout = Layout(monitor, preview);
             PixelRect? bounds = incoming is not null
-                ? previewDestination?.Monitor == monitor.Id ? SlotPreview.Bounds(dropTargetBounds, previewDestination.Value.Placement, Settings.Gap) : null
+                ? previewDestination?.Monitor == monitor.Id ? layout.Regions.FirstOrDefault(r => r.Window.WindowId == incoming.WindowId)?.Bounds : null
                 : layout.Dividers.FirstOrDefault(d => d.SplitId == divider?.SplitId)?.Bounds;
             if (bounds is null) continue;
             (dropPreview ??= new DropPreviewWindow()).Present(bounds.Value, monitor.Scale,
-                Settings.Animate && SystemParameters.ClientAreaAnimation);
+                Settings.Animate && SystemParameters.ClientAreaAnimation, previewDestination?.Placement ?? Placement.Center, intent.Progress);
             return;
         }
         dropPreview?.Hide();

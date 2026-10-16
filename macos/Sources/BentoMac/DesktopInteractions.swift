@@ -124,7 +124,10 @@ struct DesktopInput {
         do {
             if let proposal = try session?.propose(pointer: input().point, areas: areas(), gap: model.settings.gap, hold: model.settings.splitHold, now: input().time) {
                 candidate = proposal.workspace; preview.present(proposal)
-            } else { candidate = nil; preview.orderOut(nil) }
+            } else {
+                candidate = nil
+                if let bounds = session?.conflictBounds { preview.presentConflict(bounds) } else { preview.orderOut(nil) }
+            }
         } catch { candidate = nil; preview.orderOut(nil) }
     }
     private func updateNativeResize(window: ManagedWindow, frame: Rect) {
@@ -186,6 +189,14 @@ struct DesktopInput {
 @MainActor final class DestinationPanel {
     private var panels: [PreviewSlotPanel] = []
     func orderOut(_ sender: Any?) { panels.forEach { $0.orderOut(sender) } }
+    func presentConflict(_ bounds: Rect) {
+        if panels.isEmpty { panels.append(PreviewSlotPanel()) }
+        for panel in panels.dropFirst() { panel.orderOut(nil) }
+        let panel = panels[0]
+        panel.slotView.primary = true; panel.slotView.conflict = true; panel.slotView.progress = nil
+        panel.setFrame(DesktopCoordinates.appKit(bounds), display: true)
+        panel.slotView.needsDisplay = true; panel.orderFrontRegardless()
+    }
     func present(_ proposal: DropProposal) {
         let rectangles = [proposal.bounds] + proposal.neighbors
         while panels.count < rectangles.count { panels.append(PreviewSlotPanel()) }
@@ -194,7 +205,8 @@ struct DesktopInput {
             let primary = index == 0
             panel.slotView.primary = primary
             panel.slotView.progress = proposal.waitingForSplit ? proposal.progress : nil
-            panel.slotView.caption = primary ? (proposal.waitingForSplit ? "Hold to split" : proposal.placement == .center ? "Release to swap" : "Release to split") : ""
+            panel.slotView.conflict = false
+            panel.slotView.placement = proposal.placement
             panel.setFrame(DesktopCoordinates.appKit(rectangles[index]), display: true)
             panel.slotView.needsDisplay = true
             if !panel.isVisible { panel.orderFrontRegardless() }
@@ -216,29 +228,34 @@ struct DesktopInput {
 }
 
 @MainActor final class PreviewSlotView: NSView {
-    var primary = true, caption = "Release to split"
+    var primary = true, conflict = false
+    var placement = Placement.center
     var progress: Double?
     override func draw(_ dirtyRect: NSRect) {
         NSBezierPath(rect: bounds).addClip()
         NSColor.clear.setFill(); bounds.fill(using: .copy)
-        let outline = NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 2), xRadius: 10, yRadius: 10)
-        let accent = NSColor(calibratedRed: 0.24, green: 0.78, blue: 0.73, alpha: 1)
-        accent.withAlphaComponent(primary ? 0.18 : 0.06).setFill(); outline.fill()
-        (primary ? accent : NSColor.white.withAlphaComponent(0.8)).setStroke()
-        outline.lineWidth = primary ? 2 : 1.5
-        if !primary { outline.setLineDash([6, 4], count: 2, phase: 0) }
+        let outline = NSBezierPath(roundedRect: bounds.insetBy(dx: 3, dy: 3), xRadius: 14, yRadius: 14)
+        let accent = conflict ? NSColor.systemOrange : NSColor(calibratedRed: 0.24, green: 0.78, blue: 0.73, alpha: 1)
+        accent.withAlphaComponent(primary ? 0.13 : 0.035).setFill(); outline.fill()
+        (primary ? accent.withAlphaComponent(0.95) : NSColor.white.withAlphaComponent(0.45)).setStroke()
+        outline.lineWidth = primary ? 2 : 1
+        if conflict { outline.setLineDash([5, 5], count: 2, phase: 0) }
         outline.stroke()
         guard primary else { return }
-        let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.white]
-        let title = caption as NSString, textSize = title.size(withAttributes: attributes)
-        let width = min(bounds.width - 16, textSize.width + 28), height: CGFloat = progress == nil ? 36 : 42
-        let chip = NSRect(x: bounds.midX - width / 2, y: bounds.midY - height / 2, width: width, height: height)
-        NSColor(calibratedWhite: 0.08, alpha: 0.94).setFill(); NSBezierPath(roundedRect: chip, xRadius: 10, yRadius: 10).fill()
-        title.draw(in: NSRect(x: chip.minX + 14, y: chip.midY - textSize.height / 2 + (progress == nil ? 0 : 3), width: width - 28, height: textSize.height), withAttributes: attributes)
+        let size = min(52.0, max(24, min(bounds.width, bounds.height) - 20))
+        let chip = NSRect(x: bounds.midX - size / 2, y: bounds.midY - size / 2, width: size, height: size)
+        NSColor(calibratedWhite: 0.09, alpha: 0.9).setFill()
+        NSBezierPath(roundedRect: chip, xRadius: 16, yRadius: 16).fill()
+        let name = conflict ? "exclamationmark.triangle" : (placement == .center && progress == nil ? "arrow.left.arrow.right" : (placement == .top || placement == .bottom ? "rectangle.split.1x2" : "rectangle.split.2x1"))
+        if let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(.init(pointSize: 21, weight: .medium).applying(.init(paletteColors: [accent]))) {
+            let icon = NSRect(x: chip.midX - 12, y: chip.midY - 12, width: 24, height: 24)
+            symbol.draw(in: icon)
+        }
         if let progress {
-            let track = NSRect(x: chip.minX + 14, y: chip.minY + 6, width: width - 28, height: 2)
-            NSColor.white.withAlphaComponent(0.2).setFill(); NSBezierPath(roundedRect: track, xRadius: 1, yRadius: 1).fill()
-            accent.setFill(); NSBezierPath(roundedRect: NSRect(x: track.minX, y: track.minY, width: track.width * progress, height: 2), xRadius: 1, yRadius: 1).fill()
+            let ring = NSBezierPath()
+            ring.appendArc(withCenter: NSPoint(x: chip.midX, y: chip.midY), radius: size / 2 + 5,
+                           startAngle: 90, endAngle: 90 - CGFloat(max(0, min(1, progress))) * 360, clockwise: true)
+            ring.lineWidth = 2; ring.lineCapStyle = .round; accent.setStroke(); ring.stroke()
         }
     }
 }
@@ -249,7 +266,7 @@ struct DesktopInput {
         gripView = GripView(axis: axis)
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isReleasedWhenClosed = false; isOpaque = false; backgroundColor = .clear
-        hasShadow = false; level = .normal; hidesOnDeactivate = false
+        hasShadow = false; level = NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue - 1); hidesOnDeactivate = false
         collectionBehavior = [.stationary, .ignoresCycle]; contentView = gripView
         setAccessibilityLabel("Bento resize divider")
     }
@@ -264,7 +281,8 @@ struct DesktopInput {
     var duration = 0.18
     var dragging = false { didSet { if oldValue != dragging { transition() } } }
     var hovering = false { didSet { if oldValue != hovering { transition() } } }
-    private var displayedLength = 40.0, displayedAlpha = 0.3
+    private var displayedLength = 40.0, displayedAlpha = 0.0
+    var visibleInk: Double { displayedAlpha }
     private var animation: Timer?
     private var tracking: NSTrackingArea?
     init(axis: Axis) { self.axis = axis; super.init(frame: .zero); setAccessibilityElement(true); setAccessibilityRole(.splitter); setAccessibilityLabel("Resize neighboring windows") }
@@ -286,7 +304,7 @@ struct DesktopInput {
     private func transition() {
         animation?.invalidate()
         let oldLength = displayedLength, oldAlpha = displayedAlpha
-        let length = dragging ? 104.0 : 40.0, alpha = hovering || dragging ? 0.85 : 0.3
+        let length = dragging ? 104.0 : 40.0, alpha = hovering || dragging ? 0.85 : 0.0
         guard animate, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { displayedLength = length; displayedAlpha = alpha; needsDisplay = true; return }
         let start = ProcessInfo.processInfo.systemUptime
         animation = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in

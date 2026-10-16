@@ -44,6 +44,21 @@ internal static class Program
                 Equal(n, result.Regions.Select(r => r.Window.WindowId).Distinct().Count());
             });
         }
+        Run("Overflow fitting retains usable windows", () =>
+        {
+            var huge = WindowNode.Create(99, new PixelSize(5000, 5000));
+            var root = AutoLayout.Fitting([W(1), huge, W(2)], Area);
+            Equal(2, LayoutEngine.Windows(root).Count());
+            Check(!LayoutEngine.Windows(root).Any(w => w.WindowId == 99));
+        });
+        Run("Reopened window gets priority over occupied slots", () =>
+        {
+            var large = WindowNode.Create(3, new PixelSize(700, 700));
+            var small = new[] { WindowNode.Create(1, new PixelSize(300, 300)), WindowNode.Create(2, new PixelSize(300, 300)) };
+            var area = new PixelRect(0, 0, 900, 800);
+            var root = AutoLayout.Fitting(small.Append(large).ToArray(), area, previous: AutoLayout.Arrange(small, area), priority: new HashSet<long> { 3 });
+            Equal(3L, LayoutEngine.Windows(root).Single().WindowId);
+        });
         Run("Automatic portrait layout", () =>
         { var a = new PixelRect(-1200, 0, 1080, 1920); AssertTiling(LayoutEngine.Calculate(AutoLayout.Arrange([W(1), W(2), W(3)], a), a).Regions, a); });
         Run("Automatic impossible layout reports constraints", () => Throws<LayoutConstraintException>(() => AutoLayout.Arrange([W(1), W(2)], new(0, 0, 200, 150))));

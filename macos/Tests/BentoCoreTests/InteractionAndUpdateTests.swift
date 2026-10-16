@@ -3,6 +3,27 @@ import CryptoKit
 @testable import BentoCore
 
 final class InteractionAndUpdateTests: XCTestCase {
+    func testMotionEndpointsAndMonotonicity() {
+        let a = Rect(-200, 30, 800, 400), b = Rect(30, -200, 400, 800)
+        XCTAssertEqual(WindowMotion.frame(from: a, to: b, progress: 0), a)
+        XCTAssertEqual(WindowMotion.frame(from: a, to: b, progress: 1), b)
+        var previous = a
+        for i in 1...100 {
+            let current = WindowMotion.frame(from: a, to: b, progress: Double(i) / 100)
+            XCTAssertGreaterThanOrEqual(current.x, previous.x)
+            XCTAssertLessThanOrEqual(current.width, previous.width)
+            XCTAssertGreaterThanOrEqual(current.width, b.width)
+            previous = current
+        }
+    }
+    func testDockReopenGetsSpaceBeforeExistingWindows() throws {
+        let big = leaf(700, 700), small = leaf(300, 300), other = leaf(300, 300)
+        let area = Rect(0, 0, 900, 800)
+        let old = try AutoLayout.arrange([small, other], in: area)
+        let next = try AutoLayout.fitting([small, other, big], in: area, preserving: old, prioritizing: [big.windowID])
+        XCTAssertEqual(next?.windows.map(\.windowID), [big.windowID])
+        _ = try LayoutEngine.calculate(next, in: area)
+    }
     private let area = Rect(0, 0, 1600, 1000)
     private func leaf(_ width: Int = 200, _ height: Int = 150) -> WindowLeaf { WindowLeaf(windowID: UUID(), minimum: Size(width, height)) }
     private func fixture() throws -> Workspace { Workspace(roots: ["A": try AutoLayout.arrange([leaf(), leaf(), leaf()], in: area)!]) }

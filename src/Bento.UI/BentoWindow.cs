@@ -15,7 +15,8 @@ public sealed class BentoWindow : Window
     private Button? pause;
     private readonly TextBlock feedback = new();
     private readonly DispatcherTimer refresh = new() { Interval = TimeSpan.FromSeconds(1) };
-    private readonly Button save;
+    private readonly DispatcherTimer autoSave = new() { Interval = TimeSpan.FromMilliseconds(350) };
+    private bool pendingSave;
     private BentoSettings draft;
     private string page = "Workspace";
     private bool busy;
@@ -58,11 +59,10 @@ public sealed class BentoWindow : Window
         scroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled; scroll.Padding = new Thickness(0, 0, 8, 0);
         main.Children.Add(scroll);
         var footer = new DockPanel { Margin = new Thickness(0, 18, 0, 0), LastChildFill = true };
-        save = new Button { Content = Symbols.Caption("Save changes", "Save"), Style = (Style)FindResource("Primary"), MinWidth = 118 };
-        AutomationProperties.SetName(save, "Save changes");
-        save.Click += (_, _) => Save(); DockPanel.SetDock(save, Dock.Right); footer.Children.Add(save);
         feedback.FontSize = 12; feedback.VerticalAlignment = VerticalAlignment.Center; feedback.Margin = new Thickness(0, 0, 12, 0); feedback.SetResourceReference(TextBlock.ForegroundProperty, "Secondary");
         footer.Children.Add(feedback); Grid.SetRow(footer, 1); main.Children.Add(footer); root.Children.Add(main); Content = root;
+        autoSave.Tick += (_, _) => { autoSave.Stop(); if (pendingSave) Save(); };
+        Closing += (_, _) => { autoSave.Stop(); if (pendingSave) Save(); };
         refresh.Tick += (_, _) => RefreshWorkspaceStatus();
         refresh.Start(); Closed += (_, _) => { refresh.Stop(); lifetime.Cancel(); };
         SelectPage("Workspace");
@@ -72,7 +72,7 @@ public sealed class BentoWindow : Window
         if (busy) return;
         page = name; content.Children.Clear(); scroll.ScrollToTop();
         bool reading = name is "What's New" or "Update Log";
-        save.Visibility = feedback.Visibility = reading ? Visibility.Collapsed : Visibility.Visible;
+        feedback.Visibility = reading ? Visibility.Collapsed : Visibility.Visible;
         foreach (var (key, button) in navigation) button.SetResourceReference(BackgroundProperty, key == (name == "Update Log" ? "What's New" : name) ? "Selection" : "Sidebar");
         switch (name) { case "Gestures": Gestures(); break; case "Updates": Updates(); break; case "What's New": WhatsNew(); break; case "Update Log": UpdateLog(); break; default: Workspace(); break; }
     }
@@ -119,7 +119,11 @@ public sealed class BentoWindow : Window
         slider.ValueChanged += (_, _) => { int n = (int)Math.Round(slider.Value); caption.Text = $"{n}{unit}"; changed(n); Dirty(); };
         panel.Children.Add(caption); panel.Children.Add(slider); return panel;
     }
-    private void Dirty() => feedback.Text = "Unsaved changes";
+    private void Dirty()
+    {
+        pendingSave = true; feedback.Text = "Saving…";
+        autoSave.Stop(); autoSave.Start();
+    }
     private bool Save()
     {
         try
@@ -127,7 +131,7 @@ public sealed class BentoWindow : Window
             if (!string.IsNullOrWhiteSpace(draft.UpdateRepository)) draft = draft with { UpdateRepository = UpdateService.NormalizeRepository(draft.UpdateRepository) };
             if (!controller.UpdateSettings(draft)) { feedback.Text = controller.Status; return false; }
             if (draftStartAtLogin is bool startAtLogin) { LoginStartup.SetEnabled(startAtLogin); draftStartAtLogin = null; }
-            feedback.Text = "Changes saved"; return true;
+            pendingSave = false; feedback.Text = "Saved automatically"; return true;
         }
         catch (Exception ex) { feedback.Text = ex.Message; return false; }
     }
@@ -161,6 +165,7 @@ public sealed class BentoWindow : Window
         Row(layout, "Space between windows", "Physical pixels", Range(draft.Gap, 4, 32, 2, " px", n => draft = draft with { Gap = n }));
         Row(layout, "Desktop margin", "Keep a little room around the edges", Range(draft.Margin, 0, 64, 2, " px", n => draft = draft with { Margin = n }));
         Row(layout, "Background darkness", "Behind windows and grabbers · clear to black", Range(draft.BackgroundDarkness, 0, 100, 5, "%", n => draft = draft with { BackgroundDarkness = n }));
+        Row(layout, "Minimize windows that do not fit", "Reopen from the taskbar to give a window priority. Restored when Bento turns off.", Toggle(draft.MinimizeOverflow, v => draft = draft with { MinimizeOverflow = v }));
         var appearance = new ComboBox { ItemsSource = new[] { "System", "Light", "Dark" }, SelectedItem = draft.Theme };
         appearance.SelectionChanged += (_, _) => { draft = draft with { Theme = (string)appearance.SelectedItem }; Dirty(); };
         Row(layout, "Appearance", "Follow Windows or choose your own", appearance);

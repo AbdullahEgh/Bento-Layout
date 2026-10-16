@@ -122,6 +122,15 @@ final class ManagedWindow {
         var role: CFTypeRef?
         return AXUIElementCopyAttributeValue(window.element, kAXRoleAttribute as CFString, &role) != .invalidUIElement
     }
+    func isMinimized(_ window: ManagedWindow) -> Bool {
+        attribute(window.element, kAXMinimizedAttribute) as? Bool ?? false
+    }
+    func setMinimized(_ window: ManagedWindow, _ minimized: Bool) throws {
+        guard trusted else { throw WindowFailure.permission }
+        guard AXUIElementSetAttributeValue(window.element, kAXMinimizedAttribute as CFString, minimized ? kCFBooleanTrue : kCFBooleanFalse) == .success else {
+            throw WindowFailure.rejected(window.title)
+        }
+    }
     func focusedWindow(in windows: [ManagedWindow]) -> ManagedWindow? {
         guard let application = NSWorkspace.shared.frontmostApplication else { return nil }
         let app = AXUIElementCreateApplication(application.processIdentifier)

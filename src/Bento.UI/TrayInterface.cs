@@ -8,7 +8,7 @@ internal sealed class TrayInterface : IDisposable
     public Forms.NotifyIcon Icon { get; }
     private readonly BentoController controller;
     private readonly Forms.ContextMenuStrip menu = new();
-    private readonly Forms.ToolStripMenuItem toggle, save, undo, redo, release;
+    private readonly Forms.ToolStripMenuItem toggle, undo, redo, release;
     private Drawing.Icon? image;
     private (bool Active, bool Dark, bool TaskbarDark)? appearance;
 
@@ -22,7 +22,6 @@ internal sealed class TrayInterface : IDisposable
             item.Click += (_, _) => Run(action); menu.Items.Add(item); return item;
         }
         toggle = Item("Turn Bento on", controller.ToggleBento);
-        save = Item("Save Bento", controller.SaveBento);
         Item("Arrange all windows", controller.AutoArrangeAll);
         menu.Items.Add(new Forms.ToolStripSeparator());
         undo = Item("Undo", controller.Undo); redo = Item("Redo", controller.Redo);
@@ -44,7 +43,6 @@ internal sealed class TrayInterface : IDisposable
         bool taskbarDark = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "SystemUsesLightTheme", 0) is int light && light == 0;
         toggle.Text = active ? "Turn Bento off · Restore windows" : "Turn Bento on";
         toggle.Checked = active;
-        save.Enabled = active && controller.ManagedCount > 0;
         undo.Enabled = redo.Enabled = release.Enabled = active;
         Icon.Text = active ? "Bento active · Click to restore windows" : "Bento inactive · Click to arrange windows";
         var next = (active, dark, taskbarDark);

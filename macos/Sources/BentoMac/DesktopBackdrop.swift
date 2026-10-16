@@ -10,7 +10,7 @@ import AppKit
                 let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
                 panel.isReleasedWhenClosed = false; panel.ignoresMouseEvents = true
                 panel.isOpaque = false; panel.hasShadow = false; panel.hidesOnDeactivate = false
-                panel.level = .normal; panel.collectionBehavior = [.stationary, .ignoresCycle]
+                panel.level = NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue - 2); panel.collectionBehavior = [.stationary, .ignoresCycle]
                 return panel
             }
         }

@@ -37,6 +37,7 @@ struct SettingsView: View {
             }
         }.frame(width: 820, height: 620).foregroundStyle(BentoStyle.text).background(BentoStyle.page)
             .disabled(model.busy || model.interacting || model.activating)
+            .onChange(of: model.settings.minimizeOverflow) { _, _ in model.saveSettings() }
             .onChange(of: model.settings.gap) { _, _ in model.saveSettings() }
             .onChange(of: model.settings.margin) { _, _ in model.saveSettings() }
             .onChange(of: model.settings.splitHold) { _, _ in model.saveSettings() }
@@ -57,7 +58,7 @@ struct SettingsView: View {
             BentoCard {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack { Circle().fill(!model.permission ? .orange : model.active ? BentoStyle.accent : BentoStyle.secondary).frame(width: 8, height: 8); Text(!model.permission ? "Accessibility access needed" : model.active ? "Bento is arranging your windows" : "Bento is off").font(.system(size: 14, weight: .medium)); Spacer() }
-                    Text(model.active ? "\(model.history.current.windows.count) arranged · \(model.floatingWindows.count) left alone · \(model.settings.shortcut.label)" : "\(model.windows.count) eligible windows · \(model.settings.shortcut.label)").font(.system(size: 12)).foregroundStyle(BentoStyle.secondary)
+                    Text(model.active ? "\(model.history.current.windows.count) arranged · \(model.minimizedByBento.count) in Dock · \(model.floatingWindows.count - model.minimizedByBento.count) left alone · \(model.settings.shortcut.label)" : "\(model.windows.count) eligible windows · \(model.settings.shortcut.label)").font(.system(size: 12)).foregroundStyle(BentoStyle.secondary)
                     HStack {
                         Button {
                             if model.permission { model.toggle() }
@@ -70,11 +71,11 @@ struct SettingsView: View {
                     if let message = model.message { Text(message).font(.system(size: 12)).foregroundStyle(BentoStyle.secondary).textSelection(.enabled) }
                     if model.active && !model.floatingWindows.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Windows left alone").font(.system(size: 12, weight: .medium))
+                            Text("Windows outside the layout").font(.system(size: 12, weight: .medium))
                             ForEach(model.floatingWindows, id: \.id) { window in
-                                Text("\(window.application) — \(window.title)").font(.system(size: 11)).lineLimit(2)
+                                Text("\(window.application) — \(window.title)\(model.minimizedByBento[window.id] == nil ? "" : " · In Dock")").font(.system(size: 11)).lineLimit(2)
                             }
-                            Text("These windows stay where they are. Bento retries when windows close or the display changes.").font(.system(size: 11))
+                            Text("Open a minimized window from the Dock to give it priority in the layout. Turning Bento off brings back windows minimized by Bento.").font(.system(size: 11))
                         }.foregroundStyle(BentoStyle.secondary)
                     }
                 }
@@ -93,7 +94,7 @@ struct SettingsView: View {
                     setting("Space between windows", symbol: "Gap", value: $model.settings.gap, range: 4...32)
                     setting("Desktop margin", symbol: "Margin", value: $model.settings.margin, range: 0...64)
                     HStack { settingLabel("Background darkness", symbol: "Darkness"); Slider(value: Binding(get: { Double(model.settings.backgroundDarkness) }, set: { model.settings.backgroundDarkness = Int($0) }), in: 0...100, step: 5); Text("\(model.settings.backgroundDarkness)%").monospacedDigit().frame(width: 36) }
-                    Toggle(isOn: $model.settings.animate) { settingLabel("Animate resize handles", symbol: "Animation") }.toggleStyle(.switch)
+                    Toggle(isOn: $model.settings.animate) { settingLabel("Smooth window transitions", symbol: "Animation") }.toggleStyle(.switch)
                     if model.settings.animate { HStack { settingLabel("Animation duration", symbol: "Duration"); Spacer(); Stepper("\(model.settings.animationMS) ms", value: $model.settings.animationMS, in: 80...400, step: 20).frame(width: 120) } }
                     Text("Motion follows macOS Reduce Motion. Background darkness applies while Bento is on.").font(.system(size: 11)).foregroundStyle(BentoStyle.secondary)
                     HStack { settingLabel("Appearance", symbol: "Appearance"); Spacer(); Picker("Appearance", selection: $model.settings.theme) { Text("System").tag("System"); Text("Light").tag("Light"); Text("Dark").tag("Dark") }.labelsHidden().frame(width: 130) }
@@ -101,7 +102,6 @@ struct SettingsView: View {
                 }.font(.system(size: 12))
             }
             HStack {
-                Button("Save Bento") { model.saveLayout() }.disabled(!model.active || model.busy)
                 Button("Restore saved layout") { Task { await model.loadLayout() } }.disabled(!model.permission || model.busy)
                 Spacer(); Button("Undo") { Task { await model.undo() } }.disabled(!model.active || model.busy)
                 Button("Redo") { Task { await model.undo(redo: true) } }.disabled(model.busy)
@@ -112,6 +112,7 @@ struct SettingsView: View {
         BentoCard {
                 VStack(alignment: .leading, spacing: 18) {
                     Text("When Bento activates").font(.system(size: 14, weight: .semibold))
+                    Toggle(isOn: $model.settings.minimizeOverflow) { settingLabel("Minimize windows that do not fit", symbol: "Restore") }.toggleStyle(.switch)
                     Toggle(isOn: $model.settings.hideDock) { settingLabel("Automatically hide the Dock", symbol: "Dock") }.toggleStyle(.switch)
                     Toggle(isOn: $model.settings.hideMenuBar) { settingLabel("Automatically hide the menu bar", symbol: "MenuBar") }.toggleStyle(.switch)
                     HStack {

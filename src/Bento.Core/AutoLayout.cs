@@ -3,6 +3,34 @@ namespace Bento.Core;
 /// <summary>Builds an adaptive split tree for every supplied window, without a fixed row/column grid.</summary>
 public static class AutoLayout
 {
+    public static LayoutNode? Fitting(IReadOnlyList<WindowNode> windows, PixelRect area, int gap = 8,
+        LayoutNode? previous = null, IReadOnlySet<long>? priority = null)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(gap);
+        if (windows.Select(w => w.WindowId).Distinct().Count() != windows.Count)
+            throw new ArgumentException("A window can appear only once.");
+        var ids = windows.Select(w => w.WindowId).ToHashSet();
+        if (priority?.Count > 0) previous = null;
+        foreach (var leaf in LayoutEngine.Windows(previous).ToArray())
+            previous = ids.Contains(leaf.WindowId)
+                ? LayoutEngine.Replace(previous!, leaf.Id, leaf with { Minimum = windows.First(w => w.WindowId == leaf.WindowId).Minimum })
+                : LayoutEngine.Remove(previous, leaf.WindowId);
+        try { LayoutEngine.Calculate(previous, area, gap); }
+        catch (LayoutConstraintException) { previous = null; }
+        if (previous is null && !(priority?.Count > 0))
+        {
+            try { return Arrange(windows, area, gap); }
+            catch (LayoutConstraintException) { }
+        }
+        foreach (var window in windows.OrderByDescending(w => priority?.Contains(w.WindowId) == true)
+                     .ThenBy(w => (long)w.Minimum.Width * w.Minimum.Height))
+        {
+            try { previous = Insert(previous, window, area, gap); }
+            catch (LayoutConstraintException) { }
+        }
+        return previous;
+    }
+
     public static LayoutNode? Arrange(IReadOnlyList<WindowNode> windows, PixelRect area, int gap = 8)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(gap);

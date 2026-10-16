@@ -13,10 +13,17 @@ import BentoCore
     var deferWrites = false
     var nativeMinimum: [UUID: Size] = [:]
     var writes: [UUID: Int] = [:]
+    var minimized = Set<UUID>()
+    var denyMinimize = false
+    override func isMinimized(_ window: ManagedWindow) -> Bool { minimized.contains(window.id) }
+    override func setMinimized(_ window: ManagedWindow, _ value: Bool) throws {
+        if denyMinimize { throw WindowFailure.rejected(window.title) }
+        if value { minimized.insert(window.id) } else { minimized.remove(window.id) }
+    }
     override var trusted: Bool { accessibilityGranted }
     override func discover() throws -> [ManagedWindow] {
         for (record, window) in records { record.frame = DesktopCoordinates.engine(window.frame) }
-        return records.map(\.0)
+        return records.map(\.0).filter { !minimized.contains($0.id) }
     }
     override func focusedWindow(in windows: [ManagedWindow]) -> ManagedWindow? { focused }
     override func frame(of element: AXUIElement) -> Rect? {
@@ -46,7 +53,8 @@ private final class FixturePreferences: PreferenceBackend {
     static func run(at output: URL) async throws {
         let system = FixtureWindowSystem(), preferences = FixturePreferences()
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        let model = WorkspaceController(system: system, settings: MacSettings(), preferences: ActivationOverrides(backend: preferences, journal: output.appendingPathComponent("fixture-preferences.json")), backgroundMonitoring: false)
+        var fixtureSettings = MacSettings(); fixtureSettings.animate = false; fixtureSettings.minimizeOverflow = false
+        let model = WorkspaceController(system: system, settings: fixtureSettings, preferences: ActivationOverrides(backend: preferences, journal: output.appendingPathComponent("fixture-preferences.json")), backgroundMonitoring: false)
         var input = DesktopInput(point: Point(0, 0), pressed: false, escape: false, time: 0)
         let interactions = DesktopInteractions(model: model, input: { input }, automaticSampling: false)
         model.cancelInteraction = { await interactions.finish(cancel: true) }
@@ -216,17 +224,49 @@ private final class FixturePreferences: PreferenceBackend {
             let activating = Task { await model.arrange() }
             try? await Task.sleep(for: .milliseconds(100)); await model.restore(); await activating.value
             try check(!model.active && system.records.map { DesktopCoordinates.engine($0.1.frame) } == initial, "Restoring during activation cancels the pending arrangement")
+            model.settings.animate = true
+            system.writes.removeAll()
+            await model.arrange()
+            try check(try matchingGeometry() && system.writes.values.allSatisfy { $0 > 1 }, "Animated activation sends intermediate frames and reaches exact final geometry")
+            await model.restore()
+            try check(system.records.map { DesktopCoordinates.engine($0.1.frame) } == initial, "Animated deactivation restores exact starting geometry")
+            let gripView = GripView(axis: .horizontal); gripView.animate = false
+            try check(gripView.visibleInk == 0, "Idle grip is fully hidden")
+            gripView.hovering = true
+            try check(gripView.visibleInk > 0, "Grip appears on hover")
+            gripView.dragging = true; gripView.hovering = false
+            try check(gripView.visibleInk > 0, "Grabbed grip stays visible outside hover")
+            gripView.dragging = false
+            try check(gripView.visibleInk == 0, "Grip hides after release away from hover")
+            model.settings.animate = false; model.settings.minimizeOverflow = true
+            oversized.minimum = Size(area.width + 100, 120)
+            await model.arrange()
+            try check(model.active && system.isMinimized(oversized) && model.minimizedByBento.count == 1, "Overflow window is minimized without blocking fitting windows")
+            await model.arrange(preserving: true)
+            try check(system.isMinimized(oversized) && model.history.current.windows.count == 2, "Reflow retains ownership of minimized overflow")
+            oversized.minimum = Size(160, 120)
+            try system.setMinimized(oversized, false)
+            await model.arrange(preserving: true)
+            try check(try model.history.current.windows.count == 3 && matchingGeometry() && model.minimizedByBento.isEmpty, "Reopening from Dock reinserts the window into split slots")
+            await model.restore()
+            oversized.minimum = Size(area.width + 100, 120)
+            await model.arrange(); await model.restore()
+            try check(!system.isMinimized(oversized) && model.minimizedByBento.isEmpty, "Deactivation brings back only Bento-minimized windows")
+            system.minimized.insert(oversized.id)
+            await model.arrange(); await model.restore()
+            try check(system.isMinimized(oversized), "Windows minimized before activation stay minimized")
+            system.minimized.removeAll(); system.denyMinimize = true
+            await model.arrange()
+            try check(model.active && model.minimizedByBento.isEmpty && model.history.current.windows.count == 2, "Minimize refusal does not stop fitting-window arrangement")
+            await model.restore(); system.denyMinimize = false; oversized.minimum = Size(160, 120)
             // Render only our own preview views for visual review, never desktop pixels.
-            let canvas = NSView(frame: NSRect(x: 0, y: 0, width: 920, height: 500))
+            let canvas = NSView(frame: NSRect(x: 0, y: 0, width: 1224, height: 500))
             canvas.wantsLayer = true; canvas.layer?.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1).cgColor
-            for (index, caption) in ["Hold to split", "Release to split", ""].enumerated() {
+            for index in 0..<4 {
                 let slot = PreviewSlotView(frame: NSRect(x: 12 + index * 304, y: 12, width: 288, height: 476))
-                slot.primary = index != 2; slot.caption = caption; slot.progress = index == 0 ? 0.55 : nil
+                slot.placement = index == 0 ? .center : .left; slot.progress = index == 1 ? 0.55 : nil
+                slot.conflict = index == 3
                 canvas.addSubview(slot)
-                if let bitmap = slot.bitmapImageRepForCachingDisplay(in: slot.bounds) {
-                    slot.cacheDisplay(in: slot.bounds, to: bitmap)
-                    try bitmap.representation(using: .png, properties: [:])?.write(to: output.appendingPathComponent("preview-\(index).png"))
-                }
             }
             if let bitmap = canvas.bitmapImageRepForCachingDisplay(in: canvas.bounds) {
                 canvas.cacheDisplay(in: canvas.bounds, to: bitmap)

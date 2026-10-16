@@ -4,10 +4,21 @@ public enum AutoLayout {
     /// Retain a valid edited layout where possible. If the full set cannot fit,
     /// admit smaller windows first and leave the remaining windows outside the tree.
     /// Only capacity errors are recoverable; invalid geometry still fails explicitly.
-    public static func fitting(_ windows: [WindowLeaf], in area: Rect, gap: Int = 8, preserving original: LayoutNode? = nil) throws -> LayoutNode? {
+    public static func fitting(_ windows: [WindowLeaf], in area: Rect, gap: Int = 8, preserving original: LayoutNode? = nil, prioritizing priority: Set<UUID> = []) throws -> LayoutNode? {
         guard gap >= 0, area.width >= 0, area.height >= 0,
               Set(windows.map(\.windowID)).count == windows.count,
               windows.allSatisfy({ $0.minimum.width > 0 && $0.minimum.height > 0 }) else { throw LayoutError.invalidInput }
+        if !priority.isEmpty {
+            // A window explicitly reopened from the Dock gets first choice of space.
+            // Insert remaining windows around it; never evict it for a smaller window.
+            var root: LayoutNode?
+            let ordered = windows.filter { priority.contains($0.windowID) } + windows.filter { !priority.contains($0.windowID) }
+            for window in ordered {
+                do { root = try insert(window, into: root, in: area, gap: gap) }
+                catch LayoutError.cannotFit { continue }
+            }
+            return root
+        }
         let byID = Dictionary(uniqueKeysWithValues: windows.map { ($0.windowID, $0) })
         var retained = original
         for leaf in original?.windows ?? [] {

@@ -8,6 +8,7 @@ public sealed class WindowSnapshot
 {
     internal Native.WindowPlacement Placement;
     internal PixelRect Bounds;
+    public PixelRect VisibleBounds { get; internal init; }
     public long WindowId { get; internal init; }
     public uint ProcessId { get; internal init; }
 }
@@ -31,7 +32,7 @@ public sealed class WindowController
         if (!Native.GetWindowPlacement((nint)id, ref placement) || !Native.GetWindowRect((nint)id, out var bounds))
             throw new InvalidOperationException("The application window is no longer available.");
         Native.GetWindowThreadProcessId((nint)id, out uint processId);
-        return new() { WindowId = id, ProcessId = processId, Placement = placement, Bounds = Geometry.FromNative(bounds) };
+        return new() { WindowId = id, ProcessId = processId, Placement = placement, Bounds = Geometry.FromNative(bounds), VisibleBounds = VisibleBounds(id) };
     }
 
     public void Restore(WindowSnapshot snapshot)

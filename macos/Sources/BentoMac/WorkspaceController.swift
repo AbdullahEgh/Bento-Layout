@@ -8,11 +8,13 @@ struct MacSettings: Codable {
     var hideDock = false; var hideMenuBar = false; var edgeSnapping = "Keep"
     var shortcut = ShortcutConfig()
     var backgroundDarkness = 50
+    var minimizeOverflow = true
     var animate = true; var animationMS = 180
     init() {}
-    enum CodingKeys: String, CodingKey { case gap, margin, splitHold, theme, onboardingComplete, hideDock, hideMenuBar, edgeSnapping, shortcut, backgroundDarkness, animate, animationMS }
+    enum CodingKeys: String, CodingKey { case minimizeOverflow, gap, margin, splitHold, theme, onboardingComplete, hideDock, hideMenuBar, edgeSnapping, shortcut, backgroundDarkness, animate, animationMS }
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        minimizeOverflow = try values.decodeIfPresent(Bool.self, forKey: .minimizeOverflow) ?? true
         gap = try values.decodeIfPresent(Int.self, forKey: .gap) ?? 8
         margin = try values.decodeIfPresent(Int.self, forKey: .margin) ?? 8
         splitHold = try values.decodeIfPresent(Int.self, forKey: .splitHold) ?? 900
@@ -60,6 +62,8 @@ struct SavedWorkspace: Codable {
     @Published var page = "Workspace"
     private(set) var history = LayoutHistory()
     private var originals: [UUID: (ManagedWindow, Rect)] = [:]
+    private(set) var minimizedByBento: [UUID: ManagedWindow] = [:]
+    private var reopenedWindows = Set<UUID>()
     private var timer: Timer?
     private var lastDisplays: [DisplayArea] = []
     private var released = Set<UUID>()
@@ -87,11 +91,40 @@ struct SavedWorkspace: Codable {
         guard permission, !busy, !interacting, !activating else { return }
         if active {
             do {
-                let current = try system.discover().filter { !released.contains($0.id) }
+                let current = try discoverWindows()
                 let displaysChanged = DisplayArea.all(margin: settings.margin) != lastDisplays
-                if displaysChanged || Set(current.map(\.id)) != Set(windows.map(\.id)) { windows = current; Task { await arrange(preserving: !displaysChanged) } }
+                if !reopenedWindows.isEmpty || displaysChanged || Set(current.map(\.id)) != Set(windows.map(\.id)) { windows = current; Task { await arrange(preserving: !displaysChanged) } }
             } catch { message = error.localizedDescription }
         }
+    }
+    private func discoverWindows() throws -> [ManagedWindow] {
+        var visible = try system.discover().filter { !released.contains($0.id) }
+        let visibleIDs = Set(visible.map(\.id))
+        for (id, window) in minimizedByBento {
+            guard system.isAlive(window) else { minimizedByBento.removeValue(forKey: id); continue }
+            if visibleIDs.contains(id) && !system.isMinimized(window) {
+                reopenedWindows.insert(id); minimizedByBento.removeValue(forKey: id)
+            } else if system.isMinimized(window) { visible.append(window) }
+        }
+        return visible
+    }
+    private func minimizeOverflow(included: Set<UUID>, current: [ManagedWindow]) {
+        guard settings.minimizeOverflow else { return }
+        for window in current where !included.contains(window.id) && minimizedByBento[window.id] == nil {
+            // Only own minimizations made by Bento, never those made before activation.
+            guard !system.isMinimized(window) else { continue }
+            do { try system.setMinimized(window, true); minimizedByBento[window.id] = window }
+            catch { /* Unsupported windows stay visible; other apps still arrange. */ }
+        }
+    }
+    private func restoreMinimized() async -> Int {
+        for (id, window) in minimizedByBento {
+            if !system.isAlive(window) { minimizedByBento.removeValue(forKey: id); continue }
+            try? system.setMinimized(window, false)
+        }
+        try? await Task.sleep(for: .milliseconds(150))
+        minimizedByBento = minimizedByBento.filter { system.isAlive($0.value) && system.isMinimized($0.value) }
+        return minimizedByBento.count
     }
     func deferActivationUntilPermission() { activateAfterPermission = true }
     func refreshPermissionStatus() {
@@ -110,7 +143,7 @@ struct SavedWorkspace: Codable {
     func refresh() {
         permission = system.trusted
         guard permission else { return }
-        do { windows = try system.discover().filter { !released.contains($0.id) }; message = windows.isEmpty ? "Open an application window to begin." : nil }
+        do { windows = try discoverWindows(); message = windows.isEmpty ? "Open an application window to begin." : nil }
         catch { message = error.localizedDescription }
     }
     func toggle() { Task { await toggleLayout() } }
@@ -132,7 +165,7 @@ struct SavedWorkspace: Codable {
         let wasActive = active
         do {
             if !preserving { released.removeAll() }
-            let current = try system.discover().filter { !released.contains($0.id) }; windows = current
+            let current = try discoverWindows(); windows = current
             guard !current.isEmpty else {
                 if preserving { history.commit(Workspace()); onStateChange?() }
                 message = "Open an application window to begin."; return
@@ -151,10 +184,10 @@ struct SavedWorkspace: Codable {
                 var next = Workspace()
                 for area in displays {
                     let members = current.filter { !excluded.contains($0.id) && display(for: $0, displays: displays)?.id == area.id }
-                    next.roots[area.id] = try AutoLayout.fitting(members.map(\.leaf), in: area.bounds, gap: settings.gap, preserving: previous.roots[area.id])
+                    next.roots[area.id] = try AutoLayout.fitting(members.map(\.leaf), in: area.bounds, gap: settings.gap, preserving: previous.roots[area.id], prioritizing: reopenedWindows)
                 }
                 let before = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0.minimum) })
-                do { try await apply(next, displays: displays, allowSkipping: true) }
+                do { try await apply(next, displays: displays, allowSkipping: true, animate: attempt == 0 && !preserving || !reopenedWindows.isEmpty) }
                 catch ArrangementFailure.window(let id) where attempt < attemptLimit {
                     excluded.insert(id); continue
                 }
@@ -171,7 +204,9 @@ struct SavedWorkspace: Codable {
                 // so turning Bento off cannot undo subsequent user movement of it.
                 let currentIDs = Set(current.map(\.id))
                 originals = originals.filter { included.contains($0.key) || !currentIDs.contains($0.key) }
-                lastDisplays = displays; history.commit(next); active = !included.isEmpty
+                minimizeOverflow(included: included, current: current)
+                reopenedWindows.removeAll()
+                lastDisplays = displays; history.commit(next); active = !included.isEmpty || !minimizedByBento.isEmpty
                 if !active { try desktopPreferences.restore() }
                 message = active ? nil : "No windows fit on this display. Your windows were left in their original positions."
                 onStateChange?(); return
@@ -181,7 +216,7 @@ struct SavedWorkspace: Codable {
             if !wasActive { do { try desktopPreferences.restore() } catch { message = "\(message ?? "") \(error.localizedDescription)" } }
         }
     }
-    func apply(_ workspace: Workspace, displays: [DisplayArea], allowSkipping: Bool = false, liveResize: Bool = false) async throws {
+    func apply(_ workspace: Workspace, displays: [DisplayArea], allowSkipping: Bool = false, liveResize: Bool = false, animate: Bool = true) async throws {
         guard !busy else { throw LayoutError.invalidInput }; busy = true; defer { busy = false }
         func write(_ window: ManagedWindow, frame: Rect) throws {
             do { try system.write(window, frame: frame) }
@@ -202,6 +237,10 @@ struct SavedWorkspace: Codable {
         for leaf in history.current.windows where !included.contains(leaf.windowID) {
             if let original = originals[leaf.windowID], windows.contains(where: { $0.id == leaf.windowID }) { plan.append(original) }
         }
+        for (window, _) in plan where minimizedByBento[window.id] != nil {
+            try system.setMinimized(window, false)
+            minimizedByBento.removeValue(forKey: window.id)
+        }
         // Capture all rollback rectangles before the first mutation. Never replace the
         // pre-activation snapshot during reflows or settings changes.
         var rollback: [(ManagedWindow, Rect)] = []
@@ -211,9 +250,7 @@ struct SavedWorkspace: Codable {
             if originals[window.id] == nil { originals[window.id] = (window, frame) }
         }
         do {
-            // Native apps often animate AX changes themselves. Sending intermediate
-            // sizes repeatedly forces expensive relayout and can trigger false minima.
-            for (window, rect) in plan where !system.accepted(window, rect) { try write(window, frame: rect) }
+            try await move(plan, animated: animate && !liveResize, write: write)
             if liveResize && interacting {
                 // Coalesce pointer samples at display cadence. Mouse-up performs the
                 // full settled verification and rolls back if an app refused a size.
@@ -250,6 +287,29 @@ struct SavedWorkspace: Codable {
             throw error
         }
     }
+    private func move(_ plan: [(ManagedWindow, Rect)], animated: Bool,
+                      write: (ManagedWindow, Rect) throws -> Void) async throws {
+        let changes = plan.compactMap { window, target -> (ManagedWindow, Rect, Rect)? in
+            guard let start = system.frame(of: window.element), start != target else { return nil }
+            return (window, start, target)
+        }
+        if animated && settings.animate && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            let start = ProcessInfo.processInfo.systemUptime
+            let duration = Double(settings.animationMS) / 1000
+            // One shared clock; slow AX clients skip stale frames instead of queuing
+            // per-window animations. Interactive grip samples are never animated twice.
+            while true {
+                let progress = (ProcessInfo.processInfo.systemUptime - start) / duration
+                if progress >= 1 { break }
+                for (window, from, to) in changes {
+                    let frame = WindowMotion.frame(from: from, to: to, progress: progress)
+                    if !system.accepted(window, frame) { try write(window, frame) }
+                }
+                try await Task.sleep(for: .milliseconds(16))
+            }
+        }
+        for (window, _, to) in changes { try write(window, to) }
+    }
     func restore() async {
         activateAfterPermission = false
         activationGeneration += 1
@@ -259,26 +319,26 @@ struct SavedWorkspace: Codable {
         if !history.current.windows.isEmpty { lastBento = history.current }
         var remaining: [UUID: (ManagedWindow, Rect)] = [:]
         let pending = originals.filter { system.isAlive($0.value.0) }
-        for (_, entry) in pending where !system.accepted(entry.0, entry.1) {
-            // Some apps acknowledge an AX write before updating their native frame.
-            try? system.write(entry.0, frame: entry.1)
+        try? await move(Array(pending.values), animated: true) { window, frame in
+            try? self.system.write(window, frame: frame)
         }
         try? await Task.sleep(for: .milliseconds(100))
         for (id, entry) in pending where system.isAlive(entry.0) && !system.accepted(entry.0, entry.1) { remaining[id] = entry }
-        originals = remaining; released.removeAll(); active = false; history = LayoutHistory()
-        message = remaining.isEmpty ? nil : system.trusted
-            ? "\(remaining.count) window(s) could not return to their original size or position. Try Restore again after checking the app and display."
+        let minimizedFailures = await restoreMinimized()
+        originals = remaining; released.removeAll(); reopenedWindows.removeAll(); active = false; history = LayoutHistory()
+        message = remaining.isEmpty && minimizedFailures == 0 ? nil : system.trusted
+            ? "\(remaining.count + minimizedFailures) window(s) could not return to their original size or position. Try Restore again after checking the app and display."
             : WindowFailure.permission.localizedDescription
         onStateChange?()
         do { try desktopPreferences.restore() } catch { message = error.localizedDescription }
     }
-    func saveLayout() {
+    func saveLayout(quiet: Bool = false) {
         guard active else { message = "Arrange windows before saving a layout."; return }
         let matches = Dictionary(uniqueKeysWithValues: windows.map { ($0.id, SavedWorkspace.Match(bundleID: $0.bundleID, title: $0.title)) })
         do {
             try FileManager.default.createDirectory(at: MacSettings.directory, withIntermediateDirectories: true)
             try JSONEncoder().encode(SavedWorkspace(version: 1, platform: "macOS", workspace: history.current, applications: matches)).write(to: SavedWorkspace.url, options: .atomic)
-            message = "Bento layout saved on this Mac."
+            if !quiet { message = "Bento layout saved on this Mac." }
         } catch { message = error.localizedDescription }
     }
     func releaseActiveWindow() async {

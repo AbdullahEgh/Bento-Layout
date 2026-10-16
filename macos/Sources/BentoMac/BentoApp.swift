@@ -94,7 +94,7 @@ import Carbon.HIToolbox
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.setAccessibilityLabel("Bento — toggle layout; right-click for menu")
         }
-        updateMenu(); model.onStateChange = { [weak self] in self?.updateMenu(); self?.interactions?.synchronize(); self?.writeFixtureState() }
+        updateMenu(); model.onStateChange = { [weak self] in self?.updateMenu(); self?.interactions?.synchronize(); self?.writeFixtureState(); if self?.model.active == true { self?.model.saveLayout(quiet: true) } }
         model.onSettingsChange = { [weak self] in self?.configureShortcut(); self?.interactions?.synchronize() }
         configureShortcut()
         let launchEvent = NSAppleEventManager.shared().currentAppleEvent
@@ -110,7 +110,6 @@ import Carbon.HIToolbox
         item("Arrange all windows", #selector(arrangeAll))
         item("Release active window", #selector(releaseActive))
         item("Restore original positions", #selector(restore))
-        item("Save Bento", #selector(saveLayout))
         item("Restore saved layout", #selector(loadLayout))
         item("Undo", #selector(undo)); item("Redo", #selector(redo))
         menu.addItem(.separator())
