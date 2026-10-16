@@ -2,6 +2,8 @@
 
 Local release build passed, with 32 core tests and 61 isolated native interaction checks. Added coverage for off-center grabs on both axes, odd/even gaps, minimum-size clamping, stationary pointer samples, rapid release retaining the newest queued sample, delayed native frame acceptance without a second animation, and final helper geometry. Results: `artifacts/macos/split-ux-review/results/results.json`.
 
+[macOS 15/26 run 38940151055](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/38940151055) passed at `3ec8874`, including universal builds, startup, native interaction checks, and the signed OTA fixture.
+
 The live pointer test remains paused at the user's request. These checks use disposable fixture windows, leave external app windows and system preferences alone, and do not establish physical hover/drag feel. The installed 0.2.9 app is unchanged by this review.
 
 # macOS 0.2.9 grabber input and responsive settings — 2026-10-16

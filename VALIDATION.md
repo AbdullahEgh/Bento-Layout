@@ -1,6 +1,6 @@
 # Split and resize UX review — unreleased, 2026-10-16
 
-Added off-center drag checks for horizontal/vertical splits with odd/even gaps and minimum-size limits. A native regression checks both immediate z-order neighbors before/after moving and resetting a grabber, before the controller can repair its stacking position. Existing live resize, cancellation, commit, and settings coverage remains enabled. Windows execution is pending CI; this Mac cannot execute WPF tests.
+Added off-center drag checks for horizontal/vertical splits with odd/even gaps and minimum-size limits. A native regression checks both immediate z-order neighbors before/after moving and resetting a grabber, before the controller can repair its stacking position. Existing live resize, cancellation, commit, and settings coverage remains enabled. [Windows run 38940150945](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/38940150945) passed at `3ec8874`: 136 core/native checks plus six settings checks, with zero build warnings/errors. Execution used disposable external fixture windows on the Windows CI runner; no physical Windows pointer test was performed on this Mac.
 
 # Windows 0.3.8 responsive settings — 2026-10-16
 
