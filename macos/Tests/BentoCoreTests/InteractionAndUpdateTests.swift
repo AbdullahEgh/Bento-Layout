@@ -3,6 +3,17 @@ import CryptoKit
 @testable import BentoCore
 
 final class InteractionAndUpdateTests: XCTestCase {
+    func testImpossibleDropShowsConflictWithoutChangingWorkspace() throws {
+        let a = leaf(900, 100), b = leaf(200, 100), area = Rect(0, 0, 1000, 500)
+        let state = Workspace(roots: ["A": .split(id: UUID(), axis: .vertical, ratio: 0.5, first: .window(a), second: .window(b))])
+        let target = try LayoutEngine.calculate(state.roots["A"], in: area).regions[1].bounds
+        var session = DropSession(workspace: state, source: a)
+        XCTAssertNil(try session.propose(pointer: Point(target.x + 2, target.y + target.height / 2), areas: ["A": area], gap: 8, hold: 0, now: 0))
+        XCTAssertEqual(session.conflictBounds, target)
+        XCTAssertEqual(session.original, state)
+        _ = try session.propose(pointer: Point(-50, -50), areas: ["A": area], gap: 8, hold: 0, now: 1)
+        XCTAssertNil(session.conflictBounds)
+    }
     func testMotionEndpointsAndMonotonicity() {
         let a = Rect(-200, 30, 800, 400), b = Rect(30, -200, 400, 800)
         XCTAssertEqual(WindowMotion.frame(from: a, to: b, progress: 0), a)

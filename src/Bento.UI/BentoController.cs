@@ -235,6 +235,7 @@ public sealed class BentoController : IDisposable
                     }
                     catch { /* Unsupported apps stay visible without blocking the rest. */ }
                 }
+            failedMembership = excluded?.Count > 0 ? membership : null;
             reopened.Clear();
         }
         catch (Exception ex) { failedMembership = membership; Report(ex.Message); }
