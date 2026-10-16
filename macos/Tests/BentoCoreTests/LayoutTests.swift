@@ -68,6 +68,36 @@ final class LayoutTests: XCTestCase {
         let invalid = LayoutNode.split(id: UUID(), axis: .horizontal, ratio: .nan, first: .window(window()), second: .window(window()))
         XCTAssertThrowsError(try LayoutEngine.calculate(invalid, in: area))
     }
+    func testFittingLeavesOversizedWindowsOut() throws {
+        let small = [window(), window()], oversized = window(2000, 1200)
+        let root = try AutoLayout.fitting([oversized] + small, in: area)
+        assertValid(try LayoutEngine.calculate(root, in: area), in: area, count: 2)
+        XCTAssertEqual(Set(root!.windows.map(\.windowID)), Set(small.map(\.windowID)))
+        XCTAssertNil(try AutoLayout.fitting([oversized], in: area))
+    }
+    func testFittingChoosesUsableSubsetWhenTogetherTooLarge() throws {
+        let bounds = Rect(0, 0, 600, 400), large = window(550, 350)
+        let small = [window(250, 300), window(250, 300)]
+        let root = try AutoLayout.fitting([large] + small, in: bounds)
+        assertValid(try LayoutEngine.calculate(root, in: bounds), in: bounds, count: 2)
+        XCTAssertFalse(root!.windows.contains { $0.windowID == large.windowID })
+    }
+    func testFittingPreservesEditsAndRefreshesLearnedMinimums() throws {
+        let a = window(), b = window(), large = window(2000, 1200)
+        let root = LayoutNode.split(id: UUID(), axis: .horizontal, ratio: 0.7, first: .window(a), second: .window(b))
+        XCTAssertEqual(try AutoLayout.fitting([a, b, large], in: area, preserving: root), root)
+        var grown = a; grown.minimum = Size(2000, 1200)
+        let updated = try AutoLayout.fitting([grown, b], in: area, preserving: root)
+        XCTAssertEqual(updated?.windows.map(\.windowID), [b.windowID])
+        let recovered = try AutoLayout.fitting([a, b], in: area, preserving: updated)
+        assertValid(try LayoutEngine.calculate(recovered, in: area), in: area, count: 2)
+    }
+    func testFittingRejectsInvalidInputsRatherThanSkippingThem() throws {
+        let w = window()
+        XCTAssertThrowsError(try AutoLayout.fitting([w, w], in: area))
+        XCTAssertThrowsError(try AutoLayout.fitting([window(0)], in: area))
+        XCTAssertThrowsError(try AutoLayout.fitting([w], in: area, gap: -1))
+    }
     func testFourDirectionsAndNoDuplicates() throws {
         for direction in [Placement.left, .right, .top, .bottom] {
             let a = window(), b = window()

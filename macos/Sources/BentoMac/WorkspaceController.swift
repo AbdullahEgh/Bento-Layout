@@ -120,7 +120,11 @@ struct SavedWorkspace: Codable {
             return overlap(a.bounds) < overlap(b.bounds)
         }
     }
-    func arrange(preserving: Bool = false, retryConstraints: Int = 3, resuming: Bool = false) async {
+    var floatingWindows: [ManagedWindow] {
+        let tiled = Set(history.current.windows.map(\.windowID))
+        return windows.filter { !tiled.contains($0.id) }
+    }
+    func arrange(preserving: Bool = false, resuming: Bool = false) async {
         guard !busy, !interacting, !activating else { return }
         activating = true; defer { activating = false }
         let generation = activationGeneration
@@ -133,37 +137,44 @@ struct SavedWorkspace: Codable {
                 message = "Open an application window to begin."; return
             }
             if !wasActive {
-                for window in current where originals[window.id] == nil { originals[window.id] = (window, window.frame) }
                 try desktopPreferences.activate(settings.desktopOverrides()); try await Task.sleep(for: .milliseconds(500))
             }
-            guard generation == activationGeneration else { return }
             let displays = DisplayArea.all(margin: settings.margin)
-            let retainTree = preserving || resuming
-            var next = preserving ? history.current : resuming ? lastBento ?? Workspace() : Workspace()
-            for leaf in next.windows where !current.contains(where: { $0.id == leaf.windowID }) { next = next.removing(leaf.windowID) }
-            for area in displays {
-                let members = current.filter { display(for: $0, displays: displays)?.id == area.id }
-                if retainTree {
-                    var root = next.roots[area.id]
-                    // Remove members that moved to another display before inserting them there.
-                    for leaf in root?.windows ?? [] where !members.contains(where: { $0.id == leaf.windowID }) { root = root?.removing(leaf.windowID) }
-                    for window in members where !(root?.windows.contains(where: { $0.windowID == window.id }) ?? false) {
-                        root = try AutoLayout.insert(window.leaf, into: root, in: area.bounds, gap: settings.gap)
+            let previous = preserving ? history.current : resuming ? lastBento ?? Workspace() : Workspace()
+            // A native app may reveal its minimum only after a resize. Each failed
+            // attempt rolls back before rebuilding; do not restart desktop preferences.
+            let attemptLimit = max(4, current.count * 2 + 1)
+            var excluded = Set<UUID>()
+            for attempt in 0...attemptLimit {
+                guard generation == activationGeneration else { return }
+                var next = Workspace()
+                for area in displays {
+                    let members = current.filter { !excluded.contains($0.id) && display(for: $0, displays: displays)?.id == area.id }
+                    next.roots[area.id] = try AutoLayout.fitting(members.map(\.leaf), in: area.bounds, gap: settings.gap, preserving: previous.roots[area.id])
+                }
+                let before = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0.minimum) })
+                do { try await apply(next, displays: displays) }
+                catch WindowFailure.minimumSize where attempt < attemptLimit {
+                    // Bound retries even for an app whose constraints keep changing.
+                    if attempt == attemptLimit - 1 {
+                        excluded.formUnion(current.filter { before[$0.id] != $0.minimum }.map(\.id))
                     }
-                    next.roots[area.id] = root
-                } else { next.roots[area.id] = try AutoLayout.arrange(members.map(\.leaf), in: area.bounds, gap: settings.gap) }
+                    continue
+                }
+                guard generation == activationGeneration else { return }
+                let included = Set(next.windows.map(\.windowID))
+                // A skipped window has already been rolled back. Forget its snapshot
+                // so turning Bento off cannot undo subsequent user movement of it.
+                let currentIDs = Set(current.map(\.id))
+                originals = originals.filter { included.contains($0.key) || !currentIDs.contains($0.key) }
+                lastDisplays = displays; history.commit(next); active = !included.isEmpty
+                if !active { try desktopPreferences.restore() }
+                message = active ? nil : "No windows fit on this display. Your windows were left in their original positions."
+                onStateChange?(); return
             }
-            next.roots = next.roots.filter { key, _ in displays.contains(where: { $0.id == key }) }
-            try await apply(next, displays: displays)
-            guard generation == activationGeneration else { return }
-            lastDisplays = displays; history.commit(next); active = true; message = nil; onStateChange?()
         } catch {
             message = error.localizedDescription
             if !wasActive { do { try desktopPreferences.restore() } catch { message = "\(message ?? "") \(error.localizedDescription)" } }
-            if case WindowFailure.minimumSize = error, retryConstraints > 0 {
-                activating = false
-                await arrange(preserving: preserving, retryConstraints: retryConstraints - 1, resuming: resuming)
-            }
         }
     }
     func apply(_ workspace: Workspace, displays: [DisplayArea]) async throws {

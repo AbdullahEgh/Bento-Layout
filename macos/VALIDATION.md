@@ -72,3 +72,9 @@ Start at login is implemented with SMAppService on Mac and the per-user Run entr
 GitHub Mac/Windows builds and the signed Mac release workflow passed at `9c40363`. The Windows build reported 91 checks, no warnings/errors. Mac 0.2.0 build 101, the public signed feed and its archive were downloaded and independently verified against the embedded production key. The installed `/Applications/Bento.app` subsequently changed from build 2 to build 101 and relaunched through Sparkle’s update flow. The owner then reported missing activation; the installed app’s own UI showed Accessibility denied and Arrange disabled. The desktop-control tool is not approved for System Settings, so granting/regranting access requires the owner.
 
 The 0.2.1 follow-up makes that state explicit and removes the floating settings level. Windows 0.3.6 removes the periodic settings raise, with a separate HWND-order regression check in CI.
+
+## 0.2.2 partial arrangement
+
+26 core tests passed, including oversized-window exclusion, total-capacity overflow, edited-tree preservation, refreshed learned minima and invalid-input rejection. The 32-check native fixture passed with disposable windows only. New native cases cover known oversized windows receiving no writes, a native resize clamp being learned and rolled back, fitting windows remaining active, skipped-window movement surviving deactivation, reconsideration when a window fits again, and no persistent frame/preference changes when none fit. Physical drag routing retains the limitations documented above.
+
+On the installed 0.2.1 process, direct Accessibility queries succeeded after restart (AXIsProcessTrusted true, AXWindows result success). Activation then failed on window capacity. This release addresses that failure rather than requesting additional permissions.

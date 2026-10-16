@@ -1,6 +1,40 @@
 import Foundation
 
 public enum AutoLayout {
+    /// Retain a valid edited layout where possible. If the full set cannot fit,
+    /// admit smaller windows first and leave the remaining windows outside the tree.
+    /// Only capacity errors are recoverable; invalid geometry still fails explicitly.
+    public static func fitting(_ windows: [WindowLeaf], in area: Rect, gap: Int = 8, preserving original: LayoutNode? = nil) throws -> LayoutNode? {
+        guard gap >= 0, area.width >= 0, area.height >= 0,
+              Set(windows.map(\.windowID)).count == windows.count,
+              windows.allSatisfy({ $0.minimum.width > 0 && $0.minimum.height > 0 }) else { throw LayoutError.invalidInput }
+        let byID = Dictionary(uniqueKeysWithValues: windows.map { ($0.windowID, $0) })
+        var retained = original
+        for leaf in original?.windows ?? [] {
+            if var current = byID[leaf.windowID] {
+                current.id = leaf.id
+                retained = retained?.replacing(leaf.id, with: .window(current))
+            } else { retained = retained?.removing(leaf.windowID) }
+        }
+        if let retained {
+            do { _ = try LayoutEngine.calculate(retained, in: area, gap: gap) }
+            catch LayoutError.cannotFit { return try fitting(windows, in: area, gap: gap) }
+        } else {
+            do { return try arrange(windows, in: area, gap: gap) }
+            catch LayoutError.cannotFit { /* Build a usable subset below. */ }
+        }
+        let candidates = windows.enumerated().sorted {
+            let a = Double($0.element.minimum.width) * Double($0.element.minimum.height)
+            let b = Double($1.element.minimum.width) * Double($1.element.minimum.height)
+            return a == b ? $0.offset < $1.offset : a < b
+        }
+        for (_, window) in candidates where !(retained?.windows.contains(where: { $0.windowID == window.windowID }) ?? false) {
+            do { retained = try insert(window, into: retained, in: area, gap: gap) }
+            catch LayoutError.cannotFit { continue }
+        }
+        return retained
+    }
+
     public static func arrange(_ windows: [WindowLeaf], in area: Rect, gap: Int = 8) throws -> LayoutNode? {
         guard gap >= 0, Set(windows.map(\.windowID)).count == windows.count,
               windows.allSatisfy({ $0.minimum.width > 0 && $0.minimum.height > 0 }) else { throw LayoutError.invalidInput }

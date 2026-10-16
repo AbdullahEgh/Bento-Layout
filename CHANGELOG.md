@@ -1,5 +1,12 @@
 # Bento releases
 
+## macOS 0.2.2 — October 2026
+
+- Arrange fitting windows instead of rejecting the whole desktop when one window is too large. Preserve usable edited layouts and leave overflow windows floating.
+- Learn native minimum sizes through bounded, rolled-back attempts, then retry with a fitting subset.
+- Show arranged and floating counts with the names of skipped windows. Reconsider them when windows close or displays change.
+- Keep skipped windows out of restore snapshots so later user movement is preserved.
+
 ## Windows 0.3.6 / macOS 0.2.1 — October 2026
 
 - Settings use normal window stacking on both systems. Windows background maintenance no longer raises settings over another app.

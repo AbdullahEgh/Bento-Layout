@@ -9,6 +9,8 @@ import BentoCore
     var focused: ManagedWindow?
     var rejectOnce: UUID?
     var accessibilityGranted = true
+    var nativeMinimum: [UUID: Size] = [:]
+    var writes: [UUID: Int] = [:]
     override var trusted: Bool { accessibilityGranted }
     override func discover() throws -> [ManagedWindow] {
         for (record, window) in records { record.frame = DesktopCoordinates.engine(window.frame) }
@@ -20,9 +22,12 @@ import BentoCore
     }
     override func isAlive(_ window: ManagedWindow) -> Bool { records.contains { $0.0.id == window.id } }
     override func write(_ window: ManagedWindow, frame: Rect) throws {
+        writes[window.id, default: 0] += 1
         if rejectOnce == window.id { rejectOnce = nil; throw WindowFailure.rejected(window.title) }
         guard let actual = records.first(where: { $0.0.id == window.id })?.1 else { throw WindowFailure.unavailable(window.title) }
-        actual.setFrame(DesktopCoordinates.appKit(frame), display: true)
+        var accepted = frame
+        if let minimum = nativeMinimum[window.id] { accepted.width = max(accepted.width, minimum.width); accepted.height = max(accepted.height, minimum.height) }
+        actual.setFrame(DesktopCoordinates.appKit(accepted), display: true)
     }
 }
 private final class FixturePreferences: PreferenceBackend {
@@ -147,6 +152,37 @@ private final class FixturePreferences: PreferenceBackend {
             await model.arrange()
             try check(try model.history.current.windows.count == 3 && matchingGeometry(), "Arrange all includes released windows again")
             await model.restore()
+            let area = DisplayArea.all(margin: model.settings.margin)[0].bounds
+            let oversized = system.records[0].0
+            oversized.minimum = Size(area.width + 100, 120)
+            system.writes.removeAll()
+            await model.arrange()
+            try check(try model.active && model.history.current.windows.count == 2 && matchingGeometry(), "Oversized window does not block arrangement of fitting windows")
+            try check(system.writes[oversized.id] == nil && system.accepted(oversized, initial[0]), "Known oversized window is never moved or resized")
+            let manuallyMoved = Rect(initial[0].x + 35, initial[0].y + 15, initial[0].width, initial[0].height)
+            try system.write(oversized, frame: manuallyMoved)
+            await model.arrange(preserving: true)
+            try check(model.active && model.floatingWindows.map(\.id) == [oversized.id], "Reflow keeps a skipped window floating without blocking Bento")
+            await model.restore()
+            try check(system.accepted(oversized, manuallyMoved), "Turning Bento off leaves user movement of skipped windows alone")
+            oversized.minimum = Size(160, 120)
+            let nativeLarge = Rect(area.x, area.y, area.width + 100, 300)
+            try system.write(oversized, frame: nativeLarge)
+            system.nativeMinimum[oversized.id] = Size(nativeLarge.width, nativeLarge.height)
+            await model.arrange()
+            try check(try model.active && model.history.current.windows.count == 2 && matchingGeometry(), "Native minimum-size rejection retries with the windows that fit")
+            try check(system.accepted(oversized, nativeLarge), "Newly discovered oversized window returns to its exact starting frame")
+            await model.restore()
+            system.nativeMinimum.removeAll(); oversized.minimum = Size(160, 120)
+            try system.write(oversized, frame: initial[0])
+            await model.arrange()
+            try check(try model.history.current.windows.count == 3 && matchingGeometry(), "Previously skipped window can rejoin when it fits")
+            await model.restore()
+            for (record, _) in system.records { record.minimum = Size(area.width + 100, 120) }
+            system.writes.removeAll()
+            await model.arrange()
+            try check(!model.active && system.writes.isEmpty && preferences.values.isEmpty, "If no windows fit, no frames or desktop preferences are left changed")
+            for (record, _) in system.records { record.minimum = Size(160, 120) }
             system.accessibilityGranted = false; model.refreshPermissionStatus()
             model.deferActivationUntilPermission()
             try check(!model.active, "A blocked activation leaves native windows untouched")

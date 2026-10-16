@@ -57,7 +57,7 @@ struct SettingsView: View {
             BentoCard {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack { Circle().fill(!model.permission ? .orange : model.active ? BentoStyle.accent : BentoStyle.secondary).frame(width: 8, height: 8); Text(!model.permission ? "Accessibility access needed" : model.active ? "Bento is arranging your windows" : "Bento is off").font(.system(size: 14, weight: .medium)); Spacer() }
-                    Text("\(model.windows.count) eligible windows · \(model.settings.shortcut.label)").font(.system(size: 12)).foregroundStyle(BentoStyle.secondary)
+                    Text(model.active ? "\(model.history.current.windows.count) arranged · \(model.floatingWindows.count) left alone · \(model.settings.shortcut.label)" : "\(model.windows.count) eligible windows · \(model.settings.shortcut.label)").font(.system(size: 12)).foregroundStyle(BentoStyle.secondary)
                     HStack {
                         Button {
                             if model.permission { model.toggle() }
@@ -68,6 +68,15 @@ struct SettingsView: View {
                     if !model.permission { Text("In System Settings → Privacy & Security → Accessibility, enable this copy: \(Bundle.main.bundlePath). If access stays blocked after an update, remove the old Bento entry and add this app again.").font(.system(size: 11)).lineSpacing(3).foregroundStyle(BentoStyle.secondary).textSelection(.enabled) }
                     else { HStack { Text("Accessibility connected").foregroundStyle(BentoStyle.accent); Spacer(); Button("Refresh windows") { model.refresh() } }.font(.system(size: 11)) }
                     if let message = model.message { Text(message).font(.system(size: 12)).foregroundStyle(BentoStyle.secondary).textSelection(.enabled) }
+                    if model.active && !model.floatingWindows.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Windows left alone").font(.system(size: 12, weight: .medium))
+                            ForEach(model.floatingWindows, id: \.id) { window in
+                                Text("\(window.application) — \(window.title)").font(.system(size: 11)).lineLimit(2)
+                            }
+                            Text("These windows stay where they are. Bento retries when windows close or the display changes.").font(.system(size: 11))
+                        }.foregroundStyle(BentoStyle.secondary)
+                    }
                 }
             }
             activationOptions
@@ -158,7 +167,7 @@ struct SettingsView: View {
             Text("Bento for macOS \(updater.version)").font(.system(size: 18, weight: .semibold))
             BentoCard {
                 VStack(alignment: .leading, spacing: 14) {
-                    ForEach(["Settings are a normal window; other apps can cover them.", "Missing Accessibility access is shown at the top of Workspace, with the exact app to enable.", "Clicking the menu-bar icon while access is blocked opens permission guidance. Once access is enabled, Bento refreshes automatically.", "Activation failures appear beside the Arrange button."], id: \.self) { Text($0).font(.system(size: 12)).lineSpacing(4) }
+                    ForEach(["Bento arranges the windows that fit and leaves oversized windows in their original positions.", "Workspace shows the arranged count and lists windows left alone.", "Existing splits stay intact when they fit. Bento retries floating windows when the display or open-window set changes.", "Turning Bento off leaves skipped windows where you put them."], id: \.self) { Text($0).font(.system(size: 12)).lineSpacing(4) }
                 }
             }
             DisclosureGroup("Update Log") {
