@@ -51,6 +51,24 @@ internal static class NativeTests
         try
         {
             other.Show(); other.Activate(); Pump();
+            static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
+            {
+                foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
+                {
+                    if (child is T match) yield return match;
+                    foreach (var nested in Descendants<T>(child)) yield return nested;
+                }
+            }
+            Run("Settings have no manual Save button", () => Check(!Descendants<Button>(settings)
+                .Any(b => System.Windows.Automation.AutomationProperties.GetName(b).StartsWith("Save", StringComparison.Ordinal))));
+            Run("Changing a setting saves automatically", () =>
+            {
+                var slider = Descendants<Slider>(settings).First();
+                slider.Value = 12;
+                var deadline = Stopwatch.StartNew();
+                while (deadline.ElapsedMilliseconds < 1000 && controller.Settings.Gap != 12) { Pump(); Thread.Sleep(20); }
+                Equal(12, controller.Settings.Gap);
+            });
             Run("Settings are not topmost", () => Check(!settings.Topmost));
             Run("Foreground fixture starts above settings", () => Check(IsAbove(other, settings)));
             for (int i = 0; i < 3; i++) { controller.Refresh(); Pump(); }

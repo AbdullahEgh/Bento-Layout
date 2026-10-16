@@ -475,7 +475,8 @@ public sealed class BentoController : IDisposable
         try
         {
             Validate(state); Apply(history.Current, state, restoreRemoved, animate); history.Commit(state); failedMembership = null;
-            if (windowSource is null && state.Windows.Any()) SavedBentoLayout.Capture(state, Windows).Save();
+            if (windowSource is null && state.Windows.Any())
+                try { SavedBentoLayout.Capture(state, Windows).Save(); } catch (Exception ex) { Report($"Layout arranged, but could not save it: {ex.Message}"); }
             Status = "Windows arranged on the desktop.";
             RefreshDesktopDividers(); return true;
         }

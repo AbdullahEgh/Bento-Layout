@@ -232,6 +232,9 @@ private final class FixturePreferences: PreferenceBackend {
             try check(system.records.map { DesktopCoordinates.engine($0.1.frame) } == initial, "Animated deactivation restores exact starting geometry")
             let gripView = GripView(axis: .horizontal); gripView.animate = false
             try check(gripView.visibleInk == 0, "Idle grip is fully hidden")
+            let gapPanel = GapPanel(axis: .horizontal)
+            try check(gapPanel.level.rawValue == NSWindow.Level.normal.rawValue - 1, "Grabbers are below application windows and above the dimmer level")
+            gapPanel.close()
             gripView.hovering = true
             try check(gripView.visibleInk > 0, "Grip appears on hover")
             gripView.dragging = true; gripView.hovering = false
