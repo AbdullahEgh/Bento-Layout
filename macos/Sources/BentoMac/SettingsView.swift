@@ -5,12 +5,27 @@ struct SettingsView: View {
     @ObservedObject var updater: MacUpdater
     @StateObject private var loginStartup = LoginStartup()
     @Environment(\.scenePhase) private var scenePhase
+    @State private var compact = false
+    private let pages = ["Workspace", "Gestures", "Updates", "What's New", "About"]
+    private var rowLayout: AnyLayout { compact ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10)) : AnyLayout(HStackLayout(spacing: 12)) }
     var showOnboarding: () -> Void
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 8) {
+        GeometryReader { geometry in
+          VStack(spacing: 0) {
+            if compact {
+                HStack(spacing: 12) {
+                    Image(nsImage: BentoStyle.icon).resizable().frame(width: 28, height: 28)
+                    Text("Bento").font(.headline)
+                    Spacer()
+                    Picker("Settings page", selection: $model.page) {
+                        ForEach(pages, id: \.self) { Text($0).tag($0) }
+                    }.labelsHidden().frame(maxWidth: 180)
+                }.padding(.horizontal, 16).padding(.top, 24).padding(.bottom, 12).background(BentoStyle.sidebar)
+            }
+            HStack(spacing: 0) {
+            if !compact { VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 9) { Image(nsImage: BentoStyle.icon).resizable().frame(width: 36, height: 36); Text("Bento").font(.system(size: 20, weight: .semibold)) }.padding(.bottom, 28)
-                ForEach(["Workspace", "Gestures", "Updates", "What's New", "About"], id: \.self) { page in
+                ForEach(pages, id: \.self) { page in
                     Button { model.page = page } label: {
                         HStack(spacing: 10) {
                             if page == "Workspace" || page == "Gestures" { BentoSymbol(name: page, size: 17) }
@@ -21,7 +36,7 @@ struct SettingsView: View {
                 }
                 Spacer()
                 Text("macOS · \(updater.version)").font(.system(size: 10)).foregroundStyle(BentoStyle.secondary)
-            }.padding(22).frame(width: 195).background(BentoStyle.sidebar)
+            }.padding(22).frame(width: 195).background(BentoStyle.sidebar) }
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     Text(model.page).font(.system(size: 28, weight: .semibold)).tracking(-0.5)
@@ -33,9 +48,12 @@ struct SettingsView: View {
                     default: about
                     }
                     if model.page != "Workspace", let message = model.message { Text(message).font(.system(size: 12)).foregroundStyle(BentoStyle.secondary).textSelection(.enabled) }
-                }.padding(30).frame(maxWidth: .infinity, alignment: .leading)
+                }.padding(compact ? 16 : 30).frame(maxWidth: .infinity, alignment: .leading)
             }
-        }.frame(width: 820, height: 620).foregroundStyle(BentoStyle.text).background(BentoStyle.page)
+            }
+          }.onAppear { compact = geometry.size.width < 680 }
+           .onChange(of: geometry.size.width) { _, width in compact = width < 680 }
+        }.frame(minWidth: 340, minHeight: 420).foregroundStyle(BentoStyle.text).background(BentoStyle.page)
             .disabled(model.busy || model.interacting || model.activating)
             .onChange(of: model.settings.minimizeOverflow) { _, _ in model.saveSettings() }
             .onChange(of: model.settings.gap) { _, _ in model.saveSettings() }
@@ -59,7 +77,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack { Circle().fill(!model.permission ? .orange : model.active ? BentoStyle.accent : BentoStyle.secondary).frame(width: 8, height: 8); Text(!model.permission ? "Accessibility access needed" : model.active ? "Bento is arranging your windows" : "Bento is off").font(.system(size: 14, weight: .medium)); Spacer() }
                     Text(model.active ? "\(model.history.current.windows.count) arranged · \(model.minimizedByBento.count) in Dock · \(model.floatingWindows.count - model.minimizedByBento.count) left alone · \(model.settings.shortcut.label)" : "\(model.windows.count) eligible windows · \(model.settings.shortcut.label)").font(.system(size: 12)).foregroundStyle(BentoStyle.secondary)
-                    HStack {
+                    rowLayout {
                         Button {
                             if model.permission { model.toggle() }
                             else { model.system.requestPermission(); model.system.openPermissionSettings() }
@@ -67,7 +85,7 @@ struct SettingsView: View {
                         Button { Task { await model.restore() } } label: { settingLabel("Restore originals", symbol: "Restore") }.disabled(model.busy)
                     }
                     if !model.permission { Text("In System Settings → Privacy & Security → Accessibility, enable this copy: \(Bundle.main.bundlePath). If access stays blocked after an update, remove the old Bento entry and add this app again.").font(.system(size: 11)).lineSpacing(3).foregroundStyle(BentoStyle.secondary).textSelection(.enabled) }
-                    else { HStack { Text("Accessibility connected").foregroundStyle(BentoStyle.accent); Spacer(); Button("Refresh windows") { model.refresh() } }.font(.system(size: 11)) }
+                    else { rowLayout { Text("Accessibility connected").foregroundStyle(BentoStyle.accent); Spacer(); Button("Refresh windows") { model.refresh() } }.font(.system(size: 11)) }
                     if let message = model.message { Text(message).font(.system(size: 12)).foregroundStyle(BentoStyle.secondary).textSelection(.enabled) }
                     if model.active && !model.floatingWindows.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
@@ -93,15 +111,15 @@ struct SettingsView: View {
                 VStack(spacing: 20) {
                     setting("Space between windows", symbol: "Gap", value: $model.settings.gap, range: 4...32)
                     setting("Desktop margin", symbol: "Margin", value: $model.settings.margin, range: 0...64)
-                    HStack { settingLabel("Background darkness", symbol: "Darkness"); Slider(value: Binding(get: { Double(model.settings.backgroundDarkness) }, set: { model.settings.backgroundDarkness = Int($0) }), in: 0...100, step: 5); Text("\(model.settings.backgroundDarkness)%").monospacedDigit().frame(width: 36) }
+                    rowLayout { settingLabel("Background darkness", symbol: "Darkness"); Slider(value: Binding(get: { Double(model.settings.backgroundDarkness) }, set: { model.settings.backgroundDarkness = Int($0) }), in: 0...100, step: 5); Text("\(model.settings.backgroundDarkness)%").monospacedDigit().frame(width: 36) }
                     Toggle(isOn: $model.settings.animate) { settingLabel("Smooth window transitions", symbol: "Animation") }.toggleStyle(.switch)
-                    if model.settings.animate { HStack { settingLabel("Animation duration", symbol: "Duration"); Spacer(); Stepper("\(model.settings.animationMS) ms", value: $model.settings.animationMS, in: 80...400, step: 20).frame(width: 120) } }
+                    if model.settings.animate { rowLayout { settingLabel("Animation duration", symbol: "Duration"); Spacer(); Stepper("\(model.settings.animationMS) ms", value: $model.settings.animationMS, in: 80...400, step: 20).frame(width: 120) } }
                     Text("Motion follows macOS Reduce Motion. Background darkness applies while Bento is on.").font(.system(size: 11)).foregroundStyle(BentoStyle.secondary)
-                    HStack { settingLabel("Appearance", symbol: "Appearance"); Spacer(); Picker("Appearance", selection: $model.settings.theme) { Text("System").tag("System"); Text("Light").tag("Light"); Text("Dark").tag("Dark") }.labelsHidden().frame(width: 130) }
+                    rowLayout { settingLabel("Appearance", symbol: "Appearance"); Spacer(); Picker("Appearance", selection: $model.settings.theme) { Text("System").tag("System"); Text("Light").tag("Light"); Text("Dark").tag("Dark") }.labelsHidden().frame(width: 130) }
                     Text("Spacing changes apply the next time you arrange windows.").font(.system(size: 11)).foregroundStyle(BentoStyle.secondary).frame(maxWidth: .infinity, alignment: .leading)
                 }.font(.system(size: 12))
             }
-            HStack {
+            rowLayout {
                 Button("Restore saved layout") { Task { await model.loadLayout() } }.disabled(!model.permission || model.busy)
                 Spacer(); Button("Undo") { Task { await model.undo() } }.disabled(!model.active || model.busy)
                 Button("Redo") { Task { await model.undo(redo: true) } }.disabled(model.busy)
@@ -115,7 +133,7 @@ struct SettingsView: View {
                     Toggle(isOn: $model.settings.minimizeOverflow) { settingLabel("Minimize windows that do not fit", symbol: "Restore") }.toggleStyle(.switch)
                     Toggle(isOn: $model.settings.hideDock) { settingLabel("Automatically hide the Dock", symbol: "Dock") }.toggleStyle(.switch)
                     Toggle(isOn: $model.settings.hideMenuBar) { settingLabel("Automatically hide the menu bar", symbol: "MenuBar") }.toggleStyle(.switch)
-                    HStack {
+                    rowLayout {
                         settingLabel("macOS screen-edge snapping", symbol: "Snap"); Spacer()
                         Picker("macOS screen-edge snapping", selection: $model.settings.edgeSnapping) {
                             Text("Keep current setting").tag("Keep"); Text("On while active").tag("On"); Text("Off while active").tag("Off")
@@ -132,9 +150,8 @@ struct SettingsView: View {
         }
     }
     private func setting(_ title: String, symbol: String, value: Binding<Int>, range: ClosedRange<Int>) -> some View {
-        HStack(spacing: 12) {
-            BentoSymbol(name: symbol, size: 18).foregroundStyle(BentoStyle.secondary)
-            Text(title); Spacer()
+        rowLayout {
+            settingLabel(title, symbol: symbol); Spacer()
             Stepper("\(value.wrappedValue) pt", value: value, in: range, step: 2).frame(width: 90)
         }
     }
@@ -145,7 +162,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack { BentoSymbol(name: "Keyboard"); Text("Toggle Bento"); Spacer(); Text(model.settings.shortcut.label).font(.system(.body, design: .monospaced)).foregroundStyle(BentoStyle.accent) }
                     Toggle(isOn: $model.settings.shortcut.enabled) { settingLabel("Enable keyboard shortcut", symbol: "Keyboard") }.toggleStyle(.switch)
-                    HStack {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 100))], alignment: .leading, spacing: 12) {
                         Toggle("Control", isOn: $model.settings.shortcut.control)
                         Toggle("Option", isOn: $model.settings.shortcut.option)
                         Toggle("Shift", isOn: $model.settings.shortcut.shift)

@@ -1,3 +1,9 @@
+## Windows 0.3.8 / macOS 0.2.9
+
+- Resizable settings with compact page navigation and stacked controls at phone widths.
+- Mac hidden grabbers retain their mouse input surface; Windows grabbers explicitly reveal ink on press.
+- Preserve below-window, above-backdrop grabber stacking.
+
 ## macOS 0.2.8
 
 - Wait for asynchronous window resizing and restoration before verifying frames; retry the final target once.

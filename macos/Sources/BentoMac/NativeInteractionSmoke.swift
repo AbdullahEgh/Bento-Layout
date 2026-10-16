@@ -246,6 +246,23 @@ private final class FixturePreferences: PreferenceBackend {
             try check(gripView.visibleInk == 0, "Idle grip is fully hidden")
             let gapPanel = GapPanel(axis: .horizontal)
             try check(gapPanel.level.rawValue == NSWindow.Level.normal.rawValue - 1, "Grabbers are below application windows and above the dimmer level")
+            gapPanel.setFrame(NSRect(x: 0, y: 0, width: 8, height: 150), display: true)
+            gapPanel.gripView.animate = false
+            gapPanel.gripView.layoutSubtreeIfNeeded()
+            let hitBitmap = gapPanel.gripView.bitmapImageRepForCachingDisplay(in: gapPanel.gripView.bounds)!
+            gapPanel.gripView.cacheDisplay(in: gapPanel.gripView.bounds, to: hitBitmap)
+            let hitAlpha = hitBitmap.colorAt(x: 1, y: 1)!.alphaComponent
+            try check(hitAlpha > 0 && hitAlpha < 0.02 && gapPanel.gripView.visibleInk == 0 && !gapPanel.ignoresMouseEvents,
+                      "Hidden grip retains a nonzero gap input surface without showing its ink")
+            gapPanel.gripView.onBegin = { true }
+            let enter = NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: gapPanel.windowNumber, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)!
+            gapPanel.gripView.mouseEntered(with: enter)
+            try check(gapPanel.gripView.visibleInk > 0, "Native mouse-enter reveals the hidden grip")
+            let down = NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: gapPanel.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+            gapPanel.gripView.mouseDown(with: down); gapPanel.gripView.mouseExited(with: enter)
+            try check(gapPanel.gripView.dragging && gapPanel.gripView.visibleInk > 0, "Native press keeps grip visible after pointer leaves")
+            gapPanel.gripView.mouseUp(with: down)
+            try check(!gapPanel.gripView.dragging && gapPanel.gripView.visibleInk == 0, "Release outside hides the native grip again")
             gapPanel.close()
             gripView.hovering = true
             try check(gripView.visibleInk > 0, "Grip appears on hover")

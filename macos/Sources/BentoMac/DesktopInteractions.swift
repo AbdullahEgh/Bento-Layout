@@ -267,6 +267,7 @@ struct DesktopInput {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isReleasedWhenClosed = false; isOpaque = false; backgroundColor = .clear
         hasShadow = false; level = NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue - 1); hidesOnDeactivate = false
+        ignoresMouseEvents = false; acceptsMouseMovedEvents = true
         collectionBehavior = [.stationary, .ignoresCycle]; contentView = gripView
         setAccessibilityLabel("Bento resize divider")
     }
@@ -320,7 +321,9 @@ struct DesktopInput {
         RunLoop.main.add(animation!, forMode: .common)
     }
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.clear.setFill(); dirtyRect.fill(using: .copy)
+        // A fully transparent WindowServer surface is click-through. Keep a
+        // one-alpha input surface across the gap, independently of the hidden ink.
+        NSColor.black.withAlphaComponent(1.0 / 255).setFill(); dirtyRect.fill(using: .copy)
         guard displayedAlpha > 0 else { return }
         let length = min(displayedLength, axis == .horizontal ? bounds.height : bounds.width)
         let rect = axis == .horizontal ? NSRect(x: bounds.midX - 1, y: bounds.midY - length / 2, width: 2, height: length) : NSRect(x: bounds.midX - length / 2, y: bounds.midY - 1, width: length, height: 2)

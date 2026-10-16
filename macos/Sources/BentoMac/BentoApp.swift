@@ -178,10 +178,12 @@ import Carbon.HIToolbox
         let host = NSHostingController(rootView: ThemedRoot(model: model, content: content))
         let panel = NSWindow(contentViewController: host)
         panel.title = "Bento"; panel.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
+        if !onboarding { panel.styleMask.insert(.resizable); panel.contentMinSize = NSSize(width: 340, height: 420) }
         panel.titlebarAppearsTransparent = true; panel.titleVisibility = .hidden
         panel.level = .normal
         panel.isReleasedWhenClosed = false
-        panel.setContentSize(NSSize(width: onboarding ? 940 : 820, height: onboarding ? 650 : 620))
+        let available = NSScreen.main?.visibleFrame.size ?? NSSize(width: 820, height: 620)
+        panel.setContentSize(NSSize(width: onboarding ? 940 : min(820, available.width - 32), height: onboarding ? 650 : min(620, available.height - 48)))
         panel.center(); panel.makeKeyAndOrderFront(nil); window = panel
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -230,23 +232,25 @@ import Carbon.HIToolbox
     private func renderSettings(at directory: URL) {
         do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) } catch { exit(1) }
         Task { @MainActor in
+            for width in [820, 360] {
             for dark in [false, true] {
-                for page in ["Workspace", "Gestures", "Updates"] {
+                for page in ["Workspace", "Gestures", "Updates", "What's New", "About"] {
                     model.page = page
                     let view = SettingsView(model: model, updater: updater, showOnboarding: {}).environment(\.colorScheme, dark ? .dark : .light)
                     let host = NSHostingView(rootView: view)
-                    let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 620), styleMask: [.borderless], backing: .buffered, defer: false)
+                    let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 620), styleMask: [.borderless], backing: .buffered, defer: false)
                     panel.isReleasedWhenClosed = false; panel.appearance = NSAppearance(named: dark ? .darkAqua : .aqua); panel.contentView = host
-                    host.frame = NSRect(x: 0, y: 0, width: 820, height: 620); panel.orderFront(nil)
+                    host.frame = NSRect(x: 0, y: 0, width: width, height: 620); panel.orderFront(nil)
                     try? await Task.sleep(for: .milliseconds(180)); host.layoutSubtreeIfNeeded()
                     guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { exit(1) }
                     host.cacheDisplay(in: host.bounds, to: bitmap)
                     guard let png = bitmap.representation(using: .png, properties: [:]) else { exit(1) }
-                    do { try png.write(to: directory.appendingPathComponent("\(page.lowercased())-\(dark ? "dark" : "light").png")) } catch { exit(1) }
+                    do { try png.write(to: directory.appendingPathComponent("\(page.lowercased())-\(width)-\(dark ? "dark" : "light").png")) } catch { exit(1) }
                     panel.close()
                 }
             }
-            print("Rendered six native settings screens."); exit(0)
+            }
+            print("Rendered desktop and compact native settings screens."); exit(0)
         }
     }
 }

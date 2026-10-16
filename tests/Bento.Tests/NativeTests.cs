@@ -69,6 +69,21 @@ internal static class NativeTests
                 while (deadline.ElapsedMilliseconds < 1000 && controller.Settings.Gap != 12) { Pump(); Thread.Sleep(20); }
                 Equal(12, controller.Settings.Gap);
             });
+            Run("Settings adapt to a phone-width window without losing navigation", () =>
+            {
+                settings.Width = 360; settings.Height = 600; Pump();
+                var picker = Descendants<ComboBox>(settings).Single(c => System.Windows.Automation.AutomationProperties.GetName(c) == "Settings page");
+                Check(picker.IsVisible); Check(settings.ActualWidth <= 361);
+                picker.SelectedItem = "Gestures"; Pump();
+                Check(Descendants<TextBox>(settings).Any(t => System.Windows.Automation.AutomationProperties.GetName(t) == "Shortcut keys"));
+                picker.SelectedItem = "Workspace"; Pump();
+                foreach (var control in Descendants<Slider>(settings))
+                {
+                    var point = control.TransformToAncestor(settings).Transform(new Point(0, 0));
+                    Check(point.X >= 0 && point.X + control.ActualWidth <= settings.ActualWidth);
+                }
+                settings.Width = 850; Pump(); Check(!picker.IsVisible);
+            });
             Run("Settings are not topmost", () => Check(!settings.Topmost));
             Run("Foreground fixture starts above settings", () => Check(IsAbove(other, settings)));
             for (int i = 0; i < 3; i++) { controller.Refresh(); Pump(); }

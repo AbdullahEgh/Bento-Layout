@@ -1,7 +1,6 @@
-Bento for macOS 0.2.8 improves reliability with applications that finish resizing asynchronously.
+Bento for macOS 0.2.9 fixes hidden grabber input and adds compact settings.
 
-- Waits for native windows to settle before accepting the layout or learning minimum sizes.
-- Retries the final position once when an application is still catching up, including when restoring your desktop.
-- A refused intermediate animation frame no longer cancels an otherwise valid arrangement.
-- Keeps hover-only grabbers below app windows and above the dark backdrop, automatic saving, and Dock overflow handling from 0.2.7.
-- Reuses the permanent signing identity to preserve existing Accessibility approval.
+- Hidden grabbers retain a nearly invisible input surface so hover and press can reveal them. They remain below application windows and above the dimmer.
+- Settings can resize down to 340 points wide. Narrow windows use a page selector, stacked controls, and scrolling; wide windows keep the sidebar.
+- Opening settings fits the available display width, including narrow remote displays.
+- Reuses the permanent signing identity and existing OTA permissions.

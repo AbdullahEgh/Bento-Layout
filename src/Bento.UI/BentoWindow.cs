@@ -11,6 +11,7 @@ public sealed class BentoWindow : Window
     private readonly StackPanel content = new();
     private readonly ScrollViewer scroll = new();
     private readonly Dictionary<string, Button> navigation = new();
+    private readonly ComboBox compactNavigation = new();
     private TextBlock status = new(), count = new();
     private Button? pause;
     private readonly TextBlock feedback = new();
@@ -26,7 +27,7 @@ public sealed class BentoWindow : Window
     public BentoWindow(BentoController controller)
     {
         this.controller = controller; draft = controller.Settings;
-        Title = "Bento"; Icon = AppIcons.Image; Width = 850; Height = 650; MinWidth = 740; MinHeight = 540; Topmost = false;
+        Title = "Bento"; Icon = AppIcons.Image; Width = 850; Height = 650; MinWidth = 360; MinHeight = 420; Topmost = false;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         SetResourceReference(BackgroundProperty, "Page");
         SetResourceReference(ForegroundProperty, "Text");
@@ -36,6 +37,13 @@ public sealed class BentoWindow : Window
         AppTheme.Changed += UpdateCaption;
         Closed += (_, _) => AppTheme.Changed -= UpdateCaption;
         var root = new Grid(); root.SetResourceReference(Panel.BackgroundProperty, "Page"); root.ColumnDefinitions.Add(new() { Width = new GridLength(190) }); root.ColumnDefinitions.Add(new());
+        root.RowDefinitions.Add(new() { Height = GridLength.Auto }); root.RowDefinitions.Add(new());
+        var compactHeader = new DockPanel { Margin = new Thickness(16, 12, 16, 0), Visibility = Visibility.Collapsed };
+        compactHeader.Children.Add(new Image { Source = AppIcons.Image, Width = 28, Height = 28, Margin = new Thickness(0, 0, 12, 0) });
+        compactNavigation.ItemsSource = new[] { "Workspace", "Gestures", "Updates", "What's New" };
+        AutomationProperties.SetName(compactNavigation, "Settings page");
+        compactNavigation.SelectionChanged += (_, _) => { if (compactNavigation.SelectedItem is string selected && selected != (page == "Update Log" ? "What's New" : page)) SelectPage(selected); };
+        compactHeader.Children.Add(compactNavigation); Grid.SetColumnSpan(compactHeader, 2); root.Children.Add(compactHeader);
         var sidebar = new Border { Padding = new Thickness(16, 26, 16, 18) }; sidebar.SetResourceReference(Border.BackgroundProperty, "Sidebar");
         var side = new DockPanel(); sidebar.Child = side;
         var identity = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(6, 0, 0, 32) };
@@ -52,15 +60,24 @@ public sealed class BentoWindow : Window
             var button = new Button { Content = caption, Margin = new Thickness(0, 0, 0, 5), BorderThickness = new Thickness(0), HorizontalContentAlignment = HorizontalAlignment.Left };
             button.Click += (_, _) => SelectPage(name); AutomationProperties.SetName(button, name); navigation[name] = button; nav.Children.Add(button);
         }
-        side.Children.Add(nav); root.Children.Add(sidebar);
-        var main = new Grid { Margin = new Thickness(32, 28, 32, 22) }; Grid.SetColumn(main, 1);
+        side.Children.Add(nav); Grid.SetRowSpan(sidebar, 2); root.Children.Add(sidebar);
+        var main = new Grid { Margin = new Thickness(32, 28, 32, 22) }; Grid.SetColumn(main, 1); Grid.SetRow(main, 1);
         main.RowDefinitions.Add(new()); main.RowDefinitions.Add(new() { Height = GridLength.Auto });
         scroll.Content = content; scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
         scroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled; scroll.Padding = new Thickness(0, 0, 8, 0);
         main.Children.Add(scroll);
         var footer = new DockPanel { Margin = new Thickness(0, 18, 0, 0), LastChildFill = true };
-        feedback.FontSize = 12; feedback.VerticalAlignment = VerticalAlignment.Center; feedback.Margin = new Thickness(0, 0, 12, 0); feedback.SetResourceReference(TextBlock.ForegroundProperty, "Secondary");
+        feedback.TextWrapping = TextWrapping.Wrap; feedback.FontSize = 12; feedback.VerticalAlignment = VerticalAlignment.Center; feedback.Margin = new Thickness(0, 0, 12, 0); feedback.SetResourceReference(TextBlock.ForegroundProperty, "Secondary");
         footer.Children.Add(feedback); Grid.SetRow(footer, 1); main.Children.Add(footer); root.Children.Add(main); Content = root;
+        void ResizeLayout()
+        {
+            bool compact = ActualWidth < 680;
+            sidebar.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+            compactHeader.Visibility = compact ? Visibility.Visible : Visibility.Collapsed;
+            root.ColumnDefinitions[0].Width = new GridLength(compact ? 0 : 190);
+            main.Margin = compact ? new Thickness(16, 18, 16, 16) : new Thickness(32, 28, 32, 22);
+        }
+        SizeChanged += (_, _) => ResizeLayout(); Loaded += (_, _) => ResizeLayout();
         autoSave.Tick += (_, _) => { autoSave.Stop(); if (pendingSave) Save(); };
         Closing += (_, _) => { autoSave.Stop(); if (pendingSave) Save(); };
         refresh.Tick += (_, _) => RefreshWorkspaceStatus();
@@ -70,7 +87,7 @@ public sealed class BentoWindow : Window
     public void SelectPage(string name)
     {
         if (busy) return;
-        page = name; content.Children.Clear(); scroll.ScrollToTop();
+        page = name; compactNavigation.SelectedItem = name == "Update Log" ? "What's New" : name; content.Children.Clear(); scroll.ScrollToTop();
         bool reading = name is "What's New" or "Update Log";
         feedback.Visibility = reading ? Visibility.Collapsed : Visibility.Visible;
         foreach (var (key, button) in navigation) button.SetResourceReference(BackgroundProperty, key == (name == "Update Log" ? "What's New" : name) ? "Selection" : "Sidebar");
@@ -84,7 +101,7 @@ public sealed class BentoWindow : Window
     }
     private void Heading(string title, string detail)
     {
-        content.Children.Add(new TextBlock { Text = title, FontSize = 28, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 5) });
+        content.Children.Add(new TextBlock { Text = title, TextWrapping = TextWrapping.Wrap, FontSize = 28, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 5) });
         var subtitle = Label(detail, true); subtitle.Margin = new Thickness(0, 0, 0, 24); content.Children.Add(subtitle);
     }
     private StackPanel Card(string? title = null)
@@ -98,12 +115,22 @@ public sealed class BentoWindow : Window
         if (parent.Children.Count > 0) { var line = new Border { Height = 1 }; line.SetResourceReference(Border.BackgroundProperty, "Line"); parent.Children.Add(line); }
         var row = new Grid { Margin = new Thickness(0, 13, 0, 13) }; row.ColumnDefinitions.Add(new()); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         var labels = new StackPanel { Margin = new Thickness(0, 0, 18, 0), VerticalAlignment = VerticalAlignment.Center };
-        labels.Children.Add(new TextBlock { Text = title, FontWeight = FontWeights.Medium });
+        labels.Children.Add(new TextBlock { Text = title, TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.Medium });
         if (description.Length > 0) { var note = Label(description, true); note.FontSize = 12; note.Margin = new Thickness(0, 4, 0, 0); labels.Children.Add(note); }
         var caption = new DockPanel();
         var icon = Symbols.Create(title, 20); icon.Margin = new Thickness(0, 0, 12, 0); icon.VerticalAlignment = VerticalAlignment.Center; icon.IsHitTestVisible = false;
         DockPanel.SetDock(icon, Dock.Left); caption.Children.Add(icon); caption.Children.Add(labels);
         row.Children.Add(caption); Grid.SetColumn(control, 1); control.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(control);
+        row.RowDefinitions.Add(new() { Height = GridLength.Auto }); row.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        row.SizeChanged += (_, _) =>
+        {
+            bool narrow = row.ActualWidth < 420;
+            Grid.SetColumnSpan(caption, narrow ? 2 : 1);
+            Grid.SetColumn(control, narrow ? 0 : 1); Grid.SetRow(control, narrow ? 1 : 0);
+            Grid.SetColumnSpan(control, narrow ? 2 : 1);
+            control.HorizontalAlignment = narrow ? HorizontalAlignment.Left : HorizontalAlignment.Right;
+            control.Margin = narrow ? new Thickness(32, 10, 0, 0) : new Thickness(0);
+        };
         AutomationProperties.SetName(control, title); parent.Children.Add(row);
     }
     private CheckBox Toggle(bool value, Action<bool> changed)
@@ -153,7 +180,7 @@ public sealed class BentoWindow : Window
         var hero = Card(); status.Text = controller.Automatic ? "Bento is active" : "Bento is paused"; status.FontSize = 18; status.FontWeight = FontWeights.SemiBold;
         count.Text = $"{controller.ManagedCount} arranged · {controller.MinimizedCount} minimized"; count.SetResourceReference(TextBlock.ForegroundProperty, "Secondary"); count.Margin = new Thickness(0, 4, 0, 16);
         var intro = new StackPanel { Margin = new Thickness(2, 16, 2, 15) }; intro.Children.Add(status); intro.Children.Add(count);
-        var actions = new StackPanel { Orientation = Orientation.Horizontal };
+        var actions = new WrapPanel { Orientation = Orientation.Horizontal };
         var arrange = new Button { Content = Symbols.Caption("Arrange windows", "Workspace"), Style = (Style)FindResource("Primary"), Margin = new Thickness(0, 0, 8, 0) };
         AutomationProperties.SetName(arrange, "Arrange windows");
         arrange.Click += (_, _) => { controller.AutoArrangeAll(); feedback.Text = controller.Status; };
@@ -220,7 +247,7 @@ public sealed class BentoWindow : Window
         repository.TextChanged += (_, _) => { draft = draft with { UpdateRepository = repository.Text.Trim() }; Dirty(); };
         Row(updates, "GitHub repository", "Your release source", repository);
         Row(updates, "Check when Bento starts", "Download and install only when you choose", Toggle(draft.CheckUpdates, v => draft = draft with { CheckUpdates = v }));
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 12, 0, 15) };
+        var buttons = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 12, 0, 15) };
         var check = new Button { Content = Symbols.Caption("Check for updates", "Updates"), Style = (Style)FindResource("Primary"), Margin = new Thickness(0, 0, 8, 0) };
         var local = new Button { Content = Symbols.Caption("Choose update file…", "Folder") }; buttons.Children.Add(check); buttons.Children.Add(local); updates.Children.Add(buttons);
         AutomationProperties.SetName(check, "Check for updates"); AutomationProperties.SetName(local, "Choose update file…");

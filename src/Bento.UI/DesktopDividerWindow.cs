@@ -85,7 +85,7 @@ public sealed class DesktopDividerWindow : Window
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
     {
         base.OnMouseLeftButtonDown(e);
-        finishing = false;
+        finishing = false; RefreshContrast(); Animate(OpacityProperty, 1);
         controller.BeginDivider(monitor, divider); CaptureMouse(); e.Handled = true;
     }
     protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
