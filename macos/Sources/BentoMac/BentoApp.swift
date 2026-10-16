@@ -122,6 +122,7 @@ import Carbon.HIToolbox
         statusItem.button?.appearsDisabled = false
         statusItem.button?.alphaValue = model.active ? 1 : 0.75
         statusItem.button?.toolTip = !model.permission ? "Bento needs Accessibility access — click to enable" : model.active ? "Bento is on — click to restore windows; right-click for menu" : "Bento is off — click to arrange windows; right-click for menu"
+        if let message = model.message { statusItem.button?.toolTip? += "\n" + message }
     }
     @objc private func statusClicked() {
         guard let button = statusItem.button else { return }
@@ -134,12 +135,11 @@ import Carbon.HIToolbox
         guard model.permission else {
             model.deferActivationUntilPermission()
             model.page = "Workspace"; model.message = WindowFailure.permission.localizedDescription
-            showWindow(onboarding: false); model.system.requestPermission(); return
+            model.system.requestPermission(); updateMenu(); return
         }
         Task {
             await model.toggleLayout()
             updateMenu()
-            if model.message != nil { model.page = "Workspace"; showWindow(onboarding: false) }
         }
     }
     private func configureShortcut() {
@@ -148,7 +148,7 @@ import Carbon.HIToolbox
         hotKey = GlobalHotKey(config: model.settings.shortcut) { [weak self] in self?.toggle() }
         if hotKey?.registered == false { model.message = "The \(model.settings.shortcut.label) shortcut is unavailable. Choose another combination or use Bento in the menu bar." }
     }
-    @objc private func arrangeAll() { Task { await model.arrange(); updateMenu(); if model.message != nil { showWindow(onboarding: false) } } }
+    @objc private func arrangeAll() { Task { await model.arrange(); updateMenu() } }
     @objc private func releaseActive() { Task { await model.releaseActiveWindow() } }
     @objc private func saveLayout() { model.saveLayout() }
     @objc private func loadLayout() { Task { await model.loadLayout() } }

@@ -131,13 +131,18 @@ final class ManagedWindow {
     }
     func write(_ window: ManagedWindow, frame: Rect) throws {
         guard trusted else { throw WindowFailure.permission }
-        guard NSRunningApplication(processIdentifier: window.pid)?.isTerminated == false, self.frame(of: window.element) != nil else { throw WindowFailure.unavailable(window.title) }
+        guard NSRunningApplication(processIdentifier: window.pid)?.isTerminated == false, let current = self.frame(of: window.element) else { throw WindowFailure.unavailable(window.title) }
         var size = CGSize(width: frame.width, height: frame.height), point = CGPoint(x: frame.x, y: frame.y)
         guard let s = AXValueCreate(.cgSize, &size), let p = AXValueCreate(.cgPoint, &point) else { throw WindowFailure.rejected(window.title) }
-        let firstSize = AXUIElementSetAttributeValue(window.element, kAXSizeAttribute as CFString, s)
-        let position = AXUIElementSetAttributeValue(window.element, kAXPositionAttribute as CFString, p)
-        let finalSize = AXUIElementSetAttributeValue(window.element, kAXSizeAttribute as CFString, s)
-        guard firstSize == .success, position == .success, finalSize == .success else { throw WindowFailure.rejected(window.title) }
+        let resize = current.width != frame.width || current.height != frame.height
+        let move = current.x != frame.x || current.y != frame.y
+        if resize, AXUIElementSetAttributeValue(window.element, kAXSizeAttribute as CFString, s) != .success { throw WindowFailure.rejected(window.title) }
+        if move, AXUIElementSetAttributeValue(window.element, kAXPositionAttribute as CFString, p) != .success { throw WindowFailure.rejected(window.title) }
+        // Moving between displays can change a native app's size constraint. Retry
+        // size only when the move actually left it different from the requested size.
+        if move, let actual = self.frame(of: window.element), actual.width != frame.width || actual.height != frame.height {
+            guard AXUIElementSetAttributeValue(window.element, kAXSizeAttribute as CFString, s) == .success else { throw WindowFailure.rejected(window.title) }
+        }
     }
     func accepted(_ window: ManagedWindow, _ wanted: Rect) -> Bool {
         guard let actual = frame(of: window.element) else { return false }

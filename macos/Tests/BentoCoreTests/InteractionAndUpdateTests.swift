@@ -16,8 +16,42 @@ final class InteractionAndUpdateTests: XCTestCase {
         XCTAssertEqual(armed.placement, .left)
         XCTAssertEqual(armed.workspace.windows.count, 3)
         XCTAssertEqual(Set(armed.workspace.windows.map(\.windowID)), Set(state.windows.map(\.windowID)))
-        XCTAssertEqual(armed.bounds, InteractionGeometry.preview(target.bounds, placement: .left, gap: 8))
+        XCTAssertEqual(armed.bounds, try LayoutEngine.calculate(armed.workspace.roots["A"], in: area).regions.first { $0.window.windowID == regions[0].window.windowID }?.bounds)
         XCTAssertEqual(try LayoutEngine.calculate(state.roots["A"], in: area).regions, regions)
+    }
+    func testPreviewMatchesFinalSlotsAfterSourceRemovalAndMinimumClamping() throws {
+        for placement in [Placement.left, .right, .top, .bottom, .center] {
+            let a = leaf(900, 550), b = leaf(200, 150)
+            let state = Workspace(roots: ["A": .split(id: UUID(), axis: .horizontal, ratio: 0.65, first: .window(a), second: .window(b))])
+            let target = try LayoutEngine.calculate(state.roots["A"], in: area).regions[1].bounds
+            let point: Point
+            switch placement {
+            case .left: point = Point(target.x + 3, target.y + target.height / 2)
+            case .right: point = Point(target.right - 3, target.y + target.height / 2)
+            case .top: point = Point(target.x + target.width / 2, target.y + 3)
+            case .bottom: point = Point(target.x + target.width / 2, target.bottom - 3)
+            case .center: point = Point(target.x + target.width / 2, target.y + target.height / 2)
+            }
+            var session = DropSession(workspace: state, source: a)
+            let proposal = try XCTUnwrap(session.propose(pointer: point, areas: ["A": area], gap: 8, hold: 0, now: 0))
+            let final = try LayoutEngine.calculate(proposal.workspace.roots["A"], in: area).regions
+            XCTAssertEqual(proposal.placement, placement)
+            XCTAssertEqual(proposal.bounds, final.first { $0.window.windowID == a.windowID }?.bounds)
+            XCTAssertEqual(proposal.neighbors, final.filter { $0.window.windowID == b.windowID }.map(\.bounds))
+            XCTAssertGreaterThanOrEqual(proposal.bounds.width, 900)
+            XCTAssertGreaterThanOrEqual(proposal.bounds.height, 550)
+        }
+    }
+    func testHoldIndicatorResetsWhenPointerMovesToCenter() throws {
+        let state = try fixture(), regions = try LayoutEngine.calculate(state.roots["A"], in: area).regions
+        var session = DropSession(workspace: state, source: regions[0].window)
+        let r = regions[1].bounds, edge = Point(r.x + 3, r.y + r.height / 2)
+        let start = try XCTUnwrap(session.propose(pointer: edge, areas: ["A": area], gap: 8, hold: 900, now: 0))
+        XCTAssertTrue(start.waitingForSplit)
+        let half = try XCTUnwrap(session.propose(pointer: edge, areas: ["A": area], gap: 8, hold: 900, now: 0.45))
+        XCTAssertEqual(half.progress, 0.5, accuracy: 0.001)
+        let center = try XCTUnwrap(session.propose(pointer: Point(r.x + r.width / 2, r.y + r.height / 2), areas: ["A": area], gap: 8, hold: 900, now: 0.5))
+        XCTAssertFalse(center.waitingForSplit); XCTAssertEqual(center.progress, 0)
     }
     func testLeavingTargetResetsHoldAndOutsideDropCancels() throws {
         let state = try fixture(), regions = try LayoutEngine.calculate(state.roots["A"], in: area).regions

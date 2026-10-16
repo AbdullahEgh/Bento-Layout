@@ -10,6 +10,7 @@ import BentoCore
     var rejectOnce: UUID?
     var rejectAlways: UUID?
     var accessibilityGranted = true
+    var deferWrites = false
     var nativeMinimum: [UUID: Size] = [:]
     var writes: [UUID: Int] = [:]
     override var trusted: Bool { accessibilityGranted }
@@ -29,7 +30,9 @@ import BentoCore
         guard let actual = records.first(where: { $0.0.id == window.id })?.1 else { throw WindowFailure.unavailable(window.title) }
         var accepted = frame
         if let minimum = nativeMinimum[window.id] { accepted.width = max(accepted.width, minimum.width); accepted.height = max(accepted.height, minimum.height) }
-        actual.setFrame(DesktopCoordinates.appKit(accepted), display: true)
+        let nativeFrame = DesktopCoordinates.appKit(accepted)
+        if deferWrites { DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { actual.setFrame(nativeFrame, display: true) } }
+        else { actual.setFrame(nativeFrame, display: true) }
     }
 }
 private final class FixturePreferences: PreferenceBackend {
@@ -79,6 +82,10 @@ private final class FixturePreferences: PreferenceBackend {
         do {
             await model.arrange(); interactions.synchronize()
             try check(model.active && matchingGeometry(), "Three disposable native windows arranged")
+            try check(system.writes.values.allSatisfy { $0 == 1 }, "Arrangement writes each native window once without intermediate resize animation")
+            let writeCount = system.writes
+            await model.arrange(preserving: true)
+            try check(system.writes == writeCount, "Unchanged layout does not write native window frames again")
             let (_, firstLayout) = try regions()
             try check(interactions.helperFrames.count == firstLayout.dividers.count && interactions.helperFrames.allSatisfy { frame in firstLayout.dividers.contains { $0.bounds == frame } }, "Helper panels occupy gaps only")
             func startDrag(source: Region, target: Point, time: Double) throws {
@@ -129,12 +136,18 @@ private final class FixturePreferences: PreferenceBackend {
             await model.undo(); try check(try model.history.current != beforeUndo && matchingGeometry(), "Native undo restores the previous interaction")
             await model.undo(redo: true); try check(try model.history.current == beforeUndo && matchingGeometry(), "Native redo reapplies the interaction")
             let beforeFailure = system.records.map { DesktopCoordinates.engine($0.1.frame) }
-            system.rejectOnce = system.records[1].0.id
+            let (failureDisplay, failureLayout) = try regions()
+            let failureSource = failureLayout.regions[0].window, failureTarget = failureLayout.regions[1].window
+            let failureCandidate = try model.history.current.placing(failureSource, on: failureDisplay, target: failureTarget.id, placement: .center)
+            system.rejectOnce = failureTarget.windowID
             var rejected = false
-            do { try await model.apply(model.history.current, displays: DisplayArea.all(margin: model.settings.margin)) } catch { rejected = true }
+            do { try await model.apply(failureCandidate, displays: DisplayArea.all(margin: model.settings.margin)) } catch { rejected = true }
             try check(rejected && system.records.map { DesktopCoordinates.engine($0.1.frame) } == beforeFailure, "A rejected native write rolls back the batch")
             let rememberedBento = model.history.current
+            system.deferWrites = true
             await model.restore(); interactions.synchronize()
+            system.deferWrites = false
+            try check(model.message == nil, "Restore waits for apps that apply native frames asynchronously")
             try check(system.records.map { DesktopCoordinates.engine($0.1.frame) } == initial && interactions.helperFrames.isEmpty, "Turning Bento off restores fixtures and removes helpers")
             await model.toggleLayout()
             try check(try model.history.current == rememberedBento && matchingGeometry(), "Toggling on resumes the edited Bento tree")
@@ -203,6 +216,22 @@ private final class FixturePreferences: PreferenceBackend {
             let activating = Task { await model.arrange() }
             try? await Task.sleep(for: .milliseconds(100)); await model.restore(); await activating.value
             try check(!model.active && system.records.map { DesktopCoordinates.engine($0.1.frame) } == initial, "Restoring during activation cancels the pending arrangement")
+            // Render only our own preview views for visual review, never desktop pixels.
+            let canvas = NSView(frame: NSRect(x: 0, y: 0, width: 920, height: 500))
+            canvas.wantsLayer = true; canvas.layer?.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1).cgColor
+            for (index, caption) in ["Hold to split", "Release to split", ""].enumerated() {
+                let slot = PreviewSlotView(frame: NSRect(x: 12 + index * 304, y: 12, width: 288, height: 476))
+                slot.primary = index != 2; slot.caption = caption; slot.progress = index == 0 ? 0.55 : nil
+                canvas.addSubview(slot)
+                if let bitmap = slot.bitmapImageRepForCachingDisplay(in: slot.bounds) {
+                    slot.cacheDisplay(in: slot.bounds, to: bitmap)
+                    try bitmap.representation(using: .png, properties: [:])?.write(to: output.appendingPathComponent("preview-\(index).png"))
+                }
+            }
+            if let bitmap = canvas.bitmapImageRepForCachingDisplay(in: canvas.bounds) {
+                canvas.cacheDisplay(in: canvas.bounds, to: bitmap)
+                try bitmap.representation(using: .png, properties: [:])?.write(to: output.appendingPathComponent("split-preview.png"))
+            }
             try JSONSerialization.data(withJSONObject: ["passed": passed, "externalApplicationsTouched": false, "systemPreferencesChanged": false], options: [.prettyPrinted, .sortedKeys]).write(to: output.appendingPathComponent("results.json"))
             print("Native interaction smoke: \(passed.count) checks passed; disposable windows only.")
         } catch { await interactions.finish(cancel: true); await model.restore(); throw error }

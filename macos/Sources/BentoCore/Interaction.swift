@@ -1,17 +1,6 @@
 import Foundation
 
 public enum InteractionGeometry {
-    // Preview the existing target slot, not a reflowed slot after removing its source.
-    public static func preview(_ slot: Rect, placement: Placement, gap: Int) -> Rect {
-        let width = max(1, (slot.width - gap) / 2), height = max(1, (slot.height - gap) / 2)
-        switch placement {
-        case .left: return Rect(slot.x, slot.y, width, slot.height)
-        case .right: return Rect(slot.x + width + gap, slot.y, slot.width - width - gap, slot.height)
-        case .top: return Rect(slot.x, slot.y, slot.width, height)
-        case .bottom: return Rect(slot.x, slot.y + height + gap, slot.width, slot.height - height - gap)
-        case .center: return slot
-        }
-    }
     public static func resize(_ workspace: Workspace, display: String, divider: Divider, pointer: Point, area: Rect, gap: Int) throws -> Workspace {
         guard let root = workspace.roots[display], (try LayoutEngine.calculate(root, in: area, gap: gap)).dividers.contains(where: { $0.id == divider.id }) else { throw LayoutError.missingTarget }
         let horizontal = divider.axis == .horizontal
@@ -50,6 +39,9 @@ public struct DropProposal {
     public let workspace: Workspace
     public let bounds: Rect
     public let placement: Placement
+    public let neighbors: [Rect]
+    public let progress: Double
+    public let waitingForSplit: Bool
 }
 public struct DropSession {
     public let original: Workspace
@@ -62,12 +54,22 @@ public struct DropSession {
               target.window.windowID != source.windowID else { intent.reset(); return nil }
         let gesture = try intent.update(display: display, target: target.window.id, bounds: target.bounds, point: pointer, now: now, holdMilliseconds: hold)
         let next = try original.placing(source, on: display, target: target.window.id, placement: gesture.placement)
+        var destination: Rect?
+        var neighbors: [Rect] = []
         do {
             for (id, node) in next.roots {
                 guard let workArea = areas[id] else { throw LayoutError.missingTarget }
-                _ = try LayoutEngine.calculate(node, in: workArea, gap: gap)
+                let before = try LayoutEngine.calculate(original.roots[id], in: workArea, gap: gap).regions
+                for region in try LayoutEngine.calculate(node, in: workArea, gap: gap).regions {
+                    if region.window.windowID == source.windowID { destination = region.bounds }
+                    else if before.first(where: { $0.window.windowID == region.window.windowID })?.bounds != region.bounds {
+                        neighbors.append(region.bounds)
+                    }
+                }
             }
         } catch LayoutError.cannotFit { return nil }
-        return DropProposal(workspace: next, bounds: InteractionGeometry.preview(target.bounds, placement: gesture.placement, gap: gap), placement: gesture.placement)
+        guard let destination else { throw LayoutError.missingTarget }
+        return DropProposal(workspace: next, bounds: destination, placement: gesture.placement, neighbors: neighbors,
+                            progress: gesture.progress, waitingForSplit: gesture.waitingForSplit)
     }
 }

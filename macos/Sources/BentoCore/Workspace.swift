@@ -53,16 +53,16 @@ public struct DragIntent {
     private var enteredAt: Double = 0, armed = false
     public init() {}
     public mutating func reset() { self = DragIntent() }
-    public mutating func update(display: String, target: UUID, bounds: Rect, point: Point, now: Double, holdMilliseconds: Int) throws -> (placement: Placement, progress: Double) {
+    public mutating func update(display: String, target: UUID, bounds: Rect, point: Point, now: Double, holdMilliseconds: Int) throws -> (placement: Placement, progress: Double, waitingForSplit: Bool) {
         var next = try LayoutEngine.placement(in: bounds, at: point)
         if monitor == display && self.target == target && edge != .center && next != edge && withinEdge(bounds, point, edge) { next = edge }
         if monitor != display || self.target != target || edge != next {
             monitor = display; self.target = target; edge = next; enteredAt = now; armed = false
         }
-        if edge == .center { return (.center, 0) }
+        if edge == .center { return (.center, 0, false) }
         let progress = holdMilliseconds <= 0 ? 1 : max(0, min(1, (now - enteredAt) * 1000 / Double(holdMilliseconds)))
         armed = armed || progress >= 1
-        return (armed ? edge : .center, progress)
+        return (armed ? edge : .center, progress, !armed)
     }
     private func withinEdge(_ r: Rect, _ p: Point, _ edge: Placement) -> Bool {
         let x = Double(p.x - r.x), y = Double(p.y - r.y), w = Double(r.width), h = Double(r.height)

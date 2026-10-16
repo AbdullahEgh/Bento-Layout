@@ -93,7 +93,7 @@ struct SettingsView: View {
                     setting("Space between windows", symbol: "Gap", value: $model.settings.gap, range: 4...32)
                     setting("Desktop margin", symbol: "Margin", value: $model.settings.margin, range: 0...64)
                     HStack { settingLabel("Background darkness", symbol: "Darkness"); Slider(value: Binding(get: { Double(model.settings.backgroundDarkness) }, set: { model.settings.backgroundDarkness = Int($0) }), in: 0...100, step: 5); Text("\(model.settings.backgroundDarkness)%").monospacedDigit().frame(width: 36) }
-                    Toggle(isOn: $model.settings.animate) { settingLabel("Animate layout changes", symbol: "Animation") }.toggleStyle(.switch)
+                    Toggle(isOn: $model.settings.animate) { settingLabel("Animate resize handles", symbol: "Animation") }.toggleStyle(.switch)
                     if model.settings.animate { HStack { settingLabel("Animation duration", symbol: "Duration"); Spacer(); Stepper("\(model.settings.animationMS) ms", value: $model.settings.animationMS, in: 80...400, step: 20).frame(width: 120) } }
                     Text("Motion follows macOS Reduce Motion. Background darkness applies while Bento is on.").font(.system(size: 11)).foregroundStyle(BentoStyle.secondary)
                     HStack { settingLabel("Appearance", symbol: "Appearance"); Spacer(); Picker("Appearance", selection: $model.settings.theme) { Text("System").tag("System"); Text("Light").tag("Light"); Text("Dark").tag("Dark") }.labelsHidden().frame(width: 130) }

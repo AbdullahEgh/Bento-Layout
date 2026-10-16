@@ -181,7 +181,7 @@ struct SavedWorkspace: Codable {
             if !wasActive { do { try desktopPreferences.restore() } catch { message = "\(message ?? "") \(error.localizedDescription)" } }
         }
     }
-    func apply(_ workspace: Workspace, displays: [DisplayArea], allowSkipping: Bool = false) async throws {
+    func apply(_ workspace: Workspace, displays: [DisplayArea], allowSkipping: Bool = false, liveResize: Bool = false) async throws {
         guard !busy else { throw LayoutError.invalidInput }; busy = true; defer { busy = false }
         func write(_ window: ManagedWindow, frame: Rect) throws {
             do { try system.write(window, frame: frame) }
@@ -211,19 +211,15 @@ struct SavedWorkspace: Codable {
             if originals[window.id] == nil { originals[window.id] = (window, frame) }
         }
         do {
-            if settings.animate && !interacting && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-                let steps = 6
-                for step in 1..<steps {
-                    let t = Double(step) / Double(steps), eased = t * t * (3 - 2 * t)
-                    for (index, entry) in plan.enumerated() {
-                        let start = rollback[index].1, end = entry.1
-                        func blend(_ a: Int, _ b: Int) -> Int { Int((Double(a) + Double(b - a) * eased).rounded()) }
-                        try write(entry.0, frame: Rect(blend(start.x, end.x), blend(start.y, end.y), blend(start.width, end.width), blend(start.height, end.height)))
-                    }
-                    try await Task.sleep(for: .milliseconds(settings.animationMS / steps))
-                }
+            // Native apps often animate AX changes themselves. Sending intermediate
+            // sizes repeatedly forces expensive relayout and can trigger false minima.
+            for (window, rect) in plan where !system.accepted(window, rect) { try write(window, frame: rect) }
+            if liveResize && interacting {
+                // Coalesce pointer samples at display cadence. Mouse-up performs the
+                // full settled verification and rolls back if an app refused a size.
+                try await Task.sleep(for: .milliseconds(16))
+                return
             }
-            for (window, rect) in plan { try write(window, frame: rect) }
             try await Task.sleep(for: .milliseconds(100))
             let rejected = plan.filter { !system.accepted($0.0, $0.1) }
             if CommandLine.arguments.contains("--fixture-pid") {
@@ -262,14 +258,18 @@ struct SavedWorkspace: Codable {
         busy = true; defer { busy = false }
         if !history.current.windows.isEmpty { lastBento = history.current }
         var remaining: [UUID: (ManagedWindow, Rect)] = [:]
-        for (id, entry) in originals {
-            // A closed process needs no restoration. Existing windows that refuse it remain retryable.
-            if !system.isAlive(entry.0) { continue }
-            do { try system.write(entry.0, frame: entry.1); if !system.accepted(entry.0, entry.1) { remaining[id] = entry } }
-            catch { remaining[id] = entry }
+        let pending = originals.filter { system.isAlive($0.value.0) }
+        for (_, entry) in pending where !system.accepted(entry.0, entry.1) {
+            // Some apps acknowledge an AX write before updating their native frame.
+            try? system.write(entry.0, frame: entry.1)
         }
-        originals = remaining; released.removeAll(); active = false; history = LayoutHistory(); onStateChange?()
-        message = remaining.isEmpty ? nil : "\(remaining.count) window(s) could not be restored. Allow Accessibility access and try Restore again."
+        try? await Task.sleep(for: .milliseconds(100))
+        for (id, entry) in pending where system.isAlive(entry.0) && !system.accepted(entry.0, entry.1) { remaining[id] = entry }
+        originals = remaining; released.removeAll(); active = false; history = LayoutHistory()
+        message = remaining.isEmpty ? nil : system.trusted
+            ? "\(remaining.count) window(s) could not return to their original size or position. Try Restore again after checking the app and display."
+            : WindowFailure.permission.localizedDescription
+        onStateChange?()
         do { try desktopPreferences.restore() } catch { message = error.localizedDescription }
     }
     func saveLayout() {

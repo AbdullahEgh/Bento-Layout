@@ -1,5 +1,9 @@
 Bento for macOS 0.2.4 arranges the windows that fit and leaves the others alone.
 
+- Menu-bar left-click toggles Bento without opening Settings; right-click opens the menu.
+- Faster arrangement with one final frame per window and no repeated native resize animation. Resize grips coalesce rapid pointer movement.
+- Split previews show the actual resulting slots, including resized neighbors, with a hold indicator. Subtle idle grips make dividers easier to find.
+- Restore waits for apps to settle before checking their final frames.
 - Matching settings icons for Dock, menu bar, edge snapping, login startup, appearance, animation and gesture controls.
 - Compatibility checks run on macOS 15 and 26; the app supports macOS 15 or later on Intel and Apple Silicon.
 - An oversized window no longer blocks the entire layout. Smaller windows receive usable slots; skipped windows keep their original positions.

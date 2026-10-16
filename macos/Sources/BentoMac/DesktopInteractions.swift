@@ -69,6 +69,7 @@ struct DesktopInput {
                 }
                 panel.setFrame(DesktopCoordinates.appKit(divider.bounds), display: true)
                 panel.gripView.animate = model.settings.animate
+                panel.gripView.duration = Double(model.settings.animationMS) / 1000
                 panel.gripView.lightInk = model.settings.backgroundDarkness >= 40 || NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
                 panel.gripView.dragging = grip?.divider.id == divider.id
                 panel.gripView.needsDisplay = true
@@ -122,7 +123,7 @@ struct DesktopInput {
     private func updateDrop() {
         do {
             if let proposal = try session?.propose(pointer: input().point, areas: areas(), gap: model.settings.gap, hold: model.settings.splitHold, now: input().time) {
-                candidate = proposal.workspace; preview.present(proposal.bounds)
+                candidate = proposal.workspace; preview.present(proposal)
             } else { candidate = nil; preview.orderOut(nil) }
         } catch { candidate = nil; preview.orderOut(nil) }
     }
@@ -152,7 +153,7 @@ struct DesktopInput {
                     guard let self else { return }
                     while let next = self.pending {
                         self.pending = nil
-                        do { try await self.model.apply(next, displays: DisplayArea.all(margin: self.model.settings.margin)) }
+                        do { try await self.model.apply(next, displays: DisplayArea.all(margin: self.model.settings.margin), liveResize: true) }
                         catch { self.liveFailure = true; self.pending = nil; self.model.message = error.localizedDescription; break }
                     }
                     self.liveTask = nil
@@ -180,21 +181,66 @@ struct DesktopInput {
     }
 }
 
-@MainActor final class DestinationPanel: NSPanel {
+// Separate click-through panels outline every affected slot without covering the
+// desktop in one opaque overlay. Their geometry comes from the committed candidate.
+@MainActor final class DestinationPanel {
+    private var panels: [PreviewSlotPanel] = []
+    func orderOut(_ sender: Any?) { panels.forEach { $0.orderOut(sender) } }
+    func present(_ proposal: DropProposal) {
+        let rectangles = [proposal.bounds] + proposal.neighbors
+        while panels.count < rectangles.count { panels.append(PreviewSlotPanel()) }
+        for (index, panel) in panels.enumerated() {
+            guard index < rectangles.count else { panel.orderOut(nil); continue }
+            let primary = index == 0
+            panel.slotView.primary = primary
+            panel.slotView.progress = proposal.waitingForSplit ? proposal.progress : nil
+            panel.slotView.caption = primary ? (proposal.waitingForSplit ? "Hold to split" : proposal.placement == .center ? "Release to swap" : "Release to split") : ""
+            panel.setFrame(DesktopCoordinates.appKit(rectangles[index]), display: true)
+            panel.slotView.needsDisplay = true
+            if !panel.isVisible { panel.orderFrontRegardless() }
+        }
+    }
+}
+
+@MainActor private final class PreviewSlotPanel: NSPanel {
+    let slotView = PreviewSlotView()
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isReleasedWhenClosed = false; isOpaque = false; backgroundColor = .clear
         ignoresMouseEvents = true; hasShadow = false; level = .floating; hidesOnDeactivate = false
-        collectionBehavior = [.stationary, .ignoresCycle]
-        let material = NSVisualEffectView(); material.material = .hudWindow; material.blendingMode = .behindWindow; material.state = .active
-        material.wantsLayer = true; material.layer?.cornerRadius = 10; material.layer?.masksToBounds = true
-        material.layer?.borderColor = NSColor.systemTeal.withAlphaComponent(0.7).cgColor; material.layer?.borderWidth = 2
-        contentView = material
+        collectionBehavior = [.stationary, .ignoresCycle]; contentView = slotView
         setAccessibilityLabel("Bento destination preview")
     }
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
-    func present(_ rect: Rect) { setFrame(DesktopCoordinates.appKit(rect), display: true); if !isVisible { orderFrontRegardless() } }
+}
+
+@MainActor final class PreviewSlotView: NSView {
+    var primary = true, caption = "Release to split"
+    var progress: Double?
+    override func draw(_ dirtyRect: NSRect) {
+        NSBezierPath(rect: bounds).addClip()
+        NSColor.clear.setFill(); bounds.fill(using: .copy)
+        let outline = NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 2), xRadius: 10, yRadius: 10)
+        let accent = NSColor(calibratedRed: 0.24, green: 0.78, blue: 0.73, alpha: 1)
+        accent.withAlphaComponent(primary ? 0.18 : 0.06).setFill(); outline.fill()
+        (primary ? accent : NSColor.white.withAlphaComponent(0.8)).setStroke()
+        outline.lineWidth = primary ? 2 : 1.5
+        if !primary { outline.setLineDash([6, 4], count: 2, phase: 0) }
+        outline.stroke()
+        guard primary else { return }
+        let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.white]
+        let title = caption as NSString, textSize = title.size(withAttributes: attributes)
+        let width = min(bounds.width - 16, textSize.width + 28), height: CGFloat = progress == nil ? 36 : 42
+        let chip = NSRect(x: bounds.midX - width / 2, y: bounds.midY - height / 2, width: width, height: height)
+        NSColor(calibratedWhite: 0.08, alpha: 0.94).setFill(); NSBezierPath(roundedRect: chip, xRadius: 10, yRadius: 10).fill()
+        title.draw(in: NSRect(x: chip.minX + 14, y: chip.midY - textSize.height / 2 + (progress == nil ? 0 : 3), width: width - 28, height: textSize.height), withAttributes: attributes)
+        if let progress {
+            let track = NSRect(x: chip.minX + 14, y: chip.minY + 6, width: width - 28, height: 2)
+            NSColor.white.withAlphaComponent(0.2).setFill(); NSBezierPath(roundedRect: track, xRadius: 1, yRadius: 1).fill()
+            accent.setFill(); NSBezierPath(roundedRect: NSRect(x: track.minX, y: track.minY, width: track.width * progress, height: 2), xRadius: 1, yRadius: 1).fill()
+        }
+    }
 }
 
 @MainActor final class GapPanel: NSPanel {
@@ -215,9 +261,10 @@ struct DesktopInput {
     let axis: Axis
     var onBegin: (() -> Bool)?, onDrag: (() -> Void)?, onEnd: ((Bool) -> Void)?
     var animate = true, lightInk = true
+    var duration = 0.18
     var dragging = false { didSet { if oldValue != dragging { transition() } } }
     var hovering = false { didSet { if oldValue != hovering { transition() } } }
-    private var displayedLength = 40.0, displayedAlpha = 0.0
+    private var displayedLength = 40.0, displayedAlpha = 0.3
     private var animation: Timer?
     private var tracking: NSTrackingArea?
     init(axis: Axis) { self.axis = axis; super.init(frame: .zero); setAccessibilityElement(true); setAccessibilityRole(.splitter); setAccessibilityLabel("Resize neighboring windows") }
@@ -239,13 +286,13 @@ struct DesktopInput {
     private func transition() {
         animation?.invalidate()
         let oldLength = displayedLength, oldAlpha = displayedAlpha
-        let length = dragging ? 104.0 : 40.0, alpha = hovering || dragging ? 0.85 : 0.0
+        let length = dragging ? 104.0 : 40.0, alpha = hovering || dragging ? 0.85 : 0.3
         guard animate, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { displayedLength = length; displayedAlpha = alpha; needsDisplay = true; return }
         let start = ProcessInfo.processInfo.systemUptime
         animation = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in
             MainActor.assumeIsolated {
                 guard let self else { timer.invalidate(); return }
-                let t = min(1, (ProcessInfo.processInfo.systemUptime - start) / 0.12), eased = t * t * (3 - 2 * t)
+                let t = min(1, (ProcessInfo.processInfo.systemUptime - start) / self.duration), eased = t * t * (3 - 2 * t)
                 self.displayedLength = oldLength + (length - oldLength) * eased
                 self.displayedAlpha = oldAlpha + (alpha - oldAlpha) * eased
                 self.needsDisplay = true

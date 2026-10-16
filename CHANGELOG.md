@@ -2,6 +2,11 @@
 
 ## macOS 0.2.4 — October 2026
 
+- Keep menu-bar activation quiet; open Settings only through an explicit settings action.
+- Send native windows directly to their final frames, skip unchanged frames, and coalesce live grip resizing.
+- Preview the final split geometry and neighboring slots, including minimum-size clamping and source-slot removal. Add a hold indicator and visible idle grips.
+- Wait for native restoration to settle and report size/display restrictions accurately.
+
 - Add Bento-style icons to settings controls, reusing Windows artwork where applicable.
 - Run build, layout, native interaction and OTA fixture checks on macOS 15 and 26. The minimum remains macOS 15.
 
