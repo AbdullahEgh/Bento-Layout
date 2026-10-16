@@ -1,3 +1,9 @@
+# Windows 0.3.7 validation — 2026-10-16
+
+[Windows run 38906552436](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/38906552436) at `888ac8a` passed 131 core/native tests plus five settings/stacking checks, with no build warnings or errors. Native checks use disposable external fixture windows. Coverage includes candidate-geometry previews, activation/restoration, live grip resizing, automatic overflow minimization, taskbar reopening into splits, preservation of user-minimized windows, helper ordering below applications and above the backdrop, automatic settings saving, and absence of manual Save buttons. The full native suite now runs in Windows CI.
+
+Release 0.3.7 was published from that run. The downloaded package’s version/platform manifest and all 14 payload hashes were checked. Windows was tested on the GitHub Windows runner; no Windows installation or physical pointer test was performed on this Mac. DWM transitions fall back to direct placement for unsupported thumbnails.
+
 # Validation — 2026-10-16
 
 Actual execution on this Windows x64 desktop, OS build `10.0.26200.0`, using a workspace-local Microsoft .NET SDK `10.0.402`. The machine initially had .NET runtimes but no SDK. The official SDK was downloaded into `.tools/dotnet`; it is not part of the release.

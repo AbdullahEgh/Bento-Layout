@@ -1,3 +1,9 @@
+# macOS 0.2.7 interaction validation — 2026-10-16
+
+[Compatibility run 38906551873](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/38906551873) at `888ac8a` passed on macOS 15 and 26: 31 core tests, universal compilation, startup, 50 isolated native checks and the signed OTA fixture. The native checks passed locally too. They cover eased activation/restoration with exact final frames, explicit Reduce Motion behavior, fully hidden idle grips and hover/grab visibility, below-application grip level, overflow minimization, Dock reopening, minimization refusal, and preservation of windows minimized before Bento activation. Core tests cover priority admission, motion endpoints and noncommitting conflict feedback.
+
+The first Windows native pass caught restoration of a manually minimized window; restoring only removed windows still eligible for Bento fixed it. The Mac fixture now supplies Reduce Motion explicitly rather than depending on CI host accessibility preferences. Physical pointer routing and subjective animation smoothness retain the interactive limitations documented below. Installed-app activation preferences will be recorded after OTA installation.
+
 # macOS 0.2.6 live OTA permission-retention test — 2026-10-16
 
 **Passed:** the installed 0.2.5 app updated through Sparkle to 0.2.6 (build 109), retained Accessibility approval, and arranged real desktop windows. No Accessibility reset, settings toggle, reapproval or manual app replacement was performed during this test.
