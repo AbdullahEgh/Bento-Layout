@@ -9,6 +9,7 @@ public sealed class BentoWindow : Window
 {
     private readonly BentoController controller;
     private readonly StackPanel content = new();
+    private readonly ScrollViewer scroll = new();
     private readonly Dictionary<string, Button> navigation = new();
     private TextBlock status = new(), count = new();
     private readonly TextBlock feedback = new();
@@ -41,7 +42,7 @@ public sealed class BentoWindow : Window
         var version = Label($"Bento {UpdateService.CurrentVersion}\nMade for your desktop.", true); version.Margin = new Thickness(8, 0, 0, 0);
         DockPanel.SetDock(version, Dock.Bottom); side.Children.Add(version);
         var nav = new StackPanel();
-        foreach (string name in new[] { "Workspace", "Gestures", "Updates" })
+        foreach (string name in new[] { "Workspace", "Gestures", "Updates", "What's New" })
         {
             var caption = new StackPanel { Orientation = Orientation.Horizontal }; caption.Children.Add(Symbols.Create(name));
             caption.Children.Add(new TextBlock { Text = name, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
@@ -51,7 +52,8 @@ public sealed class BentoWindow : Window
         side.Children.Add(nav); root.Children.Add(sidebar);
         var main = new Grid { Margin = new Thickness(32, 28, 32, 22) }; Grid.SetColumn(main, 1);
         main.RowDefinitions.Add(new()); main.RowDefinitions.Add(new() { Height = GridLength.Auto });
-        var scroll = new ScrollViewer { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = new Thickness(0, 0, 8, 0) };
+        scroll.Content = content; scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+        scroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled; scroll.Padding = new Thickness(0, 0, 8, 0);
         main.Children.Add(scroll);
         var footer = new DockPanel { Margin = new Thickness(0, 18, 0, 0), LastChildFill = true };
         save = new Button { Content = Symbols.Caption("Save changes", "Save"), Style = (Style)FindResource("Primary"), MinWidth = 118 };
@@ -66,13 +68,15 @@ public sealed class BentoWindow : Window
     public void SelectPage(string name)
     {
         if (busy) return;
-        page = name; content.Children.Clear();
-        foreach (var (key, button) in navigation) button.SetResourceReference(BackgroundProperty, key == name ? "Selection" : "Sidebar");
-        switch (name) { case "Gestures": Gestures(); break; case "Updates": Updates(); break; default: Workspace(); break; }
+        page = name; content.Children.Clear(); scroll.ScrollToTop();
+        bool reading = name is "What's New" or "Update Log";
+        save.Visibility = feedback.Visibility = reading ? Visibility.Collapsed : Visibility.Visible;
+        foreach (var (key, button) in navigation) button.SetResourceReference(BackgroundProperty, key == (name == "Update Log" ? "What's New" : name) ? "Selection" : "Sidebar");
+        switch (name) { case "Gestures": Gestures(); break; case "Updates": Updates(); break; case "What's New": WhatsNew(); break; case "Update Log": UpdateLog(); break; default: Workspace(); break; }
     }
     private static TextBlock Label(string text, bool secondary = false)
     {
-        var label = new TextBlock { Text = text, LineHeight = 19 };
+        var label = new TextBlock { Text = text, LineHeight = 19, TextWrapping = TextWrapping.Wrap };
         if (secondary) label.SetResourceReference(TextBlock.ForegroundProperty, "Secondary");
         return label;
     }
@@ -231,12 +235,30 @@ public sealed class BentoWindow : Window
             var dialog = new OpenFileDialog { Filter = "Bento update (*.zip)|*.zip", Title = "Choose a Bento update" };
             if (dialog.ShowDialog(this) == true) PrepareInstall(dialog.FileName, result, updates);
         };
-        foreach (var release in UpdateService.Releases)
-        {
-            var card = Card($"{release.Version}  ·  {release.Date}");
-            card.Children.Add(new TextBlock { Text = release.Title, FontSize = 16, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 13, 0, 10) });
-            foreach (string change in release.Changes) { var item = Label("•  " + change, true); item.Margin = new Thickness(0, 0, 0, 9); card.Children.Add(item); }
-        }
+        PageLink("What's New", "What's New", "What's New");
+    }
+    private void PageLink(string title, string symbol, string destination)
+    {
+        var button = new Button { Content = Symbols.Caption(title, symbol), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 18) };
+        AutomationProperties.SetName(button, title); button.Click += (_, _) => SelectPage(destination); content.Children.Add(button);
+    }
+    private void ReleaseCard(ReleaseNote release)
+    {
+        var card = Card($"{release.Version}  ·  {release.Date}");
+        card.Children.Add(new TextBlock { Text = release.Title, FontSize = 16, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 13, 0, 10) });
+        foreach (string change in release.Changes) { var item = Label("•  " + change, true); item.Margin = new Thickness(0, 0, 0, 12); card.Children.Add(item); }
+    }
+    private void WhatsNew()
+    {
+        Heading("What's New", "The latest improvements to Bento.");
+        ReleaseCard(UpdateService.Releases[0]);
+        PageLink("Update Log", "Update Log", "Update Log");
+    }
+    private void UpdateLog()
+    {
+        PageLink("Back to What's New", "Back", "What's New");
+        Heading("Update Log", "Previous releases and installation history.");
+        foreach (var release in UpdateService.Releases.Skip(1)) ReleaseCard(release);
         string history = Path.Combine(BentoSettings.DataDirectory, "update-history.jsonl");
         if (File.Exists(history))
         {
