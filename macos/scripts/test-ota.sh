@@ -28,7 +28,8 @@ public_key="$(cat "$fixture/public.txt")"
 tools="$mac_root/.build/artifacts/macos/Sparkle/bin"
 release_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$fixture/Bento.app/Contents/Info.plist")"
 release_tag="macos-v$release_version"
-if ! "$tools/generate_appcast" --ed-key-file "$fixture/fixture.key" --download-url-prefix "https://github.com/AbdullahEgh/Bento-Layout/releases/download/$release_tag/" --maximum-deltas 0 -o "$fixture/stage/appcast.xml" "$fixture/stage" > "$fixture/generate.log" 2>&1; then
+cp "$mac_root/RELEASE_NOTES.md" "$fixture/stage/Bento-macos-universal.md"
+if ! "$tools/generate_appcast" --ed-key-file "$fixture/fixture.key" --download-url-prefix "https://github.com/AbdullahEgh/Bento-Layout/releases/download/$release_tag/" --embed-release-notes --maximum-deltas 0 -o "$fixture/stage/appcast.xml" "$fixture/stage" > "$fixture/generate.log" 2>&1; then
   echo 'Fixture appcast generation failed.' >&2; exit 1
 fi
 "$tools/sign_update" --verify --ed-key-file "$fixture/fixture.key" "$fixture/stage/appcast.xml" > "$fixture/verify.log" 2>&1

@@ -9,6 +9,7 @@ import BentoCore
     var focused: ManagedWindow?
     var rejectOnce: UUID?
     var rejectAlways: UUID?
+    var rejectedWindows = Set<UUID>()
     var accessibilityGranted = true
     var deferWrites = false
     var writeDelay = 0.04
@@ -33,7 +34,7 @@ import BentoCore
     override func isAlive(_ window: ManagedWindow) -> Bool { records.contains { $0.0.id == window.id } }
     override func write(_ window: ManagedWindow, frame: Rect) throws {
         writes[window.id, default: 0] += 1
-        if rejectAlways == window.id { throw WindowFailure.rejected(window.title) }
+        if rejectAlways == window.id || rejectedWindows.contains(window.id) { throw WindowFailure.rejected(window.title) }
         if rejectOnce == window.id { rejectOnce = nil; throw WindowFailure.rejected(window.title) }
         guard let actual = records.first(where: { $0.0.id == window.id })?.1 else { throw WindowFailure.unavailable(window.title) }
         var accepted = frame
@@ -235,6 +236,13 @@ private final class FixturePreferences: PreferenceBackend {
             try check(try model.active && model.history.current.windows.count == 2 && matchingGeometry() && system.accepted(oversized, initial[0]), "A window that refuses a resize is restored and skipped while other windows arrange")
             await model.restore()
             system.rejectAlways = nil
+            system.rejectedWindows = Set(system.records.prefix(2).map { $0.0.id })
+            system.writes.removeAll()
+            await model.arrange()
+            let refusedWrites = system.rejectedWindows.reduce(0) { $0 + (system.writes[$1] ?? 0) }
+            try check(refusedWrites == 2 && !model.active && model.message != nil,
+                "Two native refusals stop after one correction instead of testing every window")
+            system.rejectedWindows.removeAll(); await model.restore()
             for (record, _) in system.records { record.minimum = Size(area.width + 100, 120) }
             system.writes.removeAll()
             await model.arrange()
@@ -318,10 +326,18 @@ private final class FixturePreferences: PreferenceBackend {
             await model.arrange()
             model.recordInteraction(second); model.recordInteraction(first)
             oversized.minimum = crowdedMinimum
+            let retainedFrame = system.frame(of: first.element)
+            let vacatedFrame = system.frame(of: second.element)
+            model.settings.animate = true; system.writes.removeAll()
             try system.setMinimized(oversized, false); system.focused = oversized
             await model.arrange(preserving: true)
             try check(!system.isMinimized(oversized) && !system.isMinimized(first) && system.isMinimized(second)
                 && model.history.current.windows.count == 2, "Dock reopen evicts least recently used window on a full display")
+            try check(system.frame(of: first.element) == retainedFrame && system.frame(of: oversized.element) == vacatedFrame,
+                "Crowded Dock admission reuses the idle slot without moving its neighbor")
+            try check(system.writes[first.id] == nil && system.writes[second.id] == nil && system.writes[oversized.id] == 1,
+                "Automatic Dock admission writes only the incoming final frame, even with animations enabled")
+            model.settings.animate = false
             await model.arrange(preserving: true)
             try check(system.isMinimized(second) && !system.isMinimized(oversized), "Minimized overflow does not steal the reopened window's space on next reflow")
             await model.restore()
@@ -344,6 +360,20 @@ private final class FixturePreferences: PreferenceBackend {
             await model.arrange()
             try check(model.active && model.minimizedByBento.isEmpty && model.history.current.windows.count == 2, "Minimize refusal does not stop fitting-window arrangement")
             await model.restore(); system.denyMinimize = false; oversized.minimum = Size(160, 120)
+            let update = MacUpdater()
+            var restorationCalls = 0, installCalls = 0, attentionCalls = 0, readyToInstall = false
+            update.beforeInstall = { restorationCalls += 1; await Task.yield(); return readyToInstall }
+            update.onInstallationNeedsAttention = { attentionCalls += 1 }
+            update.postponeInstallation { installCalls += 1 }
+            update.retryInstall(); update.retryInstall()
+            while update.preparingInstallation { try? await Task.sleep(for: .milliseconds(10)) }
+            try check(restorationCalls == 1 && installCalls == 0 && update.pendingInstallation && attentionCalls == 1,
+                "A blocked install shows retry status without losing its completion or duplicating restoration")
+            readyToInstall = true; update.retryInstall(); update.retryInstall()
+            while update.preparingInstallation { try? await Task.sleep(for: .milliseconds(10)) }
+            update.retryInstall()
+            try check(restorationCalls == 2 && installCalls == 1 && update.installationPrepared && !update.pendingInstallation,
+                "Retry installation resumes Sparkle exactly once after successful restoration")
             // Render only our own preview views for visual review, never desktop pixels.
             let canvas = NSView(frame: NSRect(x: 0, y: 0, width: 1224, height: 500))
             canvas.wantsLayer = true; canvas.layer?.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1).cgColor

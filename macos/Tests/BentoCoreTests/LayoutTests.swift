@@ -114,6 +114,21 @@ final class LayoutTests: XCTestCase {
         XCTAssertEqual(try LayoutEngine.calculate(next, in: area).regions.map(\.bounds),
                        try LayoutEngine.calculate(expected, in: area).regions.map(\.bounds))
     }
+    func testCrowdedDockAdmissionReplacesOneSlotWithoutMovingNeighbors() throws {
+        let bounds = Rect(0, 0, 1200, 600)
+        let a = window(300, 400), b = window(300, 400), c = window(300, 400), incoming = window(300, 400)
+        let edited = LayoutNode.split(id: UUID(), axis: .horizontal, ratio: 0.4, first: .window(a), second:
+            .split(id: UUID(), axis: .horizontal, ratio: 0.5, first: .window(b), second: .window(c)))
+        let before = try LayoutEngine.calculate(edited, in: bounds).regions
+        let next = try AutoLayout.fitting([a, b, c, incoming], in: bounds, preserving: edited,
+            prioritizing: [incoming.windowID], leastRecentlyUsed: [b.windowID, c.windowID, a.windowID])
+        let after = try LayoutEngine.calculate(next, in: bounds).regions
+        for id in [a.windowID, c.windowID] {
+            XCTAssertEqual(after.first { $0.window.windowID == id }?.bounds, before.first { $0.window.windowID == id }?.bounds)
+        }
+        XCTAssertEqual(after.first { $0.window.windowID == incoming.windowID }?.bounds, before.first { $0.window.windowID == b.windowID }?.bounds)
+        XCTAssertFalse(after.contains { $0.window.windowID == b.windowID })
+    }
     func testImpossibleDockWindowDoesNotEvictUsableWindows() throws {
         let a = window(), b = window(), impossible = window(3000, 2000)
         let edited = try AutoLayout.arrange([a, b], in: area)

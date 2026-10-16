@@ -23,6 +23,7 @@ fi
 stage="$output_dir/update"
 mkdir -p "$stage"
 cp "$archive" "$stage/Bento-macos-universal.zip"
+cp "$mac_root/RELEASE_NOTES.md" "$stage/Bento-macos-universal.md"
 sign_options=(--account "${BENTO_ED_KEY_ACCOUNT:-com.abdullahegh.bento}")
 if [[ -n "${BENTO_ED_KEY_FILE:-}" ]]; then sign_options+=(--ed-key-file "$BENTO_ED_KEY_FILE"); fi
 sign_log="$(mktemp "${TMPDIR:-/tmp}/bento-sign.XXXXXX")"
@@ -30,7 +31,7 @@ chmod 600 "$sign_log"
 trap 'rm -f "$sign_log"' EXIT
 if ! "$mac_root/.build/artifacts/macos/Sparkle/bin/generate_appcast" ${sign_options[@]+"${sign_options[@]}"} \
   --download-url-prefix "https://github.com/AbdullahEgh/Bento-Layout/releases/download/$release_tag/" \
-  --maximum-deltas 0 -o "$stage/appcast.xml" "$stage" > "$sign_log" 2>&1; then
+  --embed-release-notes --maximum-deltas 0 -o "$stage/appcast.xml" "$stage" > "$sign_log" 2>&1; then
   echo 'Sparkle could not sign the update. Check the release key and app configuration.' >&2; exit 1
 fi
 if ! "$mac_root/.build/artifacts/macos/Sparkle/bin/sign_update" --verify ${sign_options[@]+"${sign_options[@]}"} "$stage/appcast.xml" > "$sign_log" 2>&1; then

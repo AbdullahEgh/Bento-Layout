@@ -50,3 +50,7 @@ The fixture test proves signing and validation of an ad-hoc app/archive/feed wit
 ## GitHub release workflow
 
 Run **Publish macOS app and OTA** from Actions with a new Mac version, for example `0.2.0`. The workflow tests, builds the universal app, signs the archive and feed using the encrypted secret, and publishes the Mac release and `macos-updates` branch. Private material exists only in a mode-600 temporary runner file and is removed after signing. Build numbers increase with workflow runs. The workflow does not publish Windows assets or mark a Mac release as the latest Windows release.
+
+## Release points in the update popup
+
+Preparation copies `macos/RELEASE_NOTES.md` beside the archive and asks Sparkle to embed it in the signed appcast. The standard update popup displays the points without a separate release-notes download, including in older installed Bento versions. Verification rejects new feeds without embedded notes. Notes must be finalized before signing; never edit the published signed feed.

@@ -5,15 +5,16 @@ import FoundationXML
 import CryptoKit
 
 final class Feed: NSObject, XMLParserDelegate {
-    var items: [[String: String]] = [], item: [String: String] = [:], collecting = false
+    var items: [[String: String]] = [], item: [String: String] = [:], collecting: String?
     func parser(_ parser: XMLParser, didStartElement name: String, namespaceURI: String?, qualifiedName: String?, attributes: [String: String]) {
         if name == "item" { item = [:] }
         if name == "enclosure" { item.merge(attributes) { _, new in new } }
-        if name == "sparkle:version" { collecting = true; item["version"] = "" }
+        if name == "sparkle:version" || name == "description" { collecting = name == "description" ? "notes" : "version"; item[collecting!] = "" }
     }
-    func parser(_ parser: XMLParser, foundCharacters string: String) { if collecting { item["version", default: ""] += string } }
+    func parser(_ parser: XMLParser, foundCharacters string: String) { if let collecting { item[collecting, default: ""] += string } }
+    func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) { if let collecting { item[collecting, default: ""] += String(decoding: CDATABlock, as: UTF8.self) } }
     func parser(_ parser: XMLParser, didEndElement name: String, namespaceURI: String?, qualifiedName: String?) {
-        if name == "sparkle:version" { collecting = false }
+        if name == "sparkle:version" || name == "description" { collecting = nil }
         if name == "item" { items.append(item) }
     }
 }
@@ -30,6 +31,7 @@ do {
           let encodedSignature = item["sparkle:edSignature"], let signature = Data(base64Encoded: encodedSignature),
           item["url"] == "https://github.com/AbdullahEgh/Bento-Layout/releases/download/\(args[4])/Bento-macos-universal.zip",
           item["length"].flatMap(Int.init) == archive.count else { fail("Feed version, URL, length or signature is invalid.") }
+    guard let notes = item["notes"], !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { fail("Missing embedded release notes for the update popup.") }
     let key = try Curve25519.Signing.PublicKey(rawRepresentation: publicData)
     guard key.isValidSignature(signature, for: archive) else { fail("The archive does not match the app's embedded public key.") }
     print("Verified release archive, app version and feed enclosure.")

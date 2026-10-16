@@ -80,6 +80,18 @@ struct SavedWorkspace: Codable {
         if let focused, focused.id != lastFocusedWindow { recordInteraction(focused) }
         lastFocusedWindow = focused?.id
     }
+    private struct ArrangementInput: Equatable {
+        let ids: [UUID]
+        let minima: [Size]
+        let displays: [DisplayArea]
+        let gap: Int
+    }
+    private var failedAutomaticInput: ArrangementInput?
+    private func arrangementInput(_ current: [ManagedWindow]) -> ArrangementInput {
+        let ordered = current.sorted { $0.id.uuidString < $1.id.uuidString }
+        return ArrangementInput(ids: ordered.map(\.id), minima: ordered.map(\.minimum),
+            displays: DisplayArea.all(margin: settings.margin), gap: settings.gap)
+    }
     private var timer: Timer?
     private var lastDisplays: [DisplayArea] = []
     private var released = Set<UUID>()
@@ -111,7 +123,10 @@ struct SavedWorkspace: Codable {
             do {
                 let current = try discoverWindows()
                 let displaysChanged = DisplayArea.all(margin: settings.margin) != lastDisplays
-                if !reopenedWindows.isEmpty || displaysChanged || Set(current.map(\.id)) != Set(windows.map(\.id)) { windows = current; Task { await arrange(preserving: !displaysChanged) } }
+                if !reopenedWindows.isEmpty || displaysChanged || Set(current.map(\.id)) != Set(windows.map(\.id)) {
+                    guard !reopenedWindows.isEmpty || failedAutomaticInput != arrangementInput(current) else { return }
+                    windows = current; Task { await arrange(preserving: !displaysChanged) }
+                }
             } catch { message = error.localizedDescription }
         }
     }
@@ -199,9 +214,9 @@ struct SavedWorkspace: Codable {
             }
             let displays = DisplayArea.all(margin: settings.margin)
             let previous = preserving ? history.current : resuming ? lastBento ?? Workspace() : Workspace()
-            // A native app may reveal its minimum only after a resize. Each failed
-            // attempt rolls back before rebuilding; do not restart desktop preferences.
-            let attemptLimit = max(4, current.count * 2 + 1)
+            // Plan with known constraints first. An unknown native minimum gets one
+            // correction, never a per-window series of visible layout attempts.
+            let attemptLimit = 1
             var excluded = Set<UUID>()
             for attempt in 0...attemptLimit {
                 guard generation == activationGeneration else { return }
@@ -216,32 +231,29 @@ struct SavedWorkspace: Codable {
                     }.map { $0.element.id }
                     next.roots[area.id] = try AutoLayout.fitting(members.map(\.leaf), in: area.bounds, gap: settings.gap, preserving: previous.roots[area.id], prioritizing: reopenedWindows, leastRecentlyUsed: oldestFirst)
                 }
-                let before = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0.minimum) })
-                do { try await apply(next, displays: displays, allowSkipping: true, animate: attempt == 0 && !preserving || !reopenedWindows.isEmpty) }
+                do { try await apply(next, displays: displays, allowSkipping: true, animate: attempt == 0 && !wasActive) }
                 catch ArrangementFailure.window(let id) where attempt < attemptLimit {
                     excluded.insert(id); continue
                 }
                 catch WindowFailure.minimumSize where attempt < attemptLimit {
-                    // Bound retries even for an app whose constraints keep changing.
-                    if attempt == attemptLimit - 1 {
-                        excluded.formUnion(current.filter { before[$0.id] != $0.minimum }.map(\.id))
-                    }
                     continue
                 }
                 guard generation == activationGeneration else { return }
                 let included = Set(next.windows.map(\.windowID))
-                // A skipped window has already been rolled back. Forget its snapshot
-                // so turning Bento off cannot undo subsequent user movement of it.
+                // Keep originals for overflow minimized in place. Floating exclusions
+                // are forgotten so restoration cannot undo later user movement.
                 let currentIDs = Set(current.map(\.id))
-                originals = originals.filter { included.contains($0.key) || !currentIDs.contains($0.key) }
+                originals = originals.filter { included.contains($0.key) || !currentIDs.contains($0.key) || settings.minimizeOverflow }
                 minimizeOverflow(included: included, current: current)
-                reopenedWindows.removeAll()
+                reopenedWindows.removeAll(); failedAutomaticInput = nil
                 lastDisplays = displays; history.commit(next); active = !included.isEmpty || !minimizedByBento.isEmpty
                 if !active { try desktopPreferences.restore() }
                 message = active ? nil : "No windows fit on this display. Your windows were left in their original positions."
                 onStateChange?(); return
             }
         } catch {
+            failedAutomaticInput = arrangementInput(windows)
+            reopenedWindows.removeAll()
             message = error.localizedDescription
             if !wasActive { do { try desktopPreferences.restore() } catch { message = "\(message ?? "") \(error.localizedDescription)" } }
         }
@@ -265,7 +277,7 @@ struct SavedWorkspace: Codable {
         // than leaving native geometry behind after its leaf disappears.
         let included = Set(workspace.windows.map(\.windowID))
         for leaf in history.current.windows where !included.contains(leaf.windowID) {
-            if let original = originals[leaf.windowID], windows.contains(where: { $0.id == leaf.windowID }) { plan.append(original) }
+            if !(allowSkipping && settings.minimizeOverflow), let original = originals[leaf.windowID], windows.contains(where: { $0.id == leaf.windowID }) { plan.append(original) }
         }
         for (window, _) in plan where minimizedByBento[window.id] != nil {
             try system.setMinimized(window, false)
@@ -280,7 +292,27 @@ struct SavedWorkspace: Codable {
             if originals[window.id] == nil { originals[window.id] = (window, frame) }
         }
         do {
-            try await move(plan, animated: animate && !liveResize, write: write)
+            if allowSkipping && !animate {
+                // Validate the incoming/shrinking windows first at their final size.
+                // A refusal stops this transaction before moving unrelated neighbors.
+                let priorityIDs = reopenedWindows
+                let frames = Dictionary(uniqueKeysWithValues: rollback.map { ($0.0.id, $0.1) })
+                let ordered = plan.enumerated().sorted {
+                    func rank(_ entry: (ManagedWindow, Rect)) -> Int {
+                        if priorityIDs.contains(entry.0.id) { return 0 }
+                        let frame = frames[entry.0.id] ?? entry.0.frame
+                        return entry.1.width < frame.width || entry.1.height < frame.height ? 1 : 2
+                    }
+                    let a = rank($0.element), b = rank($1.element)
+                    return a == b ? $0.offset < $1.offset : a < b
+                }.map(\.element)
+                for entry in ordered {
+                    if system.accepted(entry.0, entry.1) { continue }
+                    try write(entry.0, frame: entry.1)
+                    await settle([entry], retry: false)
+                    try validate([entry], allowSkipping: true)
+                }
+            } else { try await move(plan, animated: animate && !liveResize, write: write) }
             if liveResize && interacting {
                 // Coalesce pointer samples at display cadence. Mouse-up performs the
                 // full settled verification and rolls back if an app refused a size.
@@ -288,24 +320,7 @@ struct SavedWorkspace: Codable {
                 return
             }
             await settle(plan)
-            let rejected = plan.filter { !system.accepted($0.0, $0.1) }
-            if CommandLine.arguments.contains("--fixture-pid") {
-                for (window, wanted) in rejected { print("Rejected fixture bounds: \(window.title), wanted=\(wanted), actual=\(String(describing: system.frame(of: window.element)))") }
-            }
-            var constrained = Set<String>()
-            for (window, wanted) in rejected {
-                guard let actual = system.frame(of: window.element) else { continue }
-                if actual.width > wanted.width + 2 || actual.height > wanted.height + 2 {
-                    if actual.width > wanted.width + 2 { window.minimum.width = max(window.minimum.width, actual.width) }
-                    if actual.height > wanted.height + 2 { window.minimum.height = max(window.minimum.height, actual.height) }
-                    constrained.insert(window.application)
-                }
-            }
-            if !constrained.isEmpty { throw WindowFailure.minimumSize(constrained.sorted().joined(separator: ", ")) }
-            if let first = rejected.first {
-                if allowSkipping { throw ArrangementFailure.window(first.0.id) }
-                throw WindowFailure.rejected(first.0.title)
-            }
+            try validate(plan, allowSkipping: allowSkipping)
         } catch {
             for (window, frame) in rollback where system.isAlive(window) && !system.accepted(window, frame) {
                 try? system.write(window, frame: frame)
@@ -316,7 +331,27 @@ struct SavedWorkspace: Codable {
             throw error
         }
     }
-    private func settle(_ plan: [(ManagedWindow, Rect)]) async {
+    private func validate(_ plan: [(ManagedWindow, Rect)], allowSkipping: Bool) throws {
+        let rejected = plan.filter { !system.accepted($0.0, $0.1) }
+        if CommandLine.arguments.contains("--fixture-pid") {
+            for (window, wanted) in rejected { print("Rejected fixture bounds: \(window.title), wanted=\(wanted), actual=\(String(describing: system.frame(of: window.element)))") }
+        }
+        var constrained = Set<String>()
+        for (window, wanted) in rejected {
+            guard let actual = system.frame(of: window.element) else { continue }
+            if actual.width > wanted.width + 2 || actual.height > wanted.height + 2 {
+                if actual.width > wanted.width + 2 { window.minimum.width = max(window.minimum.width, actual.width) }
+                if actual.height > wanted.height + 2 { window.minimum.height = max(window.minimum.height, actual.height) }
+                constrained.insert(window.application)
+            }
+        }
+        if !constrained.isEmpty { throw WindowFailure.minimumSize(constrained.sorted().joined(separator: ", ")) }
+        if let first = rejected.first {
+            if allowSkipping { throw ArrangementFailure.window(first.0.id) }
+            throw WindowFailure.rejected(first.0.title)
+        }
+    }
+    private func settle(_ plan: [(ManagedWindow, Rect)], retry: Bool = true) async {
         // AX writes may return before a remote app finishes its native animation.
         // Wait for two matching samples and retry the exact target once after the
         // intermediate writes have drained. Never learn minima from a moving frame.
@@ -330,7 +365,7 @@ struct SavedWorkspace: Codable {
             if matchingSamples >= 2 { return }
             let elapsed = ProcessInfo.processInfo.systemUptime - started
             if elapsed >= 1 { return }
-            if elapsed >= 0.35 && !retried {
+            if retry && elapsed >= 0.35 && !retried {
                 retried = true
                 for (window, target) in pending { try? system.write(window, frame: target) }
             }

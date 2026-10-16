@@ -11,6 +11,10 @@ import BentoCore
     @Published private(set) var automaticallyInstalls = false
     @Published private(set) var pendingInstallation = false
     @Published private(set) var installationHistory: [String] = []
+    @Published private(set) var preparingInstallation = false
+    private(set) var installationPrepared = false
+    var onInstallationNeedsAttention: (() -> Void)?
+    private var installationTask: Task<Void, Never>?
     var beforeInstall: (() async -> Bool)?
     private var controller: SPUStandardUpdaterController?
     private var observation: NSKeyValueObservation?
@@ -59,17 +63,37 @@ import BentoCore
         status = "Bento \(item.displayVersionString) is available."
     }
     func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) { status = "No compatible update is available." }
-    func updater(_ updater: SPUUpdater, didAbortWithError error: Error) { status = "Update check stopped: \(error.localizedDescription)" }
+    func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
+        installationTask?.cancel(); installationTask = nil
+        preparingInstallation = false; installationPrepared = false; pendingInstallation = false; resumeInstallation = nil
+        status = "Update check stopped: \(error.localizedDescription)"
+    }
     func updater(_ updater: SPUUpdater, shouldPostponeRelaunchForUpdate item: SUAppcastItem, untilInvokingBlock installHandler: @escaping () -> Void) -> Bool {
-        resumeInstallation = installHandler
-        retryInstall()
+        postponeInstallation(installHandler)
         return true
     }
+    func postponeInstallation(_ handler: @escaping () -> Void) {
+        guard resumeInstallation == nil, !installationPrepared else { return }
+        resumeInstallation = handler; pendingInstallation = true
+        retryInstall()
+    }
     func retryInstall() {
-        Task { @MainActor in
-            if await beforeInstall?() ?? true {
-                let resume = resumeInstallation; resumeInstallation = nil; pendingInstallation = false; resume?()
-            } else { pendingInstallation = true; status = "The update is ready. Restore your windows and retry installation." }
+        guard installationTask == nil, resumeInstallation != nil else { return }
+        preparingInstallation = true; status = "Preparing to install — restoring your windows…"
+        installationTask = Task { @MainActor in
+            let prepared = await beforeInstall?() ?? true
+            guard !Task.isCancelled else { return }
+            preparingInstallation = false; installationTask = nil
+            if prepared {
+                installationPrepared = true
+                let resume = resumeInstallation; resumeInstallation = nil; pendingInstallation = false
+                status = "Installing update and relaunching Bento…"
+                resume?()
+            } else {
+                pendingInstallation = true
+                status = "The update is ready, but some windows could not be restored. Retry installation here."
+                onInstallationNeedsAttention?()
+            }
         }
     }
 }
@@ -89,7 +113,8 @@ struct UpdatesView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     Text(updater.status).font(.system(size: 13)).lineSpacing(4).foregroundStyle(BentoStyle.secondary)
                     Button("Check for updates") { updater.check() }.buttonStyle(PrimaryButtonStyle()).disabled(!updater.ready || !updater.canCheck)
-                    if updater.pendingInstallation { Button("Retry installation") { updater.retryInstall() } }
+                    if updater.preparingInstallation { ProgressView("Preparing installation…") }
+                    else if updater.pendingInstallation { Button("Retry installation") { updater.retryInstall() } }
                     Divider()
                     Toggle("Check for updates automatically", isOn: Binding(get: { updater.automaticallyChecks }, set: { updater.setAutomaticChecks($0) })).toggleStyle(.switch)
                     Toggle("Download updates automatically", isOn: Binding(get: { updater.automaticallyInstalls }, set: { updater.setAutomaticInstall($0) })).toggleStyle(.switch)

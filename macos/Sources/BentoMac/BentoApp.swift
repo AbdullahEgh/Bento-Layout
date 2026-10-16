@@ -69,8 +69,10 @@ import Carbon.HIToolbox
         updater.beforeInstall = { [weak self] in
             guard let self else { return false }
             await self.interactions?.finish(cancel: true)
-            while self.model.busy || self.model.activating { try? await Task.sleep(for: .milliseconds(50)) }
             await self.model.restore(); return self.model.message == nil
+        }
+        updater.onInstallationNeedsAttention = { [weak self] in
+            self?.model.page = "Updates"; self?.showWindow(onboarding: false)
         }
         updater.start()
         let menuBar = NSMenu(), appItem = NSMenuItem(), appMenu = NSMenu(title: "Bento")
@@ -188,11 +190,10 @@ import Carbon.HIToolbox
         NSApp.activate(ignoringOtherApps: true)
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if canTerminate { return .terminateNow }
+        if canTerminate || (updater.installationPrepared && !model.active && !model.busy && !model.interacting) { return .terminateNow }
         Task {
             await interactions?.finish(cancel: true)
-            // Wait for an in-flight transaction before restoring the activation snapshot.
-            while model.busy || model.activating { try? await Task.sleep(for: .milliseconds(50)) }
+            // Restore cancels pending arrangement work before waiting for native writes.
             await model.restore()
             if let message = model.message {
                 let alert = NSAlert(); alert.messageText = "Some windows could not be restored"

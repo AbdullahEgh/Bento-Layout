@@ -15,6 +15,20 @@ public enum AutoLayout {
                 $0.minimum.width <= area.width && $0.minimum.height <= area.height
             }.map(\.windowID))
             guard !feasiblePriority.isEmpty else { return try fitting(windows, in: area, gap: gap, preserving: original) }
+            if let original {
+                let current = Dictionary(uniqueKeysWithValues: windows.map { ($0.windowID, $0) })
+                var retained: LayoutNode? = original
+                for leaf in original.windows {
+                    if var updated = current[leaf.windowID] {
+                        updated.id = leaf.id
+                        retained = retained?.replacing(leaf.id, with: .window(updated))
+                    } else { retained = retained?.removing(leaf.windowID) }
+                }
+                if let retained, (try? LayoutEngine.calculate(retained, in: area, gap: gap)) != nil {
+                    return try admitLocally(windows, into: retained, in: area, gap: gap,
+                        priority: feasiblePriority, leastRecentlyUsed: leastRecentlyUsed)
+                }
+            }
             var candidates = windows.filter { !priority.contains($0.windowID) || feasiblePriority.contains($0.windowID) }
             let rank = Dictionary(leastRecentlyUsed.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: min)
             let evictionOrder = candidates.enumerated().filter { !feasiblePriority.contains($0.element.windowID) }.sorted {
@@ -58,6 +72,59 @@ public enum AutoLayout {
             catch LayoutError.cannotFit { continue }
         }
         return retained
+    }
+
+    // Admission is planned entirely in memory. Keep the split tree fixed where
+    // possible: replace an idle window in its exact slot before expanding a branch.
+    private static func admitLocally(_ windows: [WindowLeaf], into original: LayoutNode, in area: Rect,
+                                     gap: Int, priority: Set<UUID>, leastRecentlyUsed: [UUID]) throws -> LayoutNode? {
+        var root: LayoutNode? = original
+        var displaced = Set<UUID>()
+        let rank = Dictionary(leastRecentlyUsed.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: min)
+        let victims = original.windows.enumerated().filter { !priority.contains($0.element.windowID) }.sorted {
+            let a = rank[$0.element.windowID] ?? -1, b = rank[$1.element.windowID] ?? -1
+            return a == b ? $0.offset < $1.offset : a < b
+        }.map(\.element)
+        let incoming = windows.filter { priority.contains($0.windowID) }
+        for window in incoming where !(root?.windows.contains { $0.windowID == window.windowID } ?? false) {
+            if let inserted = try insertLocally(window, into: root, in: area, gap: gap) { root = inserted; continue }
+            for victim in victims where root?.windows.contains(where: { $0.windowID == victim.windowID }) == true {
+                let replacement = root!.replacing(victim.id, with: .window(window))
+                if let slot = try LayoutEngine.calculate(root, in: area, gap: gap).regions.first(where: { $0.window.windowID == victim.windowID }),
+                   slot.bounds.width >= window.minimum.width, slot.bounds.height >= window.minimum.height {
+                    root = replacement; displaced.insert(victim.windowID); break
+                }
+                root = root?.removing(victim.windowID); displaced.insert(victim.windowID)
+                if let inserted = try insertLocally(window, into: root, in: area, gap: gap) { root = inserted; break }
+            }
+        }
+        for window in windows where !priority.contains(window.windowID) && !displaced.contains(window.windowID)
+            && !(root?.windows.contains { $0.windowID == window.windowID } ?? false) {
+            if let inserted = try insertLocally(window, into: root, in: area, gap: gap) { root = inserted }
+        }
+        return root
+    }
+    private static func insertLocally(_ incoming: WindowLeaf, into root: LayoutNode?, in area: Rect, gap: Int) throws -> LayoutNode? {
+        guard let root else {
+            guard incoming.minimum.width <= area.width, incoming.minimum.height <= area.height else { return nil }
+            return .window(incoming)
+        }
+        let regions = try LayoutEngine.calculate(root, in: area, gap: gap).regions.enumerated().sorted {
+            let a = $0.element.bounds.width * $0.element.bounds.height, b = $1.element.bounds.width * $1.element.bounds.height
+            return a == b ? $0.offset < $1.offset : a > b
+        }.map(\.element)
+        for region in regions {
+            let wide = Double(region.bounds.width) >= Double(region.bounds.height) * 1.35
+            for horizontal in [wide, !wide] {
+                let branch = LayoutNode.split(id: UUID(), axis: horizontal ? .horizontal : .vertical, ratio: 0.5,
+                    first: .window(region.window), second: .window(incoming))
+                // Test the actual slot, so ancestors never move to satisfy this split.
+                if (try? LayoutEngine.calculate(branch, in: region.bounds, gap: gap)) != nil {
+                    return root.replacing(region.window.id, with: branch)
+                }
+            }
+        }
+        return nil
     }
 
     public static func arrange(_ windows: [WindowLeaf], in area: Rect, gap: Int = 8) throws -> LayoutNode? {
