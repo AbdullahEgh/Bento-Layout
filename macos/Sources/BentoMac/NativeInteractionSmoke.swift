@@ -11,6 +11,7 @@ import BentoCore
     var rejectAlways: UUID?
     var accessibilityGranted = true
     var deferWrites = false
+    var writeDelay = 0.04
     var nativeMinimum: [UUID: Size] = [:]
     var writes: [UUID: Int] = [:]
     var minimized = Set<UUID>()
@@ -38,7 +39,7 @@ import BentoCore
         var accepted = frame
         if let minimum = nativeMinimum[window.id] { accepted.width = max(accepted.width, minimum.width); accepted.height = max(accepted.height, minimum.height) }
         let nativeFrame = DesktopCoordinates.appKit(accepted)
-        if deferWrites { DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { actual.setFrame(nativeFrame, display: true) } }
+        if deferWrites { DispatchQueue.main.asyncAfter(deadline: .now() + writeDelay) { actual.setFrame(nativeFrame, display: true) } }
         else { actual.setFrame(nativeFrame, display: true) }
     }
 }
@@ -231,6 +232,12 @@ private final class FixturePreferences: PreferenceBackend {
             try check(try matchingGeometry() && system.writes.values.allSatisfy { $0 > 1 }, "Animated activation sends intermediate frames and reaches exact final geometry")
             await model.restore()
             try check(system.records.map { DesktopCoordinates.engine($0.1.frame) } == initial, "Animated deactivation restores exact starting geometry")
+            system.deferWrites = true; system.writeDelay = 0.25
+            await model.arrange()
+            try check(try model.active && matchingGeometry() && model.history.current.windows.count == 3, "Slow native animation settles before learning constraints or skipping windows")
+            await model.restore()
+            try check(model.message == nil && system.records.map { DesktopCoordinates.engine($0.1.frame) } == initial, "Slow native restoration waits for the final frames")
+            system.deferWrites = false; system.writeDelay = 0.04
             reduceMotion = true; system.writes.removeAll()
             await model.arrange()
             try check(system.writes.values.allSatisfy { $0 == 1 }, "Reduce Motion sends only final native frames")

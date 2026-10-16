@@ -1,8 +1,7 @@
-Bento for macOS 0.2.7 makes desktop interactions quieter and smoother.
+Bento for macOS 0.2.8 improves reliability with applications that finish resizing asynchronously.
 
-- Grips appear only on hover or while grabbed, below application windows and above the dark backdrop.
-- Activation, restoration and layout changes animate together, respecting Reduce Motion. Live grip movement remains direct.
-- Windows that do not fit minimize to the Dock. Reopening one prioritizes it in the split layout; turning Bento off restores only windows Bento minimized.
-- Slot previews use swap, split, hold-progress and conflict symbols, without text, and show final layout geometry.
-- Settings and layouts save automatically, with no Save button.
-- Keeps the permanent signing identity used by 0.2.5 and 0.2.6.
+- Waits for native windows to settle before accepting the layout or learning minimum sizes.
+- Retries the final position once when an application is still catching up, including when restoring your desktop.
+- A refused intermediate animation frame no longer cancels an otherwise valid arrangement.
+- Keeps hover-only grabbers below app windows and above the dark backdrop, automatic saving, and Dock overflow handling from 0.2.7.
+- Reuses the permanent signing identity to preserve existing Accessibility approval.

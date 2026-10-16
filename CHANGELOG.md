@@ -1,3 +1,8 @@
+## macOS 0.2.8
+
+- Wait for asynchronous window resizing and restoration before verifying frames; retry the final target once.
+- Keep transient intermediate animation failures from cancelling the whole layout.
+
 # Bento releases
 
 ## Windows 0.3.7 / macOS 0.2.7 — October 2026

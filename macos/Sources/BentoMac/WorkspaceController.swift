@@ -49,7 +49,10 @@ struct SavedWorkspace: Codable {
 }
 
 @MainActor final class WorkspaceController: ObservableObject {
-    private enum ArrangementFailure: Error { case window(UUID) }
+    private enum ArrangementFailure: LocalizedError {
+        case window(UUID)
+        var errorDescription: String? { "A window did not accept its assigned position or size." }
+    }
     let system: MacWindowSystem
     @Published var settings = MacSettings.load()
     @Published var permission = false
@@ -259,7 +262,7 @@ struct SavedWorkspace: Codable {
                 try await Task.sleep(for: .milliseconds(16))
                 return
             }
-            try await Task.sleep(for: .milliseconds(100))
+            await settle(plan)
             let rejected = plan.filter { !system.accepted($0.0, $0.1) }
             if CommandLine.arguments.contains("--fixture-pid") {
                 for (window, wanted) in rejected { print("Rejected fixture bounds: \(window.title), wanted=\(wanted), actual=\(String(describing: system.frame(of: window.element)))") }
@@ -279,14 +282,33 @@ struct SavedWorkspace: Codable {
                 throw WindowFailure.rejected(first.0.title)
             }
         } catch {
-            var failed = 0
             for (window, frame) in rollback where system.isAlive(window) && !system.accepted(window, frame) {
-                do { try system.write(window, frame: frame) } catch { failed += 1 }
+                try? system.write(window, frame: frame)
             }
-            try? await Task.sleep(for: .milliseconds(100))
-            if failed == 0 { failed = rollback.filter { system.isAlive($0.0) && !system.accepted($0.0, $0.1) }.count }
+            await settle(rollback)
+            let failed = rollback.filter { system.isAlive($0.0) && !system.accepted($0.0, $0.1) }.count
             if failed > 0 { throw NSError(domain: "Bento", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(error.localizedDescription) \(failed) window(s) could not be restored."]) }
             throw error
+        }
+    }
+    private func settle(_ plan: [(ManagedWindow, Rect)]) async {
+        // AX writes may return before a remote app finishes its native animation.
+        // Wait for two matching samples and retry the exact target once after the
+        // intermediate writes have drained. Never learn minima from a moving frame.
+        var matchingSamples = 0
+        let started = ProcessInfo.processInfo.systemUptime
+        var retried = false
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(50))
+            let pending = plan.filter { system.isAlive($0.0) && !system.accepted($0.0, $0.1) }
+            matchingSamples = pending.isEmpty ? matchingSamples + 1 : 0
+            if matchingSamples >= 2 { return }
+            let elapsed = ProcessInfo.processInfo.systemUptime - started
+            if elapsed >= 1 { return }
+            if elapsed >= 0.35 && !retried {
+                retried = true
+                for (window, target) in pending { try? system.write(window, frame: target) }
+            }
         }
     }
     private func move(_ plan: [(ManagedWindow, Rect)], animated: Bool,
@@ -305,7 +327,9 @@ struct SavedWorkspace: Codable {
                 if progress >= 1 { break }
                 for (window, from, to) in changes {
                     let frame = WindowMotion.frame(from: from, to: to, progress: progress)
-                    if !system.accepted(window, frame) { try write(window, frame) }
+                    // An intermediate AX sample can be refused while an app is
+                    // laying out. Only the final target determines success.
+                    if !system.accepted(window, frame) { try? write(window, frame) }
                 }
                 try await Task.sleep(for: .milliseconds(16))
             }
@@ -324,7 +348,7 @@ struct SavedWorkspace: Codable {
         try? await move(Array(pending.values), animated: true) { window, frame in
             try? self.system.write(window, frame: frame)
         }
-        try? await Task.sleep(for: .milliseconds(100))
+        await settle(Array(pending.values))
         for (id, entry) in pending where system.isAlive(entry.0) && !system.accepted(entry.0, entry.1) { remaining[id] = entry }
         let minimizedFailures = await restoreMinimized()
         originals = remaining; released.removeAll(); reopenedWindows.removeAll(); active = false; history = LayoutHistory()
