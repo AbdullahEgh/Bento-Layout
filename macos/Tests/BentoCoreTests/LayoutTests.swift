@@ -92,6 +92,34 @@ final class LayoutTests: XCTestCase {
         let recovered = try AutoLayout.fitting([a, b], in: area, preserving: updated)
         assertValid(try LayoutEngine.calculate(recovered, in: area), in: area, count: 2)
     }
+    func testDockAdmissionEvictsOldestAndOnlyAsManyAsNeeded() throws {
+        let bounds = Rect(0, 0, 600, 400)
+        let recent = window(350, 160), oldest = window(350, 160), incoming = window(350, 160)
+        let old = try AutoLayout.arrange([recent, oldest], in: bounds)
+        let next = try AutoLayout.fitting([recent, oldest, incoming], in: bounds, preserving: old,
+            prioritizing: [incoming.windowID], leastRecentlyUsed: [oldest.windowID, recent.windowID])
+        XCTAssertEqual(Set(next!.windows.map(\.windowID)), [recent.windowID, incoming.windowID])
+        assertValid(try LayoutEngine.calculate(next, in: bounds), in: bounds, count: 2)
+        let huge = window(550, 350)
+        let solo = try AutoLayout.fitting([recent, oldest, huge], in: bounds, preserving: old,
+            prioritizing: [huge.windowID], leastRecentlyUsed: [oldest.windowID, recent.windowID])
+        XCTAssertEqual(solo?.windows.map(\.windowID), [huge.windowID])
+    }
+    func testDockAdmissionPreservesEditedLayoutWhenAllFit() throws {
+        let a = window(), b = window(), c = window()
+        let edited = LayoutNode.split(id: UUID(), axis: .horizontal, ratio: 0.7, first: .window(a), second: .window(b))
+        let expected = try AutoLayout.fitting([a, b, c], in: area, preserving: edited)
+        let next = try AutoLayout.fitting([a, b, c], in: area, preserving: edited, prioritizing: [c.windowID])
+        XCTAssertEqual(next?.id, expected?.id)
+        XCTAssertEqual(try LayoutEngine.calculate(next, in: area).regions.map(\.bounds),
+                       try LayoutEngine.calculate(expected, in: area).regions.map(\.bounds))
+    }
+    func testImpossibleDockWindowDoesNotEvictUsableWindows() throws {
+        let a = window(), b = window(), impossible = window(3000, 2000)
+        let edited = try AutoLayout.arrange([a, b], in: area)
+        XCTAssertEqual(try AutoLayout.fitting([a, b, impossible], in: area, preserving: edited,
+            prioritizing: [impossible.windowID]), edited)
+    }
     func testFittingRejectsInvalidInputsRatherThanSkippingThem() throws {
         let w = window()
         XCTAssertThrowsError(try AutoLayout.fitting([w, w], in: area))

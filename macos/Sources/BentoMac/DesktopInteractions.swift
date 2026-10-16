@@ -92,11 +92,18 @@ struct DesktopInput {
         if snapshot != nil && input().escape {
             waitForRelease = true; Task { await finish(cancel: true) }; return
         }
+        // Poll desktop coordinates as well as AppKit tracking: panels can appear
+        // under a stationary pointer or miss enter events after a native reflow.
+        let pointer = input().point
+        for panel in grips.values {
+            panel.gripView.hovering = panel.isVisible && DesktopCoordinates.engine(panel.frame).contains(pointer)
+        }
         if grip != nil { return }
         guard !model.busy else { return }
         if pressed {
             if !wasPressed { pressedWindow = nil; pressedFrame = nil; pressPoint = input().point; trace?("Pointer down: \(pressPoint)") }
             if pressedWindow == nil, let window = model.system.focusedWindow(in: model.windows), model.history.current.windows.contains(where: { $0.windowID == window.id }) {
+                if !wasPressed { model.recordInteraction(window) }
                 pressedWindow = window; pressedFrame = model.system.frame(of: window.element)
             }
             guard let window = pressedWindow, let before = pressedFrame, let current = model.system.frame(of: window.element) else { return }
@@ -147,6 +154,7 @@ struct DesktopInput {
         snapshot = model.history.current; candidate = snapshot; grip = (display, divider)
         gripStart = input().point
         model.interacting = true; liveFailure = false; preview.orderOut(nil)
+        grips[id]?.gripView.dragging = true
         return true
     }
     func moveGrip() {
@@ -277,7 +285,7 @@ struct DesktopInput {
         gripView = GripView(axis: axis)
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isReleasedWhenClosed = false; isOpaque = false; backgroundColor = .clear
-        hasShadow = false; level = NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue - 1); hidesOnDeactivate = false
+        hasShadow = false; level = .floating; hidesOnDeactivate = false
         ignoresMouseEvents = false; acceptsMouseMovedEvents = true
         collectionBehavior = [.stationary, .ignoresCycle]; contentView = gripView
         setAccessibilityLabel("Bento resize divider")

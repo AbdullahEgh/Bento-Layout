@@ -1,3 +1,9 @@
+# macOS 0.2.10 OTA — 2026-10-16
+
+[Release run 38947365617](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/38947365617) and [macOS 15/26 compatibility run 38947365567](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/38947365567) passed at `eae0eda`. The published archive/feed signature and stable app identity verified independently.
+
+Updated the installed 0.2.9 app through Sparkle to 0.2.10. The installed version and permanent designated requirement verified, and the installed app reports Accessibility true without reapproval. The user resumed live pointer testing; a hands-off interval is pending after remote input interfered with updater control. No live hover/drag pass is claimed yet. Local evidence is in `artifacts/macos/live-0210/`.
+
 # Split and resize UX review — unreleased, 2026-10-16
 
 Local release build passed, with 32 core tests and 61 isolated native interaction checks. Added coverage for off-center grabs on both axes, odd/even gaps, minimum-size clamping, stationary pointer samples, rapid release retaining the newest queued sample, delayed native frame acceptance without a second animation, and final helper geometry. Results: `artifacts/macos/split-ux-review/results/results.json`.
@@ -143,3 +149,7 @@ The 0.2.1 follow-up makes that state explicit and removes the floating settings 
 26 core tests passed, including oversized-window exclusion, total-capacity overflow, edited-tree preservation, refreshed learned minima and invalid-input rejection. The 33-check native fixture passed with disposable windows only. New native cases cover known oversized windows receiving no writes, a native resize clamp being learned and rolled back, fitting windows remaining active, skipped-window movement surviving deactivation, reconsideration when a window fits again, and no persistent frame/preference changes when none fit, and a window that consistently refuses resize requests. The 11 external Accessibility checks also passed against the isolated fixture app. Physical drag routing retains the limitations documented above.
 
 On the installed 0.2.1 process, direct Accessibility queries succeeded after restart (AXIsProcessTrusted true, AXWindows result success). Activation then failed on window capacity. This release addresses that failure rather than requesting additional permissions.
+
+## Grabber visibility and Dock admission — 2026-10-16
+
+35 core tests passed. The release app built and passed code-signature verification. The disposable native-window harness passed 66 checks, including pointer-polled hover visibility without mouse-enter events, hidden idle grips, click/drag visibility, full-display Dock restoration with least-recently-used eviction, stable subsequent reflow, and restoration of windows Bento did not previously minimize. Core regressions also cover multiple evictions, preservation of edited geometry when all windows fit, and an impossible incoming window leaving usable windows in place. Physical pointer routing and Dock clicks against third-party apps still need an interactive pass; the harness does not establish those results.

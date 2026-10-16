@@ -4,20 +4,34 @@ public enum AutoLayout {
     /// Retain a valid edited layout where possible. If the full set cannot fit,
     /// admit smaller windows first and leave the remaining windows outside the tree.
     /// Only capacity errors are recoverable; invalid geometry still fails explicitly.
-    public static func fitting(_ windows: [WindowLeaf], in area: Rect, gap: Int = 8, preserving original: LayoutNode? = nil, prioritizing priority: Set<UUID> = []) throws -> LayoutNode? {
+    public static func fitting(_ windows: [WindowLeaf], in area: Rect, gap: Int = 8, preserving original: LayoutNode? = nil, prioritizing priority: Set<UUID> = [], leastRecentlyUsed: [UUID] = []) throws -> LayoutNode? {
         guard gap >= 0, area.width >= 0, area.height >= 0,
               Set(windows.map(\.windowID)).count == windows.count,
               windows.allSatisfy({ $0.minimum.width > 0 && $0.minimum.height > 0 }) else { throw LayoutError.invalidInput }
         if !priority.isEmpty {
-            // A window explicitly reopened from the Dock gets first choice of space.
-            // Insert remaining windows around it; never evict it for a smaller window.
-            var root: LayoutNode?
-            let ordered = windows.filter { priority.contains($0.windowID) } + windows.filter { !priority.contains($0.windowID) }
-            for window in ordered {
-                do { root = try insert(window, into: root, in: area, gap: gap) }
-                catch LayoutError.cannotFit { continue }
+            // Preserve edits and all windows if possible. Only remove candidates
+            // when the whole set cannot fit, oldest interaction first.
+            let feasiblePriority = priority.intersection(windows.filter {
+                $0.minimum.width <= area.width && $0.minimum.height <= area.height
+            }.map(\.windowID))
+            guard !feasiblePriority.isEmpty else { return try fitting(windows, in: area, gap: gap, preserving: original) }
+            var candidates = windows.filter { !priority.contains($0.windowID) || feasiblePriority.contains($0.windowID) }
+            let rank = Dictionary(leastRecentlyUsed.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: min)
+            let evictionOrder = candidates.enumerated().filter { !feasiblePriority.contains($0.element.windowID) }.sorted {
+                let a = rank[$0.element.windowID] ?? -1, b = rank[$1.element.windowID] ?? -1
+                return a == b ? $0.offset < $1.offset : a < b
+            }.map { $0.element.windowID }
+            for index in 0...evictionOrder.count {
+                let retained = try fitting(candidates, in: area, gap: gap, preserving: original)
+                if retained?.windows.count == candidates.count { return retained }
+                // A retained edited tree can be too restrictive; try a full reflow
+                // before sacrificing another window.
+                do { return try arrange(candidates, in: area, gap: gap) }
+                catch LayoutError.cannotFit { }
+                if index < evictionOrder.count { candidates.removeAll { $0.windowID == evictionOrder[index] } }
             }
-            return root
+            // Simultaneously reopened windows may not all fit together.
+            return try fitting(candidates, in: area, gap: gap)
         }
         let byID = Dictionary(uniqueKeysWithValues: windows.map { ($0.windowID, $0) })
         var retained = original

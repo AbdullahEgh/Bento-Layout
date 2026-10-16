@@ -98,6 +98,13 @@ private final class FixturePreferences: PreferenceBackend {
             try check(system.writes == writeCount, "Unchanged layout does not write native window frames again")
             let (_, firstLayout) = try regions()
             try check(interactions.helperFrames.count == firstLayout.dividers.count && interactions.helperFrames.allSatisfy { frame in firstLayout.dividers.contains { $0.bounds == frame } }, "Helper panels occupy gaps only")
+            let hoverBounds = firstLayout.dividers[0].bounds
+            input.point = Point(hoverBounds.x + hoverBounds.width / 2, hoverBounds.y + hoverBounds.height / 2)
+            interactions.sample()
+            let hoverPanels = NSApp.windows.compactMap { $0 as? GapPanel }.filter { $0.isVisible }
+            try check(hoverPanels.contains { $0.gripView.visibleInk > 0 }, "Pointer polling reveals a grabber without a mouse-enter event")
+            input.point = Point(-100_000, -100_000); interactions.sample()
+            try check(hoverPanels.allSatisfy { $0.gripView.visibleInk == 0 }, "Pointer polling hides grabbers after leaving the gap")
             func startDrag(source: Region, target: Point, time: Double) throws {
                 let record = system.records.first { $0.0.id == source.window.windowID }!.0
                 system.focused = record
@@ -265,7 +272,7 @@ private final class FixturePreferences: PreferenceBackend {
             let gripView = GripView(axis: .horizontal); gripView.animate = false
             try check(gripView.visibleInk == 0, "Idle grip is fully hidden")
             let gapPanel = GapPanel(axis: .horizontal)
-            try check(gapPanel.level.rawValue == NSWindow.Level.normal.rawValue - 1, "Grabbers are below application windows and above the dimmer level")
+            try check(gapPanel.level == .floating, "Gap-only grabbers stay visible above native window shadows")
             gapPanel.setFrame(NSRect(x: 0, y: 0, width: 8, height: 150), display: true)
             gapPanel.gripView.animate = false
             gapPanel.gripView.layoutSubtreeIfNeeded()
@@ -300,7 +307,33 @@ private final class FixturePreferences: PreferenceBackend {
             try system.setMinimized(oversized, false)
             await model.arrange(preserving: true)
             try check(try model.history.current.windows.count == 3 && matchingGeometry() && model.minimizedByBento.isEmpty, "Reopening from Dock reinserts the window into split slots")
+            // Saturate the display: two windows fit, three cannot. Recently used
+            // first window survives regardless of native discovery order.
             await model.restore()
+            let first = system.records[1].0, second = system.records[2].0
+            let crowdedMinimum = Size(area.width / 2 + 1, area.height / 3 + 1)
+            first.minimum = crowdedMinimum; second.minimum = crowdedMinimum
+            oversized.minimum = Size(area.width + 100, 120)
+            system.focused = first
+            await model.arrange()
+            model.recordInteraction(second); model.recordInteraction(first)
+            oversized.minimum = crowdedMinimum
+            try system.setMinimized(oversized, false); system.focused = oversized
+            await model.arrange(preserving: true)
+            try check(!system.isMinimized(oversized) && !system.isMinimized(first) && system.isMinimized(second)
+                && model.history.current.windows.count == 2, "Dock reopen evicts least recently used window on a full display")
+            await model.arrange(preserving: true)
+            try check(system.isMinimized(second) && !system.isMinimized(oversized), "Minimized overflow does not steal the reopened window's space on next reflow")
+            await model.restore()
+            // This window was minimized by the user, not Bento, before activation.
+            try system.setMinimized(oversized, true)
+            await model.arrange()
+            model.recordInteraction(first)
+            try system.setMinimized(oversized, false)
+            await model.arrange(preserving: true)
+            try check(!system.isMinimized(oversized) && system.isMinimized(second), "Newly visible Dock window gets space without prior Bento ownership")
+            await model.restore()
+            first.minimum = Size(160, 120); second.minimum = Size(160, 120); system.focused = nil
             oversized.minimum = Size(area.width + 100, 120)
             await model.arrange(); await model.restore()
             try check(!system.isMinimized(oversized) && model.minimizedByBento.isEmpty, "Deactivation brings back only Bento-minimized windows")

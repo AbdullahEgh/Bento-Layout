@@ -67,6 +67,19 @@ struct SavedWorkspace: Codable {
     private var originals: [UUID: (ManagedWindow, Rect)] = [:]
     private(set) var minimizedByBento: [UUID: ManagedWindow] = [:]
     private var reopenedWindows = Set<UUID>()
+    private var interactionSequence = 0
+    private var lastInteraction: [UUID: Int] = [:]
+    private var lastFocusedWindow: UUID?
+
+    func recordInteraction(_ window: ManagedWindow) {
+        interactionSequence += 1
+        lastInteraction[window.id] = interactionSequence
+    }
+    private func observeFocus(in current: [ManagedWindow]) {
+        let focused = system.focusedWindow(in: current)
+        if let focused, focused.id != lastFocusedWindow { recordInteraction(focused) }
+        lastFocusedWindow = focused?.id
+    }
     private var timer: Timer?
     private var lastDisplays: [DisplayArea] = []
     private var released = Set<UUID>()
@@ -105,6 +118,12 @@ struct SavedWorkspace: Codable {
     private func discoverWindows() throws -> [ManagedWindow] {
         var visible = try system.discover().filter { !released.contains($0.id) }
         let visibleIDs = Set(visible.map(\.id))
+        if active {
+            // Includes newly launched, manually restored and unhidden windows,
+            // even when Bento did not own their earlier minimization.
+            reopenedWindows.formUnion(visibleIDs.subtracting(Set(windows.map(\.id))))
+        }
+        observeFocus(in: visible)
         for (id, window) in minimizedByBento {
             guard system.isAlive(window) else { minimizedByBento.removeValue(forKey: id); continue }
             if visibleIDs.contains(id) && !system.isMinimized(window) {
@@ -189,7 +208,13 @@ struct SavedWorkspace: Codable {
                 var next = Workspace()
                 for area in displays {
                     let members = current.filter { !excluded.contains($0.id) && display(for: $0, displays: displays)?.id == area.id }
-                    next.roots[area.id] = try AutoLayout.fitting(members.map(\.leaf), in: area.bounds, gap: settings.gap, preserving: previous.roots[area.id], prioritizing: reopenedWindows)
+                    let oldestFirst = members.enumerated().sorted {
+                        // Already minimized overflow gives up space before visible apps.
+                        let a = minimizedByBento[$0.element.id] != nil ? -1 : lastInteraction[$0.element.id] ?? 0
+                        let b = minimizedByBento[$1.element.id] != nil ? -1 : lastInteraction[$1.element.id] ?? 0
+                        return a == b ? $0.offset < $1.offset : a < b
+                    }.map { $0.element.id }
+                    next.roots[area.id] = try AutoLayout.fitting(members.map(\.leaf), in: area.bounds, gap: settings.gap, preserving: previous.roots[area.id], prioritizing: reopenedWindows, leastRecentlyUsed: oldestFirst)
                 }
                 let before = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0.minimum) })
                 do { try await apply(next, displays: displays, allowSkipping: true, animate: attempt == 0 && !preserving || !reopenedWindows.isEmpty) }
