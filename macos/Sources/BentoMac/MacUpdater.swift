@@ -69,7 +69,13 @@ import BentoCore
         status = "Update check stopped: \(error.localizedDescription)"
     }
     func updater(_ updater: SPUUpdater, shouldPostponeRelaunchForUpdate item: SUAppcastItem, untilInvokingBlock installHandler: @escaping () -> Void) -> Bool {
-        postponeInstallation(installHandler)
+        shouldPostponeInstallation(installHandler)
+    }
+    func shouldPostponeInstallation(_ handler: @escaping () -> Void) -> Bool {
+        // Sparkle can ask again after its retained continuation resumes. Returning
+        // true a second time without retaining a continuation leaves Relaunch inert.
+        guard !installationPrepared else { return false }
+        postponeInstallation(handler)
         return true
     }
     func postponeInstallation(_ handler: @escaping () -> Void) {

@@ -512,7 +512,7 @@ private final class FixturePreferences: PreferenceBackend {
             var restorationCalls = 0, installCalls = 0, attentionCalls = 0, readyToInstall = false
             update.beforeInstall = { restorationCalls += 1; await Task.yield(); return readyToInstall }
             update.onInstallationNeedsAttention = { attentionCalls += 1 }
-            update.postponeInstallation { installCalls += 1 }
+            try check(update.shouldPostponeInstallation { installCalls += 1 }, "The first relaunch callback waits for window restoration")
             update.retryInstall(); update.retryInstall()
             while update.preparingInstallation { try? await Task.sleep(for: .milliseconds(10)) }
             try check(restorationCalls == 1 && installCalls == 0 && update.pendingInstallation && attentionCalls == 1,
@@ -522,6 +522,8 @@ private final class FixturePreferences: PreferenceBackend {
             update.retryInstall()
             try check(restorationCalls == 2 && installCalls == 1 && update.installationPrepared && !update.pendingInstallation,
                 "Retry installation resumes Sparkle exactly once after successful restoration")
+            try check(!update.shouldPostponeInstallation { installCalls += 100 } && installCalls == 1 && !update.preparingInstallation,
+                "A repeated relaunch callback proceeds immediately after preparation instead of postponing forever")
             // Render only our own preview views for visual review, never desktop pixels.
             let canvas = NSView(frame: NSRect(x: 0, y: 0, width: 1224, height: 500))
             canvas.wantsLayer = true; canvas.layer?.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1).cgColor

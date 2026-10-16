@@ -172,3 +172,9 @@ Live transition tracing uses the local macOS `Interaction` log category without 
 - Native controller and pointer-sampling harness: 89 passing checks. New cases cover stationary clicks on drifted frames, exact resume with a released window, stable background membership, floating-to-slot insertion, pre-drag restoration, overflow ownership across toggle, and one same-tree correction for a newly learned native minimum.
 - Production tracing now includes requested and rejected native bounds; corrected gestures report the committed history rather than comparing stale minimum metadata.
 - These pointer samples are supplied to the production interaction code using disposable native windows; they do not certify physical pointer routing in every third-party app. The release also includes separate process-scoped real Accessibility toggle and floating-membership checks.
+
+### 0.2.15 relaunch continuation regression
+
+The live 0.2.13 → 0.2.14 installation initially paused for restoration and subsequently completed through the updater. Reviewing the retry path identified an untested repeated Sparkle relaunch-delegate request after preparation: returning `true` with `installationPrepared == true` would discard its continuation and leave relaunch postponed. The delegate now returns `false` after preparation, allowing Sparkle to continue normally. The native harness exercises the first request, failed restoration, retry, successful continuation and second delegate decision.
+
+Local 0.2.15 verification: 40 core tests and 91 isolated native checks passed. The updater checks now cover the repeated relaunch-delegate decision. External AX runs require the normal desktop manager to be closed so it cannot adopt or minimize fixture windows; runs made while it was active were rejected as interference, not counted as passing QA.

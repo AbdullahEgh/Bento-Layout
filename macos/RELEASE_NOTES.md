@@ -1,6 +1,8 @@
-Bento for macOS 0.2.14
+Bento for macOS 0.2.15
 
 What’s new
+
+- Fix Install and Relaunch stalling when the updater requests permission again after windows have been restored.
 
 - Turn Bento off and on without rebuilding your edited slots, display assignments, or floating-window choices.
 - Restore overflow windows to the Dock when resuming the same layout.
