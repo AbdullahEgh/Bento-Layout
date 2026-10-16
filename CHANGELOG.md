@@ -2,7 +2,7 @@
 
 ## macOS 0.2.6 — October 2026
 
-- Publish a maintenance update with the same permanent identity as 0.2.5 for live OTA Accessibility-retention validation. Window behavior is unchanged.
+- Publish a maintenance update with the same permanent identity as 0.2.5. Live Sparkle upgrade retained Accessibility approval without reapproval, and the updated app arranged real windows. Window behavior is unchanged.
 
 ## macOS 0.2.5 — October 2026
 
