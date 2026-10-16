@@ -494,7 +494,7 @@ public sealed class BentoController : IDisposable
             foreach (var id in next.Windows.Select(w => w.WindowId))
                 if (!originals.ContainsKey(id)) originals[id] = minimizedByBento.TryGetValue(id, out var minimized) ? minimized.Snapshot : native.Capture(id);
             var nextIds = next.Windows.Select(w => w.WindowId).ToHashSet();
-            var removed = previous.Windows.Where(w => restoreRemoved && !nextIds.Contains(w.WindowId))
+            var removed = previous.Windows.Where(w => restoreRemoved && !nextIds.Contains(w.WindowId) && Windows.Any(current => current.Id == w.WindowId))
                 .Where(w => originals.ContainsKey(w.WindowId)).Select(w => originals[w.WindowId]).ToArray();
             var regions = monitors.SelectMany(m => Layout(m, next).Regions).ToArray();
             transition?.Dispose(); transition = null;

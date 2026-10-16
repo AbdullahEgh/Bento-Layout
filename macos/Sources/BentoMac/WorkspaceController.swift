@@ -73,9 +73,11 @@ struct SavedWorkspace: Codable {
     var onStateChange: (() -> Void)?
     var onSettingsChange: (() -> Void)?
     var cancelInteraction: (() async -> Void)?
+    private let reduceMotion: () -> Bool
     private let desktopPreferences: ActivationOverrides
 
-    init(system: MacWindowSystem? = nil, settings: MacSettings? = nil, preferences: ActivationOverrides? = nil, backgroundMonitoring: Bool = true) {
+    init(system: MacWindowSystem? = nil, settings: MacSettings? = nil, preferences: ActivationOverrides? = nil, backgroundMonitoring: Bool = true, reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) {
+        self.reduceMotion = reduceMotion
         self.system = system ?? MacWindowSystem()
         self.desktopPreferences = preferences ?? ActivationOverrides(backend: DesktopPreferenceBackend(), journal: MacSettings.directory.appendingPathComponent("desktop-preferences-session.json"))
         if let settings { self.settings = settings }
@@ -293,7 +295,7 @@ struct SavedWorkspace: Codable {
             guard let start = system.frame(of: window.element), start != target else { return nil }
             return (window, start, target)
         }
-        if animated && settings.animate && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        if animated && settings.animate && !reduceMotion() {
             let start = ProcessInfo.processInfo.systemUptime
             let duration = Double(settings.animationMS) / 1000
             // One shared clock; slow AX clients skip stale frames instead of queuing

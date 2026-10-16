@@ -52,9 +52,10 @@ private final class FixturePreferences: PreferenceBackend {
 @MainActor enum NativeInteractionSmoke {
     static func run(at output: URL) async throws {
         let system = FixtureWindowSystem(), preferences = FixturePreferences()
+        var reduceMotion = false
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         var fixtureSettings = MacSettings(); fixtureSettings.animate = false; fixtureSettings.minimizeOverflow = false
-        let model = WorkspaceController(system: system, settings: fixtureSettings, preferences: ActivationOverrides(backend: preferences, journal: output.appendingPathComponent("fixture-preferences.json")), backgroundMonitoring: false)
+        let model = WorkspaceController(system: system, settings: fixtureSettings, preferences: ActivationOverrides(backend: preferences, journal: output.appendingPathComponent("fixture-preferences.json")), backgroundMonitoring: false, reduceMotion: { reduceMotion })
         var input = DesktopInput(point: Point(0, 0), pressed: false, escape: false, time: 0)
         let interactions = DesktopInteractions(model: model, input: { input }, automaticSampling: false)
         model.cancelInteraction = { await interactions.finish(cancel: true) }
@@ -230,6 +231,10 @@ private final class FixturePreferences: PreferenceBackend {
             try check(try matchingGeometry() && system.writes.values.allSatisfy { $0 > 1 }, "Animated activation sends intermediate frames and reaches exact final geometry")
             await model.restore()
             try check(system.records.map { DesktopCoordinates.engine($0.1.frame) } == initial, "Animated deactivation restores exact starting geometry")
+            reduceMotion = true; system.writes.removeAll()
+            await model.arrange()
+            try check(system.writes.values.allSatisfy { $0 == 1 }, "Reduce Motion sends only final native frames")
+            await model.restore(); reduceMotion = false
             let gripView = GripView(axis: .horizontal); gripView.animate = false
             try check(gripView.visibleInk == 0, "Idle grip is fully hidden")
             let gapPanel = GapPanel(axis: .horizontal)
