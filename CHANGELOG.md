@@ -1,5 +1,24 @@
 # Bento releases
 
+## 0.3.4 — October 2026
+
+- Click the tray icon to toggle Bento and restore the positions captured before activation; resume the latest edited Bento layout when re-enabled.
+- Change or disable Toggle Bento shortcut in Gestures; Ctrl+Alt+B toggles by default, with Arrange all windows available separately in the app and tray.
+- Save Bento stores a reusable split tree locally, matching reopened applications and retaining surviving regions when windows are missing.
+- Add distinct filled active and outlined inactive tray icons, with grouped menu actions and Windows-synced colors.
+- Extend held grabbers to 104 DIPs and animate hover, extension and release over 120 ms while retaining the same 2-DIP thickness.
+- Reuse divider windows across resize commits so release animation stays continuous; respect reduced-motion settings.
+- Restore pre-Bento positions on a normal exit.
+- Verify 123 layout, saved-layout, animation, updater and native desktop checks with zero build warnings or errors.
+
+## 0.3.3 — October 2026
+
+- Resize real application windows continuously during divider dragging; cancellation restores the starting geometry and release creates one undo entry.
+- Keep active grabbers 2 DIPs thick, extending only their length to 72 DIPs.
+- Keep grabbers above the background dimmer, below settings, and fully opaque when revealed.
+- Refine the acrylic slot with matching rounded corners, a soft highlight, and subtle inner and outer edges.
+- Verify 117 checks, including real Windows hit detection after another application covers a grabber, live geometry, cancellation and stacking order.
+
 ## 0.3.2 — October 2026
 
 - Add background darkness beneath the layout, adjustable from clear to black with a 50% default.

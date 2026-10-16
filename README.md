@@ -14,10 +14,10 @@ The built executable is `src/Bento.UI/bin/Release/net10.0-windows/Bento.exe`. A 
 
 ## Automatic Bento layout
 
-1. Open your applications. Launch Bento or press **Ctrl+Alt+B**. Eligible visible, non-minimized application windows are immediately moved and resized on their existing monitors.
+1. Open your applications. Launch Bento. Press **Ctrl+Alt+B** to toggle between Bento and your previous window positions; change or disable this shortcut in Gestures. Eligible visible, non-minimized application windows are immediately moved and resized on their existing monitors.
 2. Use the applications normally. Bento leaves their content exposed and keeps the active application focused.
 3. Drag a real window by its title bar onto another window's region to swap them. **Hold near its left, right, top or bottom edge for 900 ms** to split it instead. A text-free frosted highlight divides the existing target slot when ready. The hold delay is configurable from 0 to 2000 ms.
-4. Drag a small grip in a gap to resize neighboring regions. The grip becomes longer and solid while held; no full-length guide covers your windows. Resizing a native window's inner border also adjusts the corresponding split when released.
+4. Drag a small grip in a gap to resize neighboring regions. The grip smoothly extends to 104 DIPs while held, with 120 ms fade and length transitions; no full-length guide covers your windows. Resizing a native window's inner border also adjusts the corresponding split when released.
 
 Workspace → **Background darkness** dims the area beneath the layout, visible in gaps around grabbers and desktop margins. It defaults to 50% and ranges from clear (0%) to black (100%). The backdrop stays behind application windows, passes input through, and disappears when Bento pauses. Grabbers account for both wallpaper color and this dimming. Icons illustrate each setting and main action.
 
@@ -25,24 +25,25 @@ Newly opened and restored windows join automatically; minimized and closed windo
 
 The middle half of a region is its center zone. A drop in a gap or outside a monitor snaps a managed native window back into its committed region. Windows stay represented during swaps and splits. Minimum sizes can prevent a split or automatic arrangement; Bento reports the failure and retains the previous layout instead of silently omitting a window.
 
-Bento 0.3.2 opens a compact interface with Workspace, Gestures, Updates and What's New pages. What's New shows only the latest release; its nested Update Log contains older releases and installation history. The desktop itself has no blueprint or full-monitor interaction layer. A temporary, text-free acrylic box highlights the existing destination slot and follows Windows appearance (a solid tint is used when the backdrop is unavailable). Gaps contain 40-DIP resize grips, revealed individually on hover or touch. Their black or white ink follows the local wallpaper color, and settings stays above them. Preview and grip windows do not activate. Native geometry changes once per commit, apart from the application's own move/resize gesture. DWM window copies animate the transition for 180 ms by default; protected or unsupported thumbnails fall back to direct placement. Reduced motion follows Windows and can also be selected in Bento.
+Bento 0.3.4 opens a compact interface with Workspace, Gestures, Updates and What's New pages. What's New shows only the latest release; its nested Update Log contains older releases and installation history. The desktop itself has no blueprint or full-monitor interaction layer. A temporary, text-free acrylic box highlights the existing destination slot and follows Windows appearance (a solid tint is used when the backdrop is unavailable). Gaps contain 40-DIP resize grips, revealed individually on hover or touch. Their black or white ink follows the dimmed wallpaper color. Grabbers stay above the dimmer and below settings; dragging extends their length while retaining the same 2-DIP thickness. Preview and grip windows do not activate. Divider dragging resizes neighboring application windows live; cancellation restores their starting geometry. Window drop gestures change native geometry once per commit. DWM window copies animate the transition for 180 ms by default; protected or unsupported thumbnails fall back to direct placement. Reduced motion follows Windows and can also be selected in Bento.
 
 | Action | Control |
 | --- | --- |
-| Open Bento settings and updates | Double-click the tray icon, or Tray → Open Bento |
-| Arrange all windows immediately | Ctrl+Alt+B, Workspace → Arrange windows, or Tray → Arrange all windows |
+| Toggle Bento | Ctrl+Alt+B (changeable or disableable in Gestures), or click the tray icon |
+| Open Bento settings and updates | Right-click the tray icon → Settings or Updates |
+| Arrange all windows immediately | Workspace → Arrange windows, or Tray → Arrange all windows |
 | Swap windows | Drag a real window's title bar to another region's center |
-| Split a region | Drag a real window's title bar to another region's edge and hold until the indicator fills |
+| Split a region | Drag a real window's title bar to another region's edge and hold until the slot divides |
 | Resize neighbors | Drag the grip in a gap, or a native window's inner resize border |
 | Release window and expand neighbor | Tray → Release active window |
 | Undo / redo | Tray → Undo / Redo |
 | Cancel a native move or resize | Windows' normal Esc gesture |
-| Refresh open windows | Tray → Refresh windows |
+| Save the current Bento layout | Tray → Save Bento |
 | Change shortcut or window gap | Tray → Settings |
-| Return managed windows to original positions | Tray → Restore all windows |
-| Quit | Tray → Exit |
+| Return managed windows to original positions | Click the tray icon, or Tray → Turn Bento off |
+| Quit | Tray → Quit Bento |
 
-**Release active window** keeps that window floating until **Arrange all windows**. **Restore all windows** restores the originals and pauses automatic management until Bento is activated again. Exiting leaves applications in their arranged positions. Settings are stored locally in `%LOCALAPPDATA%/Bento/settings.json`; layout trees and undo history are session-only. Changing the shortcut requires at least one modifier and a letter/digit key. A registration failure is reported with its Windows error; the tray remains available.
+**Release active window** keeps that window floating until **Arrange all windows**. **Restore all windows** restores the originals and pauses automatic management until Bento is activated again. A normal exit restores the positions captured before activation. Settings are stored locally in `%LOCALAPPDATA%/Bento/settings.json`; Save Bento stores a reusable layout in saved-layout.json, matching application paths and window titles on later launches; undo history and the pre-activation snapshot are session-only. Changing the shortcut requires at least one modifier and a letter/digit key. A registration failure is reported with its Windows error; the tray remains available.
 
 **Let Bento handle edge snapping**, under Gestures, temporarily disables the Windows window-arrangement setting for all applications while Bento is active. It is off by default. Pausing, restoring windows or exiting restores the previous value. A journal recovers an interrupted session on the next launch; Windows sign-out also resets this session-only setting. It does not change security settings.
 
@@ -50,9 +51,9 @@ Bento 0.3.2 opens a compact interface with Workspace, Gestures, Updates and What
 
 The release source is [AbdullahEgh/Bento-Layout](https://github.com/AbdullahEgh/Bento-Layout). The repository is public and supports direct in-app checks and downloads. Packages can also be downloaded in a browser and selected with **Choose update file**. No GitHub credentials are collected by Bento. Optional startup checks are off by default.
 
-Updates shows release notes and the last ten installation results. **Install and restart** validates all package file hashes, retains a backup and restores replaced files if copying or startup fails. Settings remain in Local AppData. GitHub downloads also require the release asset's SHA-256 digest. Checksums detect corruption, not publisher identity; local packages must come from your trusted Bento release source. This development release is not code-signed.
+What's New shows the latest release; its nested Update Log holds older releases and the last ten installation results. **Install and restart** validates all package file hashes, retains a backup and restores replaced files if copying or startup fails. Settings remain in Local AppData. GitHub downloads also require the release asset's SHA-256 digest. Checksums detect corruption, not publisher identity; local packages must come from your trusted Bento release source. This development release is not code-signed.
 
-Publish `Bento-win-x64.zip` as a GitHub release asset with a tag matching the application version, for example `v0.3.2`. `build.ps1 -Publish` generates the required `bento-release.json` manifest. The updater is a small separate .NET process so it can replace files after Bento exits. It does not elevate privileges; use a writable portable installation folder.
+Publish `Bento-win-x64.zip` as a GitHub release asset with a tag matching the application version, for example `v0.3.4`. `build.ps1 -Publish` generates the required `bento-release.json` manifest. The updater is a small separate .NET process so it can replace files after Bento exits. It does not elevate privileges; use a writable portable installation folder.
 
 ## Build and test
 
@@ -74,7 +75,7 @@ dotnet run --project tests/Bento.Tests -c Release --no-build -- --native
 
 `Bento.Tests` is a dependency-free executable test harness, **not a dotnet test adapter**. It prints each check and returns a nonzero exit code on failure. Exit any running Bento tray app before native tests: another manager would compete over the fixture windows, and the suite now checks for that condition. Native tests require an interactive Windows desktop outside sandbox restrictions, register/release a test shortcut, and manipulate only disposable fixture processes. They verify native bounds, desktop focus, the absence of a blueprint, gap-only helper windows, one temporary destination preview, native-border resizing, and automatic opening/minimizing/restoring/closing. Gesture positions are supplied through the production controller; physical mouse/keyboard routing is not covered. The destination preview render is saved to `artifacts/drop-preview.png`.
 
-For manual testing without rearranging existing applications, run `tests/Bento.Tests/bin/Release/net10.0-windows/Bento.Tests.exe --interactive`. This arranges three real fixture windows on the desktop and exits after ten minutes or Tray → Exit. Add `--windows 5 --hide-ui` for five windows with the settings interface initially hidden; counts from 3 to 12 are supported. Observed fixture geometry is written to `.tools/interactive-state.json`. The application's `--smoke` startup check uses an empty discovery source so it never arranges existing user windows.
+For manual testing without rearranging existing applications, run `tests/Bento.Tests/bin/Release/net10.0-windows/Bento.Tests.exe --interactive`. This arranges three real fixture windows on the desktop and exits after ten minutes or Tray → Quit Bento. Add `--windows 5 --hide-ui` for five windows with the settings interface initially hidden; counts from 3 to 12 are supported. Observed fixture geometry is written to `.tools/interactive-state.json`. The application's `--smoke` startup check uses an empty discovery source so it never arranges existing user windows.
 
 ## Architecture
 
