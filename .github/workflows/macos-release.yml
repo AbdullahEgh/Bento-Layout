@@ -25,11 +25,18 @@ jobs:
           echo "BENTO_BUILD_NUMBER=$((GITHUB_RUN_NUMBER + 100))" >> "$GITHUB_ENV"
       - name: Test layout and gestures
         run: macos/scripts/swift.sh test
+      - name: Import persistent app signing identity
+        env:
+          BENTO_CODESIGN_P12_B64: ${{ secrets.BENTO_MACOS_CODESIGN_P12 }}
+          BENTO_CODESIGN_PASSWORD: ${{ secrets.BENTO_MACOS_CODESIGN_PASSWORD }}
+        run: macos/scripts/import-code-signing.sh
       - name: Build universal OTA app
         env:
           BENTO_UNIVERSAL: '1'
           BENTO_OTA_RELEASE: '1'
         run: macos/scripts/build-app.sh
+      - name: Verify identity survives a version change
+        run: macos/scripts/test-code-identity.sh
       - name: Validate isolated native interaction
         run: artifacts/macos/Bento.app/Contents/MacOS/Bento --interaction-smoke artifacts/macos/interaction-smoke
       - name: Sign and publish app and feed
@@ -54,3 +61,9 @@ jobs:
           path: |
             artifacts/macos/update/update.sha256
             artifacts/macos/interaction-smoke/results.json
+      - name: Remove ephemeral signing keychain
+        if: always()
+        run: |
+          if [[ -f "$RUNNER_TEMP/bento-signing.keychain-db" ]]; then
+            security delete-keychain "$RUNNER_TEMP/bento-signing.keychain-db"
+          fi

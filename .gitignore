@@ -7,3 +7,8 @@ artifacts/
 **/.build/
 **/.swiftpm/
 **/.DS_Store
+
+# Private release identities never belong in source control.
+*.p12
+*.keychain
+*.keychain-db

@@ -80,3 +80,13 @@ This renders eight PNGs (four steps in light and dark). `--smoke` exits before w
 Workspace → **Start at login** uses Apple’s `SMAppService.mainApp`. macOS owns the registration state and may require approval in System Settings → General → Login Items. Login launches stay in the menu bar once onboarding is complete. The option defaults to off; no login registration is enabled by tests. Keep the app in a stable Applications folder.
 
 `macos/scripts/test-external-ax.sh` builds a separate disposable app and verifies real AX discovery, arrangement, all four split directions, swap, resize, undo/redo and restoration. Only the fixture process can be touched. Physical pointer routing and sign-out/login remain separate interactive checks. Online Sparkle installation and relaunch were verified for the published app; see VALIDATION.md.
+
+## Stable app identity for Accessibility
+
+Starting with 0.2.5, OTA releases use a persistent self-signed RSA code-signing certificate and an explicit designated requirement pinned to that certificate and `com.abdullahegh.bento`. Unlike the old ad-hoc signature, this requirement does not include a build's changing code hash. The code-signing identity is separate from Sparkle's Ed25519 update-signing key: both are required for publication. This is identity continuity, not Developer ID notarization, and does not automatically grant a permission.
+
+The first migration from an ad-hoc build needs one final Accessibility approval for the new identity. Subsequent correctly signed versions are designed to retain that approval. Revoking access or changing/losing the certificate still requires approval again. Actual permission retention across an installed update must be distinguished from the automated signature-continuity test.
+
+Only `CodeSigningCertificate.pem` is public. `create-code-signing-identity.py` creates a private dedicated keychain plus an encrypted PKCS#12 backup in `~/Library/Application Support/BentoSigning`; its password is stored in the user's Keychain under service `Bento Code Signing Backup`. The script never replaces an existing identity. Keep this backup and restore the same identity when moving development machines; do not generate a new release certificate per build.
+
+GitHub uses `BENTO_MACOS_CODESIGN_P12` (base64 of the encrypted PKCS#12) and `BENTO_MACOS_CODESIGN_PASSWORD` as encrypted secrets. The workflow imports them into an ephemeral runner keychain, signs all components, pins the app requirement, checks a different version against the same requirement, and removes the keychain afterward. Production OTA builds reject an ad-hoc fallback. These secrets must be explicitly provisioned by the repository owner; source checkout alone cannot sign a release.

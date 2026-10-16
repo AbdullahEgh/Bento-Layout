@@ -1,4 +1,10 @@
-# macOS 0.2.4 validation — 2026-10-16
+# macOS 0.2.5 stable-signing validation — 2026-10-16
+
+A persistent self-signed code identity was created without changing system certificate trust. An optimized universal build passed deep/strict signature verification for both architectures with the explicit certificate-pinned app requirement. A fixture changed its version and payload, producing a different code-directory hash, and still satisfied the original version's requirement. A tampered resource and an ad-hoc replacement signer were both rejected. Importing the encrypted backup into a disposable CI-style keychain and running the same checks also passed; the temporary keychain was deleted afterward. Startup and all 36 isolated native interaction checks passed on the new signed app.
+
+GitHub secret provisioning and publication of this identity are pending owner approval. Live Accessibility retention through an installed update has not yet been tested. The existing 0.2.4 approval remained bound to an earlier code hash even after the owner re-added Bento; the macOS log explicitly reported a failed code-requirement match. Bento's stale Accessibility record was reset with Apple's app-scoped `tccutil` command. That reset grants no access. The migration build will need approval for its new stable identity.
+
+## macOS 0.2.4 validation — 2026-10-16
 
 At code commit `33be2cb`, all 28 core tests, 36 disposable native checks and 11 external Accessibility fixture checks passed locally. The native checks include one final frame write per arranged window, no writes for an unchanged reflow, asynchronous native restoration, four-way split/center behavior, grip commit/cancel, and oversized/refusing-window exclusion. Preview bounds now equal the final candidate geometry after source removal and minimum-size clamping. Native preview views and settings icons were rendered and visually checked; preview fill alpha is 0.18 so the destination remains visible through the overlay.
 

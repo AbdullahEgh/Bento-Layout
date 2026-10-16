@@ -173,7 +173,7 @@ struct SettingsView: View {
             Text("Bento for macOS \(updater.version)").font(.system(size: 18, weight: .semibold))
             BentoCard {
                 VStack(alignment: .leading, spacing: 14) {
-                    ForEach(["Bento arranges the windows that fit and leaves oversized windows in their original positions.", "Workspace shows the arranged count and lists windows left alone.", "Existing splits stay intact when they fit. Bento retries floating windows when the display or open-window set changes.", "Turning Bento off leaves skipped windows where you put them."], id: \.self) { Text($0).font(.system(size: 12)).lineSpacing(4) }
+                    ForEach(["Updates now use one persistent app-signing identity so macOS can retain Accessibility approval across versions. This change needs one final approval when upgrading from 0.2.4 or earlier.", "Menu-bar clicks toggle Bento without opening Settings. Split previews match the final slots, and window arrangement avoids repeated resizing.", "Bento arranges the windows that fit and leaves oversized windows in their original positions.", "Workspace shows the arranged count and lists windows left alone.", "Existing splits stay intact when they fit. Bento retries floating windows when the display or open-window set changes.", "Turning Bento off leaves skipped windows where you put them."], id: \.self) { Text($0).font(.system(size: 12)).lineSpacing(4) }
                 }
             }
             DisclosureGroup("Update Log") {

@@ -28,7 +28,14 @@ done
 cp "$mac_root/Info.plist" "$app/Contents/Info.plist"
 identity="${BENTO_SIGNING_IDENTITY:--}"
 sign_options=()
-if [[ "$identity" != "-" ]]; then sign_options+=(--options runtime --timestamp); fi
+main_options=()
+if [[ -n "${BENTO_SIGNING_KEYCHAIN:-}" ]]; then sign_options+=(--keychain "$BENTO_SIGNING_KEYCHAIN"); fi
+if [[ "${BENTO_SIGNING_MODE:-}" == "stable" ]]; then
+  pinned="$(/usr/bin/openssl x509 -in "$mac_root/CodeSigningCertificate.pem" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':' | tr 'A-F' 'a-f')"
+  [[ "$pinned" =~ ^[0-9a-f]{40}$ && "$identity" != "-" ]] || { echo 'Stable release signing identity is required.' >&2; exit 1; }
+  sign_options+=(--timestamp=none)
+  main_options+=(--requirements "=designated => identifier \"com.abdullahegh.bento\" and certificate leaf = H\"$pinned\"")
+elif [[ "$identity" != "-" ]]; then sign_options+=(--options runtime --timestamp); fi
 if [[ -n "${BENTO_BUILD_NUMBER:-}" ]]; then
   [[ "$BENTO_BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo 'Build number must be a positive integer.' >&2; exit 1; }
   /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BENTO_BUILD_NUMBER" "$app/Contents/Info.plist"
@@ -38,6 +45,7 @@ if [[ -n "${BENTO_MARKETING_VERSION:-}" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $BENTO_MARKETING_VERSION" "$app/Contents/Info.plist"
 fi
 if [[ "${BENTO_OTA_RELEASE:-0}" == "1" ]]; then
+  [[ "${BENTO_SIGNING_MODE:-}" == "stable" ]] || { echo 'OTA releases must use the persistent Bento code identity; ad-hoc fallback is forbidden.' >&2; exit 1; }
   if [[ -z "${BENTO_UPDATE_PUBLIC_KEY:-}" && -f "$mac_root/UpdatePublicKey.txt" ]]; then BENTO_UPDATE_PUBLIC_KEY="$(cat "$mac_root/UpdatePublicKey.txt")"; fi
   [[ "$architecture" == "universal" && -n "${BENTO_UPDATE_PUBLIC_KEY:-}" ]] || { echo 'OTA release requires a Bento public update-signing key and a universal build.' >&2; exit 1; }
   [[ "$BENTO_UPDATE_PUBLIC_KEY" =~ ^[A-Za-z0-9+/]{43}=$ ]] || { echo 'Invalid Ed25519 public key.' >&2; exit 1; }
@@ -49,7 +57,8 @@ for nested in "$framework/XPCServices/Downloader.xpc" "$framework/XPCServices/In
   /usr/bin/codesign --force --sign "$identity" ${sign_options[@]+"${sign_options[@]}"} --preserve-metadata=entitlements "$nested"
 done
 /usr/bin/codesign --force --sign "$identity" ${sign_options[@]+"${sign_options[@]}"} "$app/Contents/Frameworks/Sparkle.framework"
-/usr/bin/codesign --force --sign "$identity" ${sign_options[@]+"${sign_options[@]}"} "$app"
+/usr/bin/codesign --force --sign "$identity" ${sign_options[@]+"${sign_options[@]}"} ${main_options[@]+"${main_options[@]}"} "$app"
 /usr/bin/codesign --verify --deep --strict "$app"
+if [[ "${BENTO_SIGNING_MODE:-}" == "stable" ]]; then "$mac_root/scripts/verify-code-identity.sh" "$app"; fi
 /usr/bin/ditto -c -k --keepParent "$app" "$output_dir/Bento-macos-$architecture.zip"
 printf 'Built %s\n' "$app"

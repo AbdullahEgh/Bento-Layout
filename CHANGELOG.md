@@ -1,5 +1,10 @@
 # Bento releases
 
+## macOS 0.2.5 — October 2026
+
+- Keep one certificate-pinned app identity across releases so Accessibility approval can survive updates. Older ad-hoc builds require a one-time permission migration.
+- Require persistent signing in the release pipeline, verify cross-version identity continuity and reject tampered or differently signed apps. Keep the separate Sparkle Ed25519 update signature.
+
 ## macOS 0.2.4 — October 2026
 
 - Keep menu-bar activation quiet; open Settings only through an explicit settings action.

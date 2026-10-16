@@ -1,15 +1,9 @@
-Bento for macOS 0.2.4 arranges the windows that fit and leaves the others alone.
+Bento for macOS 0.2.5 keeps a stable app identity across updates.
 
-- Menu-bar left-click toggles Bento without opening Settings; right-click opens the menu.
-- Faster arrangement with one final frame per window and no repeated native resize animation. Resize grips coalesce rapid pointer movement.
-- Split previews show the actual resulting slots, including resized neighbors, with a hold indicator. Subtle idle grips make dividers easier to find.
-- Restore waits for apps to settle before checking their final frames.
-- Matching settings icons for Dock, menu bar, edge snapping, login startup, appearance, animation and gesture controls.
-- Compatibility checks run on macOS 15 and 26; the app supports macOS 15 or later on Intel and Apple Silicon.
-- An oversized window no longer blocks the entire layout. Smaller windows receive usable slots; skipped windows keep their original positions.
-- Native minimum-size restrictions trigger a bounded retry with a fitting subset. Windows that refuse resizing are also left alone after rollback is verified.
-- Workspace shows how many windows are arranged and lists the windows left floating.
-- Existing splits remain intact when they still fit. Windows are reconsidered when the display or open-window set changes.
-- Turning Bento off does not move skipped windows, including windows you moved manually while Bento was active.
+- Releases now use the same persistent code-signing certificate and app requirement. macOS can recognize future versions as the same app instead of tying Accessibility approval to one build.
+- The release workflow refuses ad-hoc signing and verifies that a different version satisfies the same app identity.
+- Sparkle continues to verify GitHub OTA downloads with the existing Ed25519 update key.
+- Upgrading from 0.2.4 or earlier changes the app identity once. Enable the newly installed app in Accessibility after this migration. Later updates signed by this identity are designed to retain that approval.
+- Includes quiet menu-bar activation, fitting-window arrangement, precise split previews, visible resize grips and settings icons from 0.2.4.
 
-If macOS blocks Accessibility after an update, enable `/Applications/Bento.app` in System Settings → Privacy & Security → Accessibility (Device Control and Data Access on newer macOS versions). If an old entry no longer works, remove it and add the installed app again.
+This is a free, self-signed app identity, not Apple Developer ID signing or notarization. It establishes continuity between Bento releases. It does not grant Accessibility access automatically or override a permission you revoke.
