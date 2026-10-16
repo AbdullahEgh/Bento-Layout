@@ -1,3 +1,11 @@
+# macOS 0.2.8 live OTA and native motion validation — 2026-10-16
+
+[Release run 38908676362](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/38908676362) and [compatibility run 38908677509](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/38908677509) passed at `11074b1`. macOS 15 and 26 passed; 31 core tests and 52 isolated native interaction checks include delayed native frame completion during activation and restoration. The published archive/feed signature and permanent app signing requirement were independently verified.
+
+The installed 0.2.7 app updated through Sparkle to 0.2.8 with Accessibility still connected, without reapproval or manual replacement. On the current 630 × 1368 display, Dock-only activation completed with three windows arranged, one minimized to Dock, and none left alone. Deactivation returned to four eligible windows without a restoration error. All five desktop preference values returned exactly to baseline, including originally absent keys. Bento was left off and both auto-hide choices restored to their original off values. The prior 0.2.7 live checks below cover menu-only and combined auto-hide behavior; those preference paths are unchanged.
+
+These checks validate this OTA upgrade and real-window acceptance on this Mac. Physical drag feel and subjective smoothness across other apps/displays remain manual validation limits.
+
 # macOS 0.2.7 interaction validation — 2026-10-16
 
 [Compatibility run 38906551873](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/38906551873) at `888ac8a` passed on macOS 15 and 26: 31 core tests, universal compilation, startup, 50 isolated native checks and the signed OTA fixture. The native checks passed locally too. They cover eased activation/restoration with exact final frames, explicit Reduce Motion behavior, fully hidden idle grips and hover/grab visibility, below-application grip level, overflow minimization, Dock reopening, minimization refusal, and preservation of windows minimized before Bento activation. Core tests cover priority admission, motion endpoints and noncommitting conflict feedback.
