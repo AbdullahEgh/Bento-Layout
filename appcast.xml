@@ -4,15 +4,15 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.6</title>
-            <pubDate>Fri, 16 Oct 2026 12:33:16 +0000</pubDate>
-            <sparkle:version>109</sparkle:version>
-            <sparkle:shortVersionString>0.2.6</sparkle:shortVersionString>
+            <title>0.2.7</title>
+            <pubDate>Fri, 16 Oct 2026 13:20:58 +0000</pubDate>
+            <sparkle:version>110</sparkle:version>
+            <sparkle:shortVersionString>0.2.7</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.6/Bento-macos-universal.zip" length="2683905" type="application/octet-stream" sparkle:edSignature="Kz8kA9aX8bxQJy/GIibTa8jXsH67d+8LAyo7DEexRL9unqboWJ+TGw+BjqRBh1bRt5QKX0anCixblcnnh/G8Bw=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.7/Bento-macos-universal.zip" length="2752198" type="application/octet-stream" sparkle:edSignature="htr6gzKkU9QmKh3vrBLPvfoAaqpK3zUSOSkShWw5CznPqyKdlvqObzW26gvyWdbSdN76xwqftpFTK0AKFPYrAQ=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: 1NI44dRRmhirwAxJ49xmHi2q+D8K90Is/Icc4yeGJ52yM3foU05q5BBOoYzLRQxOqD5cZap2EAs1kirBJ+jjCg==
+edSignature: iFcI/7K1Qv5joF7BQ1FkJaFudMHhKo9oNFr2JXgGQJH3ffUPhdgt80plkOAaOHrTzBj+elwCa133Gry1rHwYBg==
 length: 1060
 -->
