@@ -64,6 +64,7 @@ struct SavedWorkspace: Codable {
     private var released = Set<UUID>()
     private var lastBento: Workspace?
     private var activationGeneration = 0
+    private var activateAfterPermission = false
     var onStateChange: (() -> Void)?
     var onSettingsChange: (() -> Void)?
     var cancelInteraction: (() async -> Void)?
@@ -81,13 +82,7 @@ struct SavedWorkspace: Codable {
         do { try settings.save(); onSettingsChange?() } catch { message = "Could not save settings: \(error.localizedDescription)" }
     }
     private func tick() {
-        let currentPermission = system.trusted
-        if permission != currentPermission {
-            permission = currentPermission
-            if permission && !active && !busy && !activating { refresh() }
-            onStateChange?()
-        }
-        if active && !permission { active = false; recoverDesktopPreferences(); message = "Bento paused because Accessibility access was removed. Enable access, then arrange again."; onStateChange?() }
+        refreshPermissionStatus()
         guard permission, !busy, !interacting, !activating else { return }
         if active {
             do {
@@ -95,6 +90,20 @@ struct SavedWorkspace: Codable {
                 let displaysChanged = DisplayArea.all(margin: settings.margin) != lastDisplays
                 if displaysChanged || Set(current.map(\.id)) != Set(windows.map(\.id)) { windows = current; Task { await arrange(preserving: !displaysChanged) } }
             } catch { message = error.localizedDescription }
+        }
+    }
+    func deferActivationUntilPermission() { activateAfterPermission = true }
+    func refreshPermissionStatus() {
+        let currentPermission = system.trusted
+        if permission != currentPermission {
+            permission = currentPermission
+            if permission && !active && !busy && !activating { refresh() }
+            onStateChange?()
+        }
+        if active && !permission { active = false; recoverDesktopPreferences(); message = "Bento paused because Accessibility access was removed. Enable access, then arrange again."; onStateChange?() }
+        if activateAfterPermission && permission && !active && !busy && !activating && !interacting {
+            activateAfterPermission = false
+            Task { await toggleLayout() }
         }
     }
     func refresh() {
@@ -219,6 +228,7 @@ struct SavedWorkspace: Codable {
         }
     }
     func restore() async {
+        activateAfterPermission = false
         activationGeneration += 1
         if interacting { await cancelInteraction?() }
         while busy { try? await Task.sleep(for: .milliseconds(50)) }

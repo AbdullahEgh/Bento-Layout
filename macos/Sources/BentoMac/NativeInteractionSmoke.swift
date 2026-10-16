@@ -8,7 +8,8 @@ import BentoCore
     var records: [(ManagedWindow, NSWindow)] = []
     var focused: ManagedWindow?
     var rejectOnce: UUID?
-    override var trusted: Bool { true }
+    var accessibilityGranted = true
+    override var trusted: Bool { accessibilityGranted }
     override func discover() throws -> [ManagedWindow] {
         for (record, window) in records { record.frame = DesktopCoordinates.engine(window.frame) }
         return records.map(\.0)
@@ -145,6 +146,16 @@ private final class FixturePreferences: PreferenceBackend {
             try check(try model.history.current.windows.count == 2 && matchingGeometry(), "Redo release leaves the window floating")
             await model.arrange()
             try check(try model.history.current.windows.count == 3 && matchingGeometry(), "Arrange all includes released windows again")
+            await model.restore()
+            system.accessibilityGranted = false; model.refreshPermissionStatus()
+            model.deferActivationUntilPermission()
+            try check(!model.active, "A blocked activation leaves native windows untouched")
+            system.accessibilityGranted = true; model.refreshPermissionStatus()
+            for _ in 0..<100 {
+                if model.active && !model.activating && !model.busy { break }
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            try check(try model.active && matchingGeometry(), "Granting access completes the requested activation")
             await model.restore()
             let activating = Task { await model.arrange() }
             try? await Task.sleep(for: .milliseconds(100)); await model.restore(); await activating.value

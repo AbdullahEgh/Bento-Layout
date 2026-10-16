@@ -132,6 +132,7 @@ import Carbon.HIToolbox
     @objc private func toggle() {
         model.permission = model.system.trusted
         guard model.permission else {
+            model.deferActivationUntilPermission()
             model.page = "Workspace"; model.message = WindowFailure.permission.localizedDescription
             showWindow(onboarding: false); model.system.requestPermission(); return
         }
