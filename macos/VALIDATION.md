@@ -1,3 +1,11 @@
+# macOS 0.2.9 grabber input and responsive settings — 2026-10-16
+
+[Release run 38911048468](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/38911048468) and [macOS 15/26 run 38911047800](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/38911047800) passed at `d0d3adc`: 31 core tests, universal build, and 56 isolated native interaction checks. The new checks verify nonzero background pixels across the otherwise hidden gap, native mouse-enter/press/exit/release handlers, and unchanged helper level below app windows and above the dimmer. These are fixture checks, not a claim of a physical pointer pass over every external app.
+
+Rendered all five settings pages in light and dark modes at 820 and 360 points. A follow-up render harness creates the same resizable NSHostingController window, opens it at 820, then shrinks it to 360 and asserts the actual view width before capturing. All 20 renders passed; compact navigation, vertical control layout, and text wrapping were inspected. The desktop-control tool's border drags did not resize the installed window; the native resizing harness supplies this verification instead.
+
+Installed 0.2.9 through the normal 0.2.8 Sparkle update UI. The installed version and permanent code requirement verified; Accessibility remained connected. The installed settings window's Zoom control is enabled and successfully expanded the window. Bento was left off; auto-hide choices were unchanged.
+
 # macOS 0.2.8 live OTA and native motion validation — 2026-10-16
 
 [Release run 38908676362](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/38908676362) and [compatibility run 38908677509](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/38908677509) passed at `11074b1`. macOS 15 and 26 passed; 31 core tests and 52 isolated native interaction checks include delayed native frame completion during activation and restoration. The published archive/feed signature and permanent app signing requirement were independently verified.

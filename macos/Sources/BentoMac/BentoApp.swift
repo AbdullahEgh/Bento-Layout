@@ -237,11 +237,17 @@ import Carbon.HIToolbox
                 for page in ["Workspace", "Gestures", "Updates", "What's New", "About"] {
                     model.page = page
                     let view = SettingsView(model: model, updater: updater, showOnboarding: {}).environment(\.colorScheme, dark ? .dark : .light)
-                    let host = NSHostingView(rootView: view)
-                    let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 620), styleMask: [.borderless], backing: .buffered, defer: false)
-                    panel.isReleasedWhenClosed = false; panel.appearance = NSAppearance(named: dark ? .darkAqua : .aqua); panel.contentView = host
-                    host.frame = NSRect(x: 0, y: 0, width: width, height: 620); panel.orderFront(nil)
+                    let controller = NSHostingController(rootView: view)
+                    let panel = NSWindow(contentViewController: controller)
+                    panel.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView, .resizable]
+                    panel.contentMinSize = NSSize(width: 340, height: 420)
+                    panel.isReleasedWhenClosed = false; panel.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+                    let host = controller.view
+                    panel.setContentSize(NSSize(width: 820, height: 620)); panel.orderFront(nil)
+                    try? await Task.sleep(for: .milliseconds(180))
+                    panel.setContentSize(NSSize(width: width, height: 620))
                     try? await Task.sleep(for: .milliseconds(180)); host.layoutSubtreeIfNeeded()
+                    guard abs(host.bounds.width - CGFloat(width)) < 1 else { fputs("Settings refused requested width.\n", stderr); exit(1) }
                     guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { exit(1) }
                     host.cacheDisplay(in: host.bounds, to: bitmap)
                     guard let png = bitmap.representation(using: .png, properties: [:]) else { exit(1) }

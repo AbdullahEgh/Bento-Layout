@@ -1,3 +1,7 @@
+# Windows 0.3.8 responsive settings — 2026-10-16
+
+[Run 38911047765](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/38911047765) passed 131 core/native tests and six settings checks at `d0d3adc`. The new check shrinks the settings window to 360 pixels, switches pages using compact navigation, verifies sliders remain inside the window, and returns to the wide sidebar. Package version/platform and all 14 payload hashes were independently verified before publishing v0.3.8. Tests ran on the Windows CI runner.
+
 # Windows 0.3.7 validation — 2026-10-16
 
 [Windows run 38906552436](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/38906552436) at `888ac8a` passed 131 core/native tests plus five settings/stacking checks, with no build warnings or errors. Native checks use disposable external fixture windows. Coverage includes candidate-geometry previews, activation/restoration, live grip resizing, automatic overflow minimization, taskbar reopening into splits, preservation of user-minimized windows, helper ordering below applications and above the backdrop, automatic settings saving, and absence of manual Save buttons. The full native suite now runs in Windows CI.
