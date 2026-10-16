@@ -90,3 +90,11 @@ The first migration from an ad-hoc build needs one final Accessibility approval 
 Only `CodeSigningCertificate.pem` is public. `create-code-signing-identity.py` creates a private dedicated keychain plus an encrypted PKCS#12 backup in `~/Library/Application Support/BentoSigning`; its password is stored in the user's Keychain under service `Bento Code Signing Backup`. The script never replaces an existing identity. Keep this backup and restore the same identity when moving development machines; do not generate a new release certificate per build.
 
 GitHub uses `BENTO_MACOS_CODESIGN_P12` (base64 of the encrypted PKCS#12) and `BENTO_MACOS_CODESIGN_PASSWORD` as encrypted secrets. The workflow imports them into an ephemeral runner keychain, signs all components, pins the app requirement, checks a different version against the same requirement, and removes the keychain afterward. Production OTA builds reject an ad-hoc fallback. These secrets must be explicitly provisioned by the repository owner; source checkout alone cannot sign a release.
+
+## Split and relocation QA
+
+Native drags bind to the AX window under the initial pointer, with committed slot geometry as the baseline for fast drags. A return to the starting frame alone does not cancel a valid destination; Escape, an invalid target, or a rejected native transaction still recovers the committed layout. Background membership checks pause while the pointer is held, confirm transient missing live windows, and recheck pointer state before applying automatic changes.
+
+Split previews cache the candidate tree for each target and placement. Stationary holds update progress without polling native frames, and successful drops apply one final frame after the native mouse-up handoff. The final native border-resize sample is included on release. Closing a source or target recovers the surviving windows. The isolated native QA harness covers both landscape and portrait layouts.
+
+Live transition traces use the local macOS log under subsystem `com.abdullahegh.bento`, category `Interaction`. Events include gesture starts, proposed bounds, cancellation, native rollback and committed history, without window titles or contents. The isolated harness also writes `gesture-trace.log` beside its JSON results. No trace is uploaded automatically.

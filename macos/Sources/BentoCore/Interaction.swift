@@ -42,7 +42,7 @@ public enum InteractionGeometry {
     }
 }
 
-public struct DropProposal {
+public struct DropProposal: Equatable {
     public let workspace: Workspace
     public let bounds: Rect
     public let placement: Placement
@@ -55,30 +55,51 @@ public struct DropSession {
     public let source: WindowLeaf
     public private(set) var conflictBounds: Rect?
     private var intent = DragIntent()
+    private struct GeometryKey: Equatable { let display: String; let target: UUID; let placement: Placement }
+    private struct Geometry { let workspace: Workspace; let bounds: Rect; let neighbors: [Rect] }
+    private var cachedAreas: [String: Rect] = [:]
+    private var cachedGap: Int?
+    private var layouts: [String: LayoutResult] = [:]
+    private var geometryKey: GeometryKey?
+    private var geometry: Geometry?
+    private var cachedConflict: Rect?
+    private(set) var geometryBuildCount = 0
     public init(workspace: Workspace, source: WindowLeaf) { original = workspace; self.source = source }
     public mutating func propose(pointer: Point, areas: [String: Rect], gap: Int, hold: Int, now: Double) throws -> DropProposal? {
         conflictBounds = nil
-        guard let (display, area) = areas.first(where: { $0.value.contains(pointer) }), let root = original.roots[display],
-              let target = try LayoutEngine.calculate(root, in: area, gap: gap).regions.first(where: { $0.bounds.contains(pointer) }),
+        if cachedAreas != areas || cachedGap != gap {
+            intent.reset()
+            cachedAreas = areas; cachedGap = gap; layouts = [:]; geometryKey = nil; geometry = nil; cachedConflict = nil
+            for (id, node) in original.roots {
+                guard let area = areas[id] else { throw LayoutError.missingTarget }
+                layouts[id] = try LayoutEngine.calculate(node, in: area, gap: gap)
+            }
+        }
+        guard let display = areas.keys.sorted().first(where: { areas[$0]!.contains(pointer) }),
+              let target = layouts[display]?.regions.first(where: { $0.bounds.contains(pointer) }),
               target.window.windowID != source.windowID else { intent.reset(); return nil }
         let gesture = try intent.update(display: display, target: target.window.id, bounds: target.bounds, point: pointer, now: now, holdMilliseconds: hold)
-        let next = try original.placing(source, on: display, target: target.window.id, placement: gesture.placement)
-        var destination: Rect?
-        var neighbors: [Rect] = []
-        do {
-            for (id, node) in next.roots {
-                guard let workArea = areas[id] else { throw LayoutError.missingTarget }
-                let before = try LayoutEngine.calculate(original.roots[id], in: workArea, gap: gap).regions
-                for region in try LayoutEngine.calculate(node, in: workArea, gap: gap).regions {
-                    if region.window.windowID == source.windowID { destination = region.bounds }
-                    else if before.first(where: { $0.window.windowID == region.window.windowID })?.bounds != region.bounds {
-                        neighbors.append(region.bounds)
+        let key = GeometryKey(display: display, target: target.window.id, placement: gesture.placement)
+        if geometryKey != key {
+            geometryKey = key; geometry = nil; cachedConflict = nil; geometryBuildCount += 1
+            let next = try original.placing(source, on: display, target: target.window.id, placement: gesture.placement)
+            var destination: Rect?, neighbors: [Rect] = []
+            do {
+                for id in next.roots.keys.sorted() {
+                    guard let workArea = areas[id], let node = next.roots[id] else { throw LayoutError.missingTarget }
+                    let before = Dictionary(uniqueKeysWithValues: (layouts[id]?.regions ?? []).map { ($0.window.windowID, $0.bounds) })
+                    for region in try LayoutEngine.calculate(node, in: workArea, gap: gap).regions {
+                        if region.window.windowID == source.windowID { destination = region.bounds }
+                        else if before[region.window.windowID] != region.bounds { neighbors.append(region.bounds) }
                     }
                 }
-            }
-        } catch LayoutError.cannotFit { conflictBounds = target.bounds; return nil }
-        guard let destination else { throw LayoutError.missingTarget }
-        return DropProposal(workspace: next, bounds: destination, placement: gesture.placement, neighbors: neighbors,
+                guard let destination else { throw LayoutError.missingTarget }
+                geometry = Geometry(workspace: next, bounds: destination, neighbors: neighbors)
+            } catch LayoutError.cannotFit { cachedConflict = target.bounds }
+        }
+        conflictBounds = cachedConflict
+        guard let geometry else { return nil }
+        return DropProposal(workspace: geometry.workspace, bounds: geometry.bounds, placement: gesture.placement, neighbors: geometry.neighbors,
                             progress: gesture.progress, waitingForSplit: gesture.waitingForSplit)
     }
 }

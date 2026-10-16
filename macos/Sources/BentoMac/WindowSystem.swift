@@ -54,6 +54,23 @@ final class ManagedWindow {
     private let allowedPIDs: Set<pid_t>?
     init(allowedPIDs: Set<pid_t>? = nil) { self.allowedPIDs = allowedPIDs }
     var trusted: Bool { AXIsProcessTrusted() }
+    var pointerPressed: Bool { CGEventSource.buttonState(.combinedSessionState, button: .left) }
+    func window(at point: Point, in windows: [ManagedWindow]) -> ManagedWindow? {
+        let desktop = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(desktop, 0.05)
+        var hit: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(desktop, Float(point.x), Float(point.y), &hit) == .success,
+              var element = hit else { return nil }
+        // A title-bar button or text field may be returned instead of its window.
+        for _ in 0..<12 {
+            if let match = windows.first(where: { CFEqual($0.element, element) }) { return match }
+            if let window = attribute(element, kAXWindowAttribute), CFGetTypeID(window) == AXUIElementGetTypeID(),
+               let match = windows.first(where: { CFEqual($0.element, window) }) { return match }
+            guard let parent = attribute(element, kAXParentAttribute), CFGetTypeID(parent) == AXUIElementGetTypeID() else { return nil }
+            element = parent as! AXUIElement
+        }
+        return nil
+    }
     func requestPermission() {
         let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
         _ = AXIsProcessTrustedWithOptions([key: true] as CFDictionary)

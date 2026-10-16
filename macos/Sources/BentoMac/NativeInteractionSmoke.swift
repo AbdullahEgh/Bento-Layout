@@ -7,6 +7,15 @@ import BentoCore
 @MainActor private final class FixtureWindowSystem: MacWindowSystem {
     var records: [(ManagedWindow, NSWindow)] = []
     var focused: ManagedWindow?
+    var pointed: ManagedWindow?
+    var pointerHeld = false
+    var pressDuringDiscovery = false
+    var undiscovered = Set<UUID>()
+    var deadWindows = Set<UUID>()
+    var discoveryCount = 0
+    var frameReads = 0
+    override var pointerPressed: Bool { pointerHeld }
+    override func window(at point: Point, in windows: [ManagedWindow]) -> ManagedWindow? { pointed ?? focused }
     var rejectOnce: UUID?
     var rejectAlways: UUID?
     var rejectedWindows = Set<UUID>()
@@ -24,14 +33,17 @@ import BentoCore
     }
     override var trusted: Bool { accessibilityGranted }
     override func discover() throws -> [ManagedWindow] {
+        discoveryCount += 1
+        if pressDuringDiscovery { pointerHeld = true }
         for (record, window) in records { record.frame = DesktopCoordinates.engine(window.frame) }
-        return records.map(\.0).filter { !minimized.contains($0.id) }
+        return records.map(\.0).filter { !minimized.contains($0.id) && !undiscovered.contains($0.id) && !deadWindows.contains($0.id) }
     }
     override func focusedWindow(in windows: [ManagedWindow]) -> ManagedWindow? { focused }
     override func frame(of element: AXUIElement) -> Rect? {
-        records.first { CFEqual($0.0.element, element) }.map { DesktopCoordinates.engine($0.1.frame) }
+        frameReads += 1
+        return records.first { CFEqual($0.0.element, element) }.map { DesktopCoordinates.engine($0.1.frame) }
     }
-    override func isAlive(_ window: ManagedWindow) -> Bool { records.contains { $0.0.id == window.id } }
+    override func isAlive(_ window: ManagedWindow) -> Bool { !deadWindows.contains(window.id) && records.contains { $0.0.id == window.id } }
     override func write(_ window: ManagedWindow, frame: Rect) throws {
         writes[window.id, default: 0] += 1
         if rejectAlways == window.id || rejectedWindows.contains(window.id) { throw WindowFailure.rejected(window.title) }
@@ -59,7 +71,9 @@ private final class FixturePreferences: PreferenceBackend {
         var fixtureSettings = MacSettings(); fixtureSettings.animate = false; fixtureSettings.minimizeOverflow = false
         let model = WorkspaceController(system: system, settings: fixtureSettings, preferences: ActivationOverrides(backend: preferences, journal: output.appendingPathComponent("fixture-preferences.json")), backgroundMonitoring: false, reduceMotion: { reduceMotion })
         var input = DesktopInput(point: Point(0, 0), pressed: false, escape: false, time: 0)
-        let interactions = DesktopInteractions(model: model, input: { input }, automaticSampling: false)
+        var gestureTrace: [String] = []
+        let interactions = DesktopInteractions(model: model, input: { input }, automaticSampling: false, trace: { gestureTrace.append($0) })
+        defer { try? gestureTrace.joined(separator: "\n").write(to: output.appendingPathComponent("gesture-trace.log"), atomically: true, encoding: .utf8) }
         model.cancelInteraction = { await interactions.finish(cancel: true) }
         var passed: [String] = []
         func check(_ value: Bool, _ title: String) throws {
@@ -97,6 +111,28 @@ private final class FixturePreferences: PreferenceBackend {
             let writeCount = system.writes
             await model.arrange(preserving: true)
             try check(system.writes == writeCount, "Unchanged layout does not write native window frames again")
+            let beforeMonitor = model.history.current
+            let monitorWrites = system.writes
+            let discoveries = system.discoveryCount
+            system.pointerHeld = true; system.undiscovered = [system.records[0].0.id]
+            model.tick()
+            try check(system.discoveryCount == discoveries && model.history.current == beforeMonitor,
+                "Membership monitoring does not discover or arrange while a native pointer gesture is held")
+            system.pointerHeld = false
+            model.tick(); system.undiscovered.removeAll(); model.tick()
+            await Task.yield()
+            try check(model.history.current == beforeMonitor && system.writes == monitorWrites,
+                "One transient missing AX window does not rebuild a committed split tree")
+            system.undiscovered = [system.records[0].0.id]; model.tick(); model.tick()
+            system.pointerHeld = true; await Task.yield()
+            system.undiscovered.removeAll(); system.pointerHeld = false
+            try check(model.history.current == beforeMonitor && system.writes == monitorWrites,
+                "Queued membership reconciliation rechecks pointer state before moving windows")
+            system.pressDuringDiscovery = true
+            await model.arrange(preserving: true, automatic: true)
+            system.pressDuringDiscovery = false; system.pointerHeld = false
+            try check(model.history.current == beforeMonitor && system.writes == monitorWrites,
+                "A pointer press during native discovery defers automatic arrangement before any frame write")
             let (_, firstLayout) = try regions()
             try check(interactions.helperFrames.count == firstLayout.dividers.count && interactions.helperFrames.allSatisfy { frame in firstLayout.dividers.contains { $0.bounds == frame } }, "Helper panels occupy gaps only")
             let hoverBounds = firstLayout.dividers[0].bounds
@@ -120,10 +156,53 @@ private final class FixturePreferences: PreferenceBackend {
             try check(try matchingGeometry(), "Native center drop commits matching geometry")
             let sourceAfterSwap = try regions().1.regions.first { $0.window.windowID == source.window.windowID }!
             try check(sourceAfterSwap.bounds == target, "Center drop swaps source into the target slot")
+            let reboundLayout = try regions().1
+            let reboundSource = reboundLayout.regions[0], reboundTarget = reboundLayout.regions[1]
+            let beforeRebound = model.history.current
+            try startDrag(source: reboundSource, target: Point(reboundTarget.bounds.x + reboundTarget.bounds.width / 2,
+                reboundTarget.bounds.y + reboundTarget.bounds.height / 2), time: 2)
+            let reboundRecord = system.records.first { $0.0.id == reboundSource.window.windowID }!.0
+            try system.write(reboundRecord, frame: reboundSource.bounds)
+            model.settings.animate = true; system.writes.removeAll()
+            input.pressed = false; interactions.sample(); await settle()
+            try check(try model.history.current != beforeRebound && matchingGeometry(),
+                "A valid drop commits even when the native window rebounds before release without Escape")
+            try check(system.writes.values.allSatisfy { $0 == 1 }, "Successful relocation uses one final write per changed window with no second animation")
+            model.settings.animate = false
+            await model.undo()
+            let fastLayout = try regions().1
+            let fastSource = fastLayout.regions[0], fastTarget = fastLayout.regions[1]
+            let fastRecord = system.records.first { $0.0.id == fastSource.window.windowID }!.0
+            system.focused = system.records.first { $0.0.id != fastRecord.id }!.0; system.pointed = fastRecord
+            input = DesktopInput(point: Point(fastSource.bounds.x + 70, fastSource.bounds.y + 20), pressed: true, escape: false, time: 2.4)
+            interactions.sample()
+            var fastMoved = fastSource.bounds; fastMoved.x += 40; fastMoved.y += 30
+            try system.write(fastRecord, frame: fastMoved)
+            input.point = Point(fastTarget.bounds.x + fastTarget.bounds.width / 2, fastTarget.bounds.y + fastTarget.bounds.height / 2)
+            input.pressed = false; input.time += 0.01; interactions.sample(); await settle()
+            try check(try regions().1.regions.first { $0.window.windowID == fastRecord.id }?.bounds == fastTarget.bounds && matchingGeometry(),
+                "Hit testing and release sampling commit a fast drag even when AX focus still names the previous window")
+            let fastCommitted = model.history.current, fastWrites = system.writes
+            model.tick(); await Task.yield(); model.tick(); await Task.yield()
+            try check(model.history.current == fastCommitted && system.writes == fastWrites,
+                "Membership refresh after relocation preserves the committed destination without extra native writes")
+            await model.undo(); system.pointed = nil
             let layout = try regions().1, splitTarget = layout.regions.first { $0.window.windowID != source.window.windowID }!.bounds
             try startDrag(source: sourceAfterSwap, target: Point(splitTarget.x + 3, splitTarget.y + splitTarget.height / 2), time: 3)
+            let readsBeforeHold = system.frameReads
+            for _ in 0..<200 { input.time += 0.001; interactions.sample() }
+            try check(system.frameReads == readsBeforeHold, "Stationary split hold advances feedback without repeated native frame reads")
             input.time += 1; interactions.sample(); input.pressed = false; interactions.sample(); await settle()
             try check(try matchingGeometry() && model.history.current.windows.count == 3, "Held edge drop splits and retains all windows")
+            let closeLayout = try regions().1
+            let closeSource = closeLayout.regions[0], closeTarget = closeLayout.regions[1]
+            try startDrag(source: closeSource, target: Point(closeTarget.bounds.x + closeTarget.bounds.width / 2,
+                closeTarget.bounds.y + closeTarget.bounds.height / 2), time: 5)
+            system.deadWindows = [closeTarget.window.windowID]
+            input.pressed = false; interactions.sample(); await settle()
+            try check(try matchingGeometry() && model.history.current.windows.count == 2 && model.message == nil,
+                "Closing a drop target mid-gesture recovers the remaining windows without repeated write failures")
+            system.deadWindows.removeAll(); await model.arrange(preserving: true)
             let beforeCancel = model.history.current, cancelLayout = try regions().1
             try startDrag(source: cancelLayout.regions[0], target: Point(cancelLayout.regions[1].bounds.x + 50, cancelLayout.regions[1].bounds.y + 50), time: 6)
             input.escape = true; interactions.sample(); await settle()
@@ -160,15 +239,29 @@ private final class FixturePreferences: PreferenceBackend {
             try check(interactions.helperFrames.allSatisfy { frame in releaseLayout.dividers.contains { $0.bounds == frame } }, "Grabbers finish at the accepted window boundaries")
             model.settings.animate = false; system.deferWrites = false; system.writeDelay = 0.04
             let borderLayout = try regions().1
-            if let borderSource = borderLayout.regions.first(where: { region in borderLayout.dividers.contains { $0.axis == .horizontal && $0.bounds.x == region.bounds.right } && region.bounds.width > region.window.minimum.width + 30 }) {
+            func trailingDivider(_ region: Region) -> Divider? {
+                borderLayout.dividers.first {
+                    $0.axis == .horizontal
+                        ? $0.bounds.x == region.bounds.right && region.bounds.width > region.window.minimum.width + 50
+                        : $0.bounds.y == region.bounds.bottom && region.bounds.height > region.window.minimum.height + 50
+                }
+            }
+            if let borderSource = borderLayout.regions.first(where: { trailingDivider($0) != nil }), let divider = trailingDivider(borderSource) {
                 let record = system.records.first { $0.0.id == borderSource.window.windowID }!.0
                 system.focused = record
-                input = DesktopInput(point: Point(borderSource.bounds.right, borderSource.bounds.y + 50), pressed: true, escape: false, time: 9)
+                let horizontal = divider.axis == .horizontal
+                let point = horizontal ? Point(borderSource.bounds.right, borderSource.bounds.y + 50)
+                    : Point(borderSource.bounds.x + 50, borderSource.bounds.bottom)
+                input = DesktopInput(point: point, pressed: true, escape: false, time: 9)
                 interactions.sample()
-                var requested = borderSource.bounds; requested.width -= 20
-                try system.write(record, frame: requested); interactions.sample(); input.pressed = false; interactions.sample(); await settle()
+                var requested = borderSource.bounds
+                if horizontal { requested.width -= 20 } else { requested.height -= 20 }
+                try system.write(record, frame: requested); interactions.sample()
+                if horizontal { requested.width -= 20 } else { requested.height -= 20 }
+                try system.write(record, frame: requested)
+                input.pressed = false; interactions.sample(); await settle()
                 let changed = try regions().1.regions.first { $0.window.windowID == record.id }!
-                try check(try changed.bounds.width == requested.width && matchingGeometry(), "Native inner-border resize updates adjacent regions")
+                try check(try changed.bounds.width == requested.width && changed.bounds.height == requested.height && matchingGeometry(), "Native inner-border resize includes the last native frame on mouse-up")
             } else { throw LayoutError.cannotFit }
             let beforeUndo = model.history.current
             await model.undo(); try check(try model.history.current != beforeUndo && matchingGeometry(), "Native undo restores the previous interaction")

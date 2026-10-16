@@ -1,11 +1,20 @@
 import AppKit
 import BentoCore
 
+private final class ExternalFixturePreferences: PreferenceBackend {
+    private var values: [PreferenceKey: Data] = [:]
+    func read(_ key: PreferenceKey) -> Data? { values[key] }
+    func write(_ key: PreferenceKey, value: Data?) { values[key] = value }
+    func refresh(_ keys: [PreferenceKey]) {}
+}
+
 @MainActor enum ExternalAXSmoke {
     static func run(pid: pid_t, output: URL) async throws {
         let system = MacWindowSystem(allowedPIDs: [pid])
         var settings = MacSettings(); settings.onboardingComplete = true
-        let model = WorkspaceController(system: system, settings: settings, backgroundMonitoring: false)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        let preferences = ActivationOverrides(backend: ExternalFixturePreferences(), journal: output.appendingPathComponent("fixture-preferences.json"))
+        let model = WorkspaceController(system: system, settings: settings, preferences: preferences, backgroundMonitoring: false)
         var passed: [String] = []
         func check(_ value: Bool, _ title: String) throws {
             guard value else { throw NSError(domain: "ExternalAX", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(title): \(model.message ?? "geometry mismatch")"]) }

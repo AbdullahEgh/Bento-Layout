@@ -14,6 +14,50 @@ final class InteractionAndUpdateTests: XCTestCase {
         _ = try session.propose(pointer: Point(-50, -50), areas: ["A": area], gap: 8, hold: 0, now: 1)
         XCTAssertNil(session.conflictBounds)
     }
+    func testSplitPreviewIsStableAcrossRepeatedSamplesInEveryDirection() throws {
+        let a = leaf(), b = leaf(), c = leaf()
+        let state = Workspace(roots: ["A": try AutoLayout.arrange([a, b, c], in: area)!])
+        let target = try LayoutEngine.calculate(state.roots["A"], in: area).regions[1].bounds
+        let points: [(Placement, Point)] = [(.left, Point(target.x + 2, target.y + target.height / 2)),
+            (.right, Point(target.right - 2, target.y + target.height / 2)),
+            (.top, Point(target.x + target.width / 2, target.y + 2)),
+            (.bottom, Point(target.x + target.width / 2, target.bottom - 2))]
+        for (placement, point) in points {
+            var session = DropSession(workspace: state, source: a)
+            let first = try XCTUnwrap(session.propose(pointer: point, areas: ["A": area], gap: 8, hold: 0, now: 0))
+            XCTAssertEqual(first.placement, placement)
+            for sample in 1...250 {
+                let next = try XCTUnwrap(session.propose(pointer: point, areas: ["A": area], gap: 8, hold: 0, now: Double(sample) / 45))
+                XCTAssertEqual(next, first, "A stationary split preview must keep its exact tree and slot identities")
+            }
+            XCTAssertEqual(session.geometryBuildCount, 1)
+            XCTAssertEqual(first.workspace.windows.count, 3)
+            XCTAssertEqual(session.original, state)
+        }
+    }
+    func testSplitCacheInvalidatesForWorkAreaAndGapAndMemoizesConflict() throws {
+        let a = leaf(), b = leaf()
+        let state = Workspace(roots: ["A": try AutoLayout.arrange([a, b], in: area)!])
+        let target = try LayoutEngine.calculate(state.roots["A"], in: area).regions[1].bounds
+        var session = DropSession(workspace: state, source: a)
+        let pointer = Point(target.x + 32, target.y + target.height / 2)
+        let before = try XCTUnwrap(session.propose(pointer: pointer, areas: ["A": area], gap: 8, hold: 0, now: 0))
+        let after = try XCTUnwrap(session.propose(pointer: pointer, areas: ["A": area], gap: 16, hold: 0, now: 1))
+        XCTAssertNotEqual(before.workspace, after.workspace)
+        XCTAssertEqual(session.geometryBuildCount, 2)
+        let resizedArea = Rect(area.x, area.y, area.width - 80, area.height - 40)
+        let resized = try XCTUnwrap(session.propose(pointer: pointer, areas: ["A": resizedArea], gap: 16, hold: 0, now: 2))
+        XCTAssertNotEqual(resized.bounds, after.bounds)
+        XCTAssertEqual(session.geometryBuildCount, 3)
+        let large = leaf(900, 100), small = leaf(200, 100), narrow = Rect(0, 0, 1000, 500)
+        let impossible = Workspace(roots: ["A": .split(id: UUID(), axis: .vertical, ratio: 0.5, first: .window(large), second: .window(small))])
+        var failed = DropSession(workspace: impossible, source: large)
+        for sample in 0..<250 {
+            XCTAssertNil(try failed.propose(pointer: Point(2, 400), areas: ["A": narrow], gap: 8, hold: 0, now: Double(sample)))
+            XCTAssertNotNil(failed.conflictBounds)
+        }
+        XCTAssertEqual(failed.geometryBuildCount, 1)
+    }
     func testMotionEndpointsAndMonotonicity() {
         let a = Rect(-200, 30, 800, 400), b = Rect(30, -200, 400, 800)
         XCTAssertEqual(WindowMotion.frame(from: a, to: b, progress: 0), a)

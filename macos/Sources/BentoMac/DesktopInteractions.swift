@@ -1,6 +1,12 @@
 import AppKit
 import ApplicationServices
 import BentoCore
+import OSLog
+
+@MainActor enum InteractionDiagnostics {
+    private static let logger = Logger(subsystem: "com.abdullahegh.bento", category: "Interaction")
+    static func record(_ event: String) { logger.notice("\(event, privacy: .public)") }
+}
 
 // Observe pointer state and the focused AX window; no event tap intercepts application
 // input. Only gap panels receive mouse events. External window content remains usable.
@@ -32,16 +38,26 @@ struct DesktopInput {
     private var pending: Workspace?
     private var liveTask: Task<Void, Never>?
     private var liveFailure = false
+    private var gestureAreas: [String: Rect]?
+    private var lastSamplePoint: Point?
+    private var escapeMonitor: Any?
+    private var escapeRequested = false
+    private var releasePending = false
+    private var hoverNeedsUpdate = true
     init(model: WorkspaceController, input: (() -> DesktopInput)? = nil, automaticSampling: Bool = true, trace: ((String) -> Void)? = nil) {
-        self.model = model; self.input = input ?? { DesktopInput.current() }; self.trace = trace
+        self.model = model; self.input = input ?? { DesktopInput.current() }; self.trace = trace ?? (automaticSampling ? { InteractionDiagnostics.record($0) } : nil)
         guard automaticSampling else { return }
         pulse = Timer(timeInterval: 1 / 45, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.sample() } }
         RunLoop.main.add(pulse!, forMode: .common)
+        escapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 53 else { return }
+            MainActor.assumeIsolated { self?.escapeRequested = true }
+        }
         spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
                 await self.finish(cancel: true); self.removeHelpers()
-                if self.model.active { await self.model.arrange(preserving: true) }; self.synchronize()
+                if self.model.active { await self.model.arrange(preserving: true, automatic: true) }; self.synchronize()
             }
         }
     }
@@ -50,9 +66,10 @@ struct DesktopInput {
         guard model.active, model.permission, !model.interacting else { if !model.interacting { removeHelpers() }; return }
         updateGrips(model.history.current)
     }
-    private func areas() -> [String: Rect] { Dictionary(uniqueKeysWithValues: DisplayArea.all(margin: model.settings.margin).map { ($0.id, $0.bounds) }) }
+    private func areas() -> [String: Rect] { if let gestureAreas { return gestureAreas }; return Dictionary(uniqueKeysWithValues: DisplayArea.all(margin: model.settings.margin).map { ($0.id, $0.bounds) }) }
     private func removeHelpers() { grips.values.forEach { $0.orderOut(nil) }; grips.removeAll(); preview.orderOut(nil); backdrop.hide() }
     private func updateGrips(_ workspace: Workspace) {
+        hoverNeedsUpdate = true
         backdrop.show(darkness: model.settings.backgroundDarkness)
         let displays = areas(); var retained = Set<UUID>()
         for (display, root) in workspace.roots {
@@ -72,66 +89,101 @@ struct DesktopInput {
                 if panel.frame != frame { panel.setFrame(frame, display: true) }
                 panel.gripView.animate = model.settings.animate
                 panel.gripView.duration = Double(model.settings.animationMS) / 1000
-                panel.gripView.lightInk = model.settings.backgroundDarkness >= 40 || NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                let lightInk = model.settings.backgroundDarkness >= 40 || NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                if panel.gripView.lightInk != lightInk { panel.gripView.lightInk = lightInk; panel.gripView.needsDisplay = true }
                 panel.gripView.dragging = grip?.divider.id == divider.id
-                panel.gripView.needsDisplay = true
                 if !panel.isVisible { panel.orderFrontRegardless() }
             }
         }
         for id in Array(grips.keys) where !retained.contains(id) { grips[id]?.orderOut(nil); grips.removeValue(forKey: id) }
     }
     func sample() {
-        let pressed = input().pressed
-        defer { wasPressed = pressed }
+        let state = input(), pressed = state.pressed
+        defer { wasPressed = pressed; lastSamplePoint = state.point }
         guard !finishing else { return }
         if waitForRelease { if !pressed { waitForRelease = false }; return }
         guard model.active, model.permission else {
             if snapshot != nil { Task { await finish(cancel: true) } } else { removeHelpers() }
             return
         }
-        if snapshot != nil && input().escape {
-            waitForRelease = true; Task { await finish(cancel: true) }; return
+        if snapshot != nil && (state.escape || escapeRequested) {
+            escapeRequested = false; waitForRelease = pressed
+            trace?("gesture cancelled: Escape")
+            Task { await finish(cancel: true) }; return
         }
-        // Poll desktop coordinates as well as AppKit tracking: panels can appear
-        // under a stationary pointer or miss enter events after a native reflow.
-        let pointer = input().point
+        guard !releasePending else { return }
+        if !pressed && !wasPressed && snapshot == nil && !hoverNeedsUpdate && lastSamplePoint == state.point { return }
+        hoverNeedsUpdate = false
         for panel in grips.values {
-            panel.gripView.hovering = panel.isVisible && DesktopCoordinates.engine(panel.frame).contains(pointer)
+            panel.gripView.hovering = panel.isVisible && DesktopCoordinates.engine(panel.frame).contains(state.point)
         }
         if grip != nil { return }
-        guard !model.busy else { return }
-        if pressed {
-            if !wasPressed { pressedWindow = nil; pressedFrame = nil; pressPoint = input().point; trace?("Pointer down: \(pressPoint)") }
-            if pressedWindow == nil, let window = model.system.focusedWindow(in: model.windows), model.history.current.windows.contains(where: { $0.windowID == window.id }) {
-                if !wasPressed { model.recordInteraction(window) }
-                pressedWindow = window; pressedFrame = model.system.frame(of: window.element)
+        guard !model.busy, !model.activating else { return }
+        if pressed && !wasPressed {
+            pressedWindow = nil; pressedFrame = nil; pressPoint = state.point; escapeRequested = false
+            gestureAreas = nil; gestureAreas = areas()
+            pressedWindow = model.system.window(at: pressPoint, in: model.windows)
+            if pressedWindow == nil {
+                for (display, root) in model.history.current.roots {
+                    guard let area = gestureAreas?[display], let region = try? LayoutEngine.calculate(root, in: area, gap: model.settings.gap).regions.first(where: { $0.bounds.contains(pressPoint) }) else { continue }
+                    pressedWindow = model.windows.first { $0.id == region.window.windowID }; break
+                }
             }
-            guard let window = pressedWindow, let before = pressedFrame, let current = model.system.frame(of: window.element) else { return }
-            if snapshot == nil {
-                let moved = abs(before.x - current.x) > 2 || abs(before.y - current.y) > 2
-                let resized = abs(before.width - current.width) > 2 || abs(before.height - current.height) > 2
-                guard moved || resized, let source = model.history.current.windows.first(where: { $0.windowID == window.id }) else { return }
+            if pressedWindow == nil, let focused = model.system.focusedWindow(in: model.windows),
+               model.system.frame(of: focused.element)?.contains(pressPoint) == true { pressedWindow = focused }
+            if let window = pressedWindow {
+                for (display, root) in model.history.current.roots {
+                    guard let area = gestureAreas?[display], let region = try? LayoutEngine.calculate(root, in: area, gap: model.settings.gap).regions.first(where: { $0.window.windowID == window.id }) else { continue }
+                    // A fast drag may already have moved before this first sample.
+                    pressedFrame = region.bounds; break
+                }
+                model.recordInteraction(window)
+                trace?("pointer down window=\(window.id) at=\(pressPoint)")
+            }
+        }
+        guard pressed || wasPressed else { return }
+        guard let window = pressedWindow, let before = pressedFrame else {
+            if !pressed { gestureAreas = nil }; return
+        }
+        // Hold progress needs time samples, not repeated AX position/size reads.
+        if pressed, snapshot != nil, lastSamplePoint == state.point {
+            if !nativeResize { updateDrop(state: state) }; return
+        }
+        guard let current = model.system.frame(of: window.element) else {
+            if !pressed, snapshot != nil { Task { await finish(cancel: true) } }
+            return
+        }
+        if snapshot == nil {
+            let moved = abs(before.x - current.x) > 2 || abs(before.y - current.y) > 2
+            let resized = abs(before.width - current.width) > 2 || abs(before.height - current.height) > 2
+            if moved || resized, let source = model.history.current.windows.first(where: { $0.windowID == window.id }) {
                 snapshot = model.history.current; session = DropSession(workspace: model.history.current, source: source)
                 let onBorder = abs(pressPoint.x - before.x) <= 6 || abs(pressPoint.x - before.right) <= 6 || abs(pressPoint.y - before.y) <= 6 || abs(pressPoint.y - before.bottom) <= 6
                 nativeResize = resized && (!moved || onBorder); model.interacting = true
-                trace?(nativeResize ? "Native resize detected" : "Native title-bar drag detected")
+                trace?(nativeResize ? "native resize started" : "native drag started")
                 grips.values.forEach { $0.orderOut(nil) }
             }
-            if nativeResize { updateNativeResize(window: window, frame: current) }
-            else { updateDrop() }
-        } else if wasPressed {
-            if snapshot != nil {
-                // Native Escape normally restores the source frame; don't turn an OS
-                // cancellation into a swap simply because the pointer remains over a slot.
-                let returned = pressedWindow.flatMap { model.system.frame(of: $0.element) } == pressedFrame
-                if !nativeResize { updateDrop() }
-                Task { await finish(cancel: returned) }
-            } else { pressedWindow = nil; pressedFrame = nil }
         }
+        if snapshot != nil {
+            if nativeResize { updateNativeResize(window: window, frame: current) }
+            else { updateDrop(state: state) }
+            if !pressed {
+                // Frame equality is not cancellation: native snapping can restore
+                // the source while a valid destination is still under the pointer.
+                releasePending = true
+                Task {
+                    // Let the other app finish its native mouse-up before Bento
+                    // writes the final bounds. Freeze the preview during this handoff.
+                    try? await Task.sleep(for: .milliseconds(35))
+                    await finish(cancel: false)
+                }
+            }
+        } else if !pressed { pressedWindow = nil; pressedFrame = nil; gestureAreas = nil }
     }
-    private func updateDrop() {
+    private func updateDrop(state: DesktopInput) {
         do {
-            if let proposal = try session?.propose(pointer: input().point, areas: areas(), gap: model.settings.gap, hold: model.settings.splitHold, now: input().time) {
+            if let proposal = try session?.propose(pointer: state.point, areas: areas(), gap: model.settings.gap, hold: model.settings.splitHold, now: state.time) {
+                if candidate != proposal.workspace { trace?("drop proposal=\(proposal.placement.rawValue) bounds=\(proposal.bounds)") }
                 candidate = proposal.workspace; preview.present(proposal)
             } else {
                 candidate = nil
@@ -148,9 +200,10 @@ struct DesktopInput {
         }
     }
     func beginGrip(display: String, id: UUID) -> Bool {
-        guard model.active, model.permission, !model.busy, !model.interacting, !finishing,
+        guard model.active, model.permission, !model.busy, !model.interacting, !finishing, !releasePending,
               let root = model.history.current.roots[display], let area = areas()[display],
               let divider = try? LayoutEngine.calculate(root, in: area, gap: model.settings.gap).dividers.first(where: { $0.id == id }) else { return false }
+        gestureAreas = areas()
         snapshot = model.history.current; candidate = snapshot; grip = (display, divider)
         gripStart = input().point
         model.interacting = true; liveFailure = false; preview.orderOut(nil)
@@ -187,15 +240,25 @@ struct DesktopInput {
         finishing = true
         if cancel { pending = nil; preview.orderOut(nil) }
         if let liveTask { await liveTask.value }
-        let next = cancel || liveFailure ? original : candidate ?? original
-        trace?("Gesture finish: cancel=\(cancel), candidate=\(candidate != nil)")
-        do { try await model.finishInteraction(next, commit: !cancel && !liveFailure && candidate != nil, animate: grip == nil || cancel || liveFailure) }
+        let disappeared = original.windows.filter { leaf in
+            guard let window = model.windows.first(where: { $0.id == leaf.windowID }) else { return true }
+            return !model.system.isAlive(window)
+        }
+        let recovery = disappeared.reduce(original) { $0.removing($1.windowID) }
+        let next = !disappeared.isEmpty || cancel || liveFailure ? recovery : candidate ?? recovery
+        if !disappeared.isEmpty { trace?("gesture target/source closed; recovering remaining windows count=\(disappeared.count)") }
+        let started = ProcessInfo.processInfo.systemUptime
+        trace?("gesture finishing cancel=\(cancel) candidate=\(candidate != nil)")
+        do { try await model.finishInteraction(next, commit: !disappeared.isEmpty || !cancel && !liveFailure && candidate != nil, animate: cancel || liveFailure) }
         catch {
+            trace?("gesture commit rejected; rolling back")
             let failure = error.localizedDescription
-            do { try await model.finishInteraction(original, commit: false); model.message = failure }
+            do { try await model.finishInteraction(recovery, commit: false); model.message = failure }
             catch { model.message = "\(failure) Restoring the committed layout also failed: \(error.localizedDescription)" }
         }
+        trace?("gesture settled elapsedMS=\(Int((ProcessInfo.processInfo.systemUptime - started) * 1000)) committed=\(model.history.current == next && next != original)")
         preview.orderOut(nil)
+        gestureAreas = nil; escapeRequested = false; releasePending = false
         snapshot = nil; candidate = nil; session = nil; grip = nil; pressedWindow = nil; pressedFrame = nil
         liveTask = nil; liveFailure = false; nativeResize = false; model.interacting = false; finishing = false
         model.onStateChange?()
@@ -207,8 +270,12 @@ struct DesktopInput {
 // desktop in one opaque overlay. Their geometry comes from the committed candidate.
 @MainActor final class DestinationPanel {
     private var panels: [PreviewSlotPanel] = []
-    func orderOut(_ sender: Any?) { panels.forEach { $0.orderOut(sender) } }
+    private var lastProposal: DropProposal?
+    private var lastConflict: Rect?
+    func orderOut(_ sender: Any?) { panels.forEach { $0.orderOut(sender) }; lastProposal = nil; lastConflict = nil }
     func presentConflict(_ bounds: Rect) {
+        guard lastConflict != bounds || panels.first?.isVisible != true else { return }
+        lastConflict = bounds; lastProposal = nil
         if panels.isEmpty { panels.append(PreviewSlotPanel()) }
         for panel in panels.dropFirst() { panel.orderOut(nil) }
         let panel = panels[0]
@@ -217,17 +284,22 @@ struct DesktopInput {
         panel.slotView.needsDisplay = true; panel.orderFrontRegardless()
     }
     func present(_ proposal: DropProposal) {
+        guard lastProposal != proposal || panels.first?.isVisible != true else { return }
+        lastProposal = proposal; lastConflict = nil
         let rectangles = [proposal.bounds] + proposal.neighbors
         while panels.count < rectangles.count { panels.append(PreviewSlotPanel()) }
         for (index, panel) in panels.enumerated() {
             guard index < rectangles.count else { panel.orderOut(nil); continue }
             let primary = index == 0
+            let progress = primary && proposal.waitingForSplit ? proposal.progress : nil
+            let changed = panel.slotView.primary != primary || panel.slotView.progress != progress || panel.slotView.conflict || panel.slotView.placement != proposal.placement
             panel.slotView.primary = primary
-            panel.slotView.progress = proposal.waitingForSplit ? proposal.progress : nil
+            panel.slotView.progress = progress
             panel.slotView.conflict = false
             panel.slotView.placement = proposal.placement
-            panel.setFrame(DesktopCoordinates.appKit(rectangles[index]), display: true)
-            panel.slotView.needsDisplay = true
+            let frame = DesktopCoordinates.appKit(rectangles[index])
+            if panel.frame != frame { panel.setFrame(frame, display: true) }
+            if changed { panel.slotView.needsDisplay = true }
             if !panel.isVisible { panel.orderFrontRegardless() }
         }
     }

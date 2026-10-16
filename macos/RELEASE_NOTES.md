@@ -1,9 +1,10 @@
-Bento for macOS 0.2.12
+Bento for macOS 0.2.13
 
 What’s new
 
-- Calmer layouts: calculate available space before moving windows.
-- Reuse the least recently used window’s slot when the desktop is full, keeping other windows in place where possible.
-- Stop repeated layout attempts: allow only one correction for an unknown app size, with no automatic rearrangement animation.
-- Improve Install and Relaunch: restore windows once, avoid waiting for ongoing arrangement retries, and show a retry action if restoration is blocked.
-- Show these release points directly in the update popup.
+- Keep valid window moves committed when macOS briefly returns the dragged window to its old position.
+- Improve fast drags and split drops when window focus changes late.
+- Pause background rearrangement while dragging and ignore brief window-discovery gaps.
+- Keep split previews stable and reuse their geometry, with fewer native frame reads and redraws.
+- Apply the final drop once after mouse-up, including the last native resize position.
+- Recover cleanly when a source or target closes during a gesture, and add local interaction tracing for QA.

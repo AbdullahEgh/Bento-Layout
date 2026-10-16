@@ -87,6 +87,9 @@ struct SavedWorkspace: Codable {
         let gap: Int
     }
     private var failedAutomaticInput: ArrangementInput?
+    private var pendingMembership: Set<UUID>?
+    private var membershipSamples = 0
+    private var reconciliationQueued = false
     private func arrangementInput(_ current: [ManagedWindow]) -> ArrangementInput {
         let ordered = current.sorted { $0.id.uuidString < $1.id.uuidString }
         return ArrangementInput(ids: ordered.map(\.id), minima: ordered.map(\.minimum),
@@ -101,10 +104,12 @@ struct SavedWorkspace: Codable {
     var onStateChange: (() -> Void)?
     var onSettingsChange: (() -> Void)?
     var cancelInteraction: (() async -> Void)?
+    private let trace: ((String) -> Void)?
     private let reduceMotion: () -> Bool
     private let desktopPreferences: ActivationOverrides
 
-    init(system: MacWindowSystem? = nil, settings: MacSettings? = nil, preferences: ActivationOverrides? = nil, backgroundMonitoring: Bool = true, reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) {
+    init(system: MacWindowSystem? = nil, settings: MacSettings? = nil, preferences: ActivationOverrides? = nil, backgroundMonitoring: Bool = true, trace: ((String) -> Void)? = nil, reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) {
+        self.trace = trace ?? (backgroundMonitoring ? { InteractionDiagnostics.record($0) } : nil)
         self.reduceMotion = reduceMotion
         self.system = system ?? MacWindowSystem()
         self.desktopPreferences = preferences ?? ActivationOverrides(backend: DesktopPreferenceBackend(), journal: MacSettings.directory.appendingPathComponent("desktop-preferences-session.json"))
@@ -116,16 +121,32 @@ struct SavedWorkspace: Codable {
         guard settings.shortcut.valid else { message = "Choose at least one modifier for the shortcut."; onSettingsChange?(); return }
         do { try settings.save(); onSettingsChange?() } catch { message = "Could not save settings: \(error.localizedDescription)" }
     }
-    private func tick() {
+    func tick() {
         refreshPermissionStatus()
-        guard permission, !busy, !interacting, !activating else { return }
+        guard permission, !busy, !interacting, !activating, !reconciliationQueued, !system.pointerPressed else { return }
         if active {
             do {
                 let current = try discoverWindows()
                 let displaysChanged = DisplayArea.all(margin: settings.margin) != lastDisplays
+                let currentIDs = Set(current.map(\.id))
+                let missing = windows.filter { !currentIDs.contains($0.id) && system.isAlive($0) }
+                if !displaysChanged && !missing.isEmpty {
+                    // AX and WindowServer can briefly disagree while a native app
+                    // moves. Require a second observation before removing live leaves.
+                    if pendingMembership == currentIDs { membershipSamples += 1 }
+                    else { pendingMembership = currentIDs; membershipSamples = 1 }
+                    guard membershipSamples >= 2 else { trace?("membership change awaiting confirmation"); return }
+                } else { pendingMembership = nil; membershipSamples = 0 }
                 if !reopenedWindows.isEmpty || displaysChanged || Set(current.map(\.id)) != Set(windows.map(\.id)) {
                     guard !reopenedWindows.isEmpty || failedAutomaticInput != arrangementInput(current) else { return }
-                    windows = current; Task { await arrange(preserving: !displaysChanged) }
+                    reconciliationQueued = true
+                    Task {
+                        defer { self.reconciliationQueued = false }
+                        // Recheck at execution: the user may have started a drag
+                        // after discovery queued this reconciliation.
+                        guard !self.system.pointerPressed, !self.interacting else { return }
+                        await self.arrange(preserving: !displaysChanged, automatic: true)
+                    }
                 }
             } catch { message = error.localizedDescription }
         }
@@ -197,11 +218,14 @@ struct SavedWorkspace: Codable {
         let tiled = Set(history.current.windows.map(\.windowID))
         return windows.filter { !tiled.contains($0.id) }
     }
-    func arrange(preserving: Bool = false, resuming: Bool = false) async {
+    func arrange(preserving: Bool = false, resuming: Bool = false, automatic: Bool = false) async {
         guard !busy, !interacting, !activating else { return }
+        if automatic && system.pointerPressed { return }
         activating = true; defer { activating = false }
+        let previousWindows = windows
         let generation = activationGeneration
         let wasActive = active
+        trace?("arrangement start preserving=\(preserving) active=\(wasActive)")
         do {
             if !preserving { released.removeAll() }
             let current = try discoverWindows(); windows = current
@@ -231,6 +255,10 @@ struct SavedWorkspace: Codable {
                     }.map { $0.element.id }
                     next.roots[area.id] = try AutoLayout.fitting(members.map(\.leaf), in: area.bounds, gap: settings.gap, preserving: previous.roots[area.id], prioritizing: reopenedWindows, leastRecentlyUsed: oldestFirst)
                 }
+                if automatic && system.pointerPressed {
+                    windows = previousWindows; trace?("automatic arrangement deferred: pointer pressed during discovery")
+                    return
+                }
                 do { try await apply(next, displays: displays, allowSkipping: true, animate: attempt == 0 && !wasActive) }
                 catch ArrangementFailure.window(let id) where attempt < attemptLimit {
                     excluded.insert(id); continue
@@ -245,6 +273,7 @@ struct SavedWorkspace: Codable {
                 let currentIDs = Set(current.map(\.id))
                 originals = originals.filter { included.contains($0.key) || !currentIDs.contains($0.key) || settings.minimizeOverflow }
                 minimizeOverflow(included: included, current: current)
+                trace?("arrangement committed attempt=\(attempt + 1) tiled=\(included.count) overflow=\(current.count - included.count)")
                 reopenedWindows.removeAll(); failedAutomaticInput = nil
                 lastDisplays = displays; history.commit(next); active = !included.isEmpty || !minimizedByBento.isEmpty
                 if !active { try desktopPreferences.restore() }
@@ -252,6 +281,7 @@ struct SavedWorkspace: Codable {
                 onStateChange?(); return
             }
         } catch {
+            trace?("arrangement stopped error=\(String(reflecting: type(of: error)))")
             failedAutomaticInput = arrangementInput(windows)
             reopenedWindows.removeAll()
             message = error.localizedDescription
@@ -277,7 +307,7 @@ struct SavedWorkspace: Codable {
         // than leaving native geometry behind after its leaf disappears.
         let included = Set(workspace.windows.map(\.windowID))
         for leaf in history.current.windows where !included.contains(leaf.windowID) {
-            if !(allowSkipping && settings.minimizeOverflow), let original = originals[leaf.windowID], windows.contains(where: { $0.id == leaf.windowID }) { plan.append(original) }
+            if !(allowSkipping && settings.minimizeOverflow), let original = originals[leaf.windowID], system.isAlive(original.0), windows.contains(where: { $0.id == leaf.windowID }) { plan.append(original) }
         }
         for (window, _) in plan where minimizedByBento[window.id] != nil {
             try system.setMinimized(window, false)
@@ -502,6 +532,6 @@ struct SavedWorkspace: Codable {
     func recoverDesktopPreferences() { do { try desktopPreferences.restore() } catch { message = error.localizedDescription } }
     func finishInteraction(_ workspace: Workspace, commit: Bool, animate: Bool = true) async throws {
         try await apply(workspace, displays: DisplayArea.all(margin: settings.margin), animate: animate)
-        if commit { history.commit(workspace) }
+        if commit { history.commit(workspace); trace?("interaction history committed windows=\(workspace.windows.count)") }
     }
 }
