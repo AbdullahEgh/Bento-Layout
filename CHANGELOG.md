@@ -1,5 +1,9 @@
 # Bento releases
 
+## macOS 0.2.3 — October 2026
+
+- Also skip windows that refuse native resize requests, after verifying rollback. An unresponsive or incompatible window does not block fitting windows.
+
 ## macOS 0.2.2 — October 2026
 
 - Arrange fitting windows instead of rejecting the whole desktop when one window is too large. Preserve usable edited layouts and leave overflow windows floating.

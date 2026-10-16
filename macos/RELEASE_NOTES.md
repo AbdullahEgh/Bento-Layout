@@ -1,4 +1,4 @@
-Bento for macOS 0.2.2 arranges the windows that fit and leaves the others alone.
+Bento for macOS 0.2.3 arranges the windows that fit and leaves the others alone.
 
 - An oversized window no longer blocks the entire layout. Smaller windows receive usable slots; skipped windows keep their original positions.
 - Native minimum-size restrictions trigger a bounded retry with a fitting subset. Windows that refuse resizing are also left alone after rollback is verified.
