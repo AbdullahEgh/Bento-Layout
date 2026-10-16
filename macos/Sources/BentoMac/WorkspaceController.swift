@@ -47,6 +47,7 @@ struct SavedWorkspace: Codable {
 }
 
 @MainActor final class WorkspaceController: ObservableObject {
+    private enum ArrangementFailure: Error { case window(UUID) }
     let system: MacWindowSystem
     @Published var settings = MacSettings.load()
     @Published var permission = false
@@ -153,7 +154,10 @@ struct SavedWorkspace: Codable {
                     next.roots[area.id] = try AutoLayout.fitting(members.map(\.leaf), in: area.bounds, gap: settings.gap, preserving: previous.roots[area.id])
                 }
                 let before = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0.minimum) })
-                do { try await apply(next, displays: displays) }
+                do { try await apply(next, displays: displays, allowSkipping: true) }
+                catch ArrangementFailure.window(let id) where attempt < attemptLimit {
+                    excluded.insert(id); continue
+                }
                 catch WindowFailure.minimumSize where attempt < attemptLimit {
                     // Bound retries even for an app whose constraints keep changing.
                     if attempt == attemptLimit - 1 {
@@ -177,8 +181,13 @@ struct SavedWorkspace: Codable {
             if !wasActive { do { try desktopPreferences.restore() } catch { message = "\(message ?? "") \(error.localizedDescription)" } }
         }
     }
-    func apply(_ workspace: Workspace, displays: [DisplayArea]) async throws {
+    func apply(_ workspace: Workspace, displays: [DisplayArea], allowSkipping: Bool = false) async throws {
         guard !busy else { throw LayoutError.invalidInput }; busy = true; defer { busy = false }
+        func write(_ window: ManagedWindow, frame: Rect) throws {
+            do { try system.write(window, frame: frame) }
+            catch WindowFailure.rejected where allowSkipping { throw ArrangementFailure.window(window.id) }
+            catch WindowFailure.unavailable where allowSkipping { throw ArrangementFailure.window(window.id) }
+        }
         var plan: [(ManagedWindow, Rect)] = []
         for (displayID, root) in workspace.roots {
             guard let display = displays.first(where: { $0.id == displayID }) else { throw LayoutError.invalidInput }
@@ -209,12 +218,12 @@ struct SavedWorkspace: Codable {
                     for (index, entry) in plan.enumerated() {
                         let start = rollback[index].1, end = entry.1
                         func blend(_ a: Int, _ b: Int) -> Int { Int((Double(a) + Double(b - a) * eased).rounded()) }
-                        try system.write(entry.0, frame: Rect(blend(start.x, end.x), blend(start.y, end.y), blend(start.width, end.width), blend(start.height, end.height)))
+                        try write(entry.0, frame: Rect(blend(start.x, end.x), blend(start.y, end.y), blend(start.width, end.width), blend(start.height, end.height)))
                     }
                     try await Task.sleep(for: .milliseconds(settings.animationMS / steps))
                 }
             }
-            for (window, rect) in plan { try system.write(window, frame: rect) }
+            for (window, rect) in plan { try write(window, frame: rect) }
             try await Task.sleep(for: .milliseconds(100))
             let rejected = plan.filter { !system.accepted($0.0, $0.1) }
             if CommandLine.arguments.contains("--fixture-pid") {
@@ -230,10 +239,17 @@ struct SavedWorkspace: Codable {
                 }
             }
             if !constrained.isEmpty { throw WindowFailure.minimumSize(constrained.sorted().joined(separator: ", ")) }
-            if let first = rejected.first { throw WindowFailure.rejected(first.0.title) }
+            if let first = rejected.first {
+                if allowSkipping { throw ArrangementFailure.window(first.0.id) }
+                throw WindowFailure.rejected(first.0.title)
+            }
         } catch {
             var failed = 0
-            for (window, frame) in rollback { do { try system.write(window, frame: frame) } catch { failed += 1 } }
+            for (window, frame) in rollback where system.isAlive(window) && !system.accepted(window, frame) {
+                do { try system.write(window, frame: frame) } catch { failed += 1 }
+            }
+            try? await Task.sleep(for: .milliseconds(100))
+            if failed == 0 { failed = rollback.filter { system.isAlive($0.0) && !system.accepted($0.0, $0.1) }.count }
             if failed > 0 { throw NSError(domain: "Bento", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(error.localizedDescription) \(failed) window(s) could not be restored."]) }
             throw error
         }

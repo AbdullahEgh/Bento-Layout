@@ -8,6 +8,7 @@ import BentoCore
     var records: [(ManagedWindow, NSWindow)] = []
     var focused: ManagedWindow?
     var rejectOnce: UUID?
+    var rejectAlways: UUID?
     var accessibilityGranted = true
     var nativeMinimum: [UUID: Size] = [:]
     var writes: [UUID: Int] = [:]
@@ -23,6 +24,7 @@ import BentoCore
     override func isAlive(_ window: ManagedWindow) -> Bool { records.contains { $0.0.id == window.id } }
     override func write(_ window: ManagedWindow, frame: Rect) throws {
         writes[window.id, default: 0] += 1
+        if rejectAlways == window.id { throw WindowFailure.rejected(window.title) }
         if rejectOnce == window.id { rejectOnce = nil; throw WindowFailure.rejected(window.title) }
         guard let actual = records.first(where: { $0.0.id == window.id })?.1 else { throw WindowFailure.unavailable(window.title) }
         var accepted = frame
@@ -178,6 +180,11 @@ private final class FixturePreferences: PreferenceBackend {
             await model.arrange()
             try check(try model.history.current.windows.count == 3 && matchingGeometry(), "Previously skipped window can rejoin when it fits")
             await model.restore()
+            system.rejectAlways = oversized.id
+            await model.arrange()
+            try check(try model.active && model.history.current.windows.count == 2 && matchingGeometry() && system.accepted(oversized, initial[0]), "A window that refuses a resize is restored and skipped while other windows arrange")
+            await model.restore()
+            system.rejectAlways = nil
             for (record, _) in system.records { record.minimum = Size(area.width + 100, 120) }
             system.writes.removeAll()
             await model.arrange()
