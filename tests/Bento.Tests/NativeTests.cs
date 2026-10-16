@@ -488,6 +488,21 @@ internal static class NativeTests
             });
             Run("Restore all empties layout", () =>
             { controller.RestoreAll(); Pump(); Equal(0, controller.Layout(monitor).Regions.Count); });
+            Run("Overflow minimizes and taskbar restore reinserts a window", () =>
+            {
+                bool oversized = true;
+                using var overflow = new BentoController(() => WindowCatalog.Discover(includeMinimized: false)
+                    .Where(w => fixtures.Any(f => f.Id == w.Id)).Select(w => oversized && w.Id == fixtures[0].Id
+                        ? w with { Minimum = new PixelSize(monitor.WorkArea.Width + 100, 120) } : w).ToArray(),
+                    new BentoSettings(Animate: false, ShortcutEnabled: false));
+                overflow.AutoArrangeAll(); Pump();
+                Equal(2, overflow.ManagedCount); Check(WindowCatalog.IsMinimized(fixtures[0].Id)); Equal(1, overflow.MinimizedCount);
+                oversized = false; native.Restore(originals[0]); overflow.Refresh(); Pump();
+                Equal(3, overflow.ManagedCount); Equal(0, overflow.MinimizedCount); VerifyBounds(overflow.Layout(monitor), native);
+                overflow.RestoreAll(); Pump(); Check(!WindowCatalog.IsMinimized(fixtures[0].Id));
+                native.Minimize(fixtures[0].Id); overflow.AutoArrangeAll(); overflow.RestoreAll(); Pump();
+                Check(WindowCatalog.IsMinimized(fixtures[0].Id)); native.Restore(originals[0]);
+            });
             foreach (var original in originals) native.Restore(original);
         }
         catch (Exception ex) { Run("Native integration setup", () => throw new Exception("An interactive Windows desktop is required.", ex)); }

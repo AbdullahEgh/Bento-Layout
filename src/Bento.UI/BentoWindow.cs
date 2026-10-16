@@ -138,7 +138,7 @@ public sealed class BentoWindow : Window
     private void RefreshWorkspaceStatus()
     {
         status.Text = controller.Automatic ? "Bento is active" : "Bento is paused";
-        count.Text = $"{controller.ManagedCount} windows arranged";
+        count.Text = $"{controller.ManagedCount} arranged · {controller.MinimizedCount} minimized";
         string caption = controller.Automatic ? "Pause" : "Resume";
         if (pause is not null && AutomationProperties.GetName(pause) != caption)
         {
@@ -151,7 +151,7 @@ public sealed class BentoWindow : Window
         status = new(); count = new();
         Heading("Your workspace", "A little structure. More room to focus.");
         var hero = Card(); status.Text = controller.Automatic ? "Bento is active" : "Bento is paused"; status.FontSize = 18; status.FontWeight = FontWeights.SemiBold;
-        count.Text = $"{controller.ManagedCount} windows arranged"; count.SetResourceReference(TextBlock.ForegroundProperty, "Secondary"); count.Margin = new Thickness(0, 4, 0, 16);
+        count.Text = $"{controller.ManagedCount} arranged · {controller.MinimizedCount} minimized"; count.SetResourceReference(TextBlock.ForegroundProperty, "Secondary"); count.Margin = new Thickness(0, 4, 0, 16);
         var intro = new StackPanel { Margin = new Thickness(2, 16, 2, 15) }; intro.Children.Add(status); intro.Children.Add(count);
         var actions = new StackPanel { Orientation = Orientation.Horizontal };
         var arrange = new Button { Content = Symbols.Caption("Arrange windows", "Workspace"), Style = (Style)FindResource("Primary"), Margin = new Thickness(0, 0, 8, 0) };

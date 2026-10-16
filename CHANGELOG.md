@@ -1,5 +1,13 @@
 # Bento releases
 
+## Windows 0.3.7 / macOS 0.2.7 — October 2026
+
+- Hide idle grips; show on hover or grab, below application windows and above the backdrop.
+- Animate activation and restoration with reduced-motion support.
+- Minimize overflow windows, prioritize windows reopened from Dock/taskbar, and restore only Bento-owned minimizations on deactivation.
+- Use text-free swap, split, hold-progress and conflict cues at the candidate’s final geometry.
+- Save settings and layouts automatically; remove manual Save buttons.
+
 ## macOS 0.2.6 — October 2026
 
 - Publish a maintenance update with the same permanent identity as 0.2.5. Live Sparkle upgrade retained Accessibility approval without reapproval, and the updated app arranged real windows. Window behavior is unchanged.

@@ -1,9 +1,8 @@
-Bento for macOS 0.2.6 is a maintenance release for verifying OTA permission continuity.
+Bento for macOS 0.2.7 makes desktop interactions quieter and smoother.
 
-- Uses the same permanent app-signing certificate and designated requirement as 0.2.5.
-- Keeps the existing window arrangement, split, resize and restoration behavior.
-- Continues to verify GitHub update downloads with the existing Ed25519 update key.
-
-Verified on a real 0.2.5 → 0.2.6 Sparkle update: Accessibility stayed connected without reapproval, and the updated app arranged five windows while leaving one alone. The version and installed code hash changed while the permanent identity stayed identical. Detailed evidence is recorded in macos/VALIDATION.md.
-
-Users upgrading from 0.2.4 or earlier still need the one-time migration to the permanent identity. This free signing identity is not Apple Developer ID signing or notarization.
+- Grips appear only on hover or while grabbed, below application windows and above the dark backdrop.
+- Activation, restoration and layout changes animate together, respecting Reduce Motion. Live grip movement remains direct.
+- Windows that do not fit minimize to the Dock. Reopening one prioritizes it in the split layout; turning Bento off restores only windows Bento minimized.
+- Slot previews use swap, split, hold-progress and conflict symbols, without text, and show final layout geometry.
+- Settings and layouts save automatically, with no Save button.
+- Keeps the permanent signing identity used by 0.2.5 and 0.2.6.

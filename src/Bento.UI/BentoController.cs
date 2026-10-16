@@ -30,6 +30,8 @@ public sealed class BentoController : IDisposable
     private WorkspaceState? lastBento;
     private bool disposed;
     private string? failedMembership;
+    private long? rejectedWindow;
+    private sealed class PlacementFailure(long id, Exception cause) : Exception(cause.Message, cause) { public long WindowId => id; }
     private readonly Dictionary<long, WindowSnapshot> originals = new();
     private readonly List<DesktopDividerWindow> dividers = new();
     private DropPreviewWindow? dropPreview;
@@ -188,14 +190,14 @@ public sealed class BentoController : IDisposable
         Synchronize(rebuild: true);
         trayInterface.Refresh();
     }
-    private void Synchronize(bool rebuild = false)
+    private void Synchronize(bool rebuild = false, HashSet<long>? excluded = null)
     {
         string membership = string.Join(";", Windows.Where(w => !released.Contains(w.Id)).OrderBy(w => w.Id)
             .Select(w => $"{w.Id}:{w.ProcessId}:{w.MonitorId}:{w.Minimum}")) + string.Join(";", monitors);
         if (!rebuild && reopened.Count == 0 && failedMembership == membership) return;
         try
         {
-            var eligible = Windows.Where(w => !released.Contains(w.Id)).ToArray();
+            var eligible = Windows.Where(w => !released.Contains(w.Id) && !(excluded?.Contains(w.Id) ?? false)).ToArray();
             var ids = eligible.Select(w => w.Id).ToHashSet();
             var state = history.Current;
             bool changed = rebuild;
@@ -212,11 +214,17 @@ public sealed class BentoController : IDisposable
                 if (!Equals(root, existing)) changed = true;
                 state = state.WithRoot(monitor.Id, root);
             }
-            if (changed && !Commit(state)) { failedMembership = membership; return; }
+            if (changed && !Commit(state))
+            {
+                excluded ??= new();
+                if (rejectedWindow is long failed && excluded.Add(failed) && excluded.Count <= Windows.Count)
+                { Synchronize(rebuild, excluded); return; }
+                failedMembership = membership; return;
+            }
             var included = state.Windows.Select(w => w.WindowId).ToHashSet();
             foreach (long id in included) minimizedByBento.Remove(id);
             if (Settings.MinimizeOverflow)
-                foreach (var window in eligible.Where(w => !included.Contains(w.Id) && !minimizedByBento.ContainsKey(w.Id)))
+                foreach (var window in Windows.Where(w => !released.Contains(w.Id) && !included.Contains(w.Id) && !minimizedByBento.ContainsKey(w.Id)))
                 {
                     if (WindowCatalog.IsMinimized(window.Id)) continue;
                     try
@@ -463,6 +471,7 @@ public sealed class BentoController : IDisposable
     private void Validate(WorkspaceState state) { foreach (var monitor in monitors) Layout(monitor, state); }
     private bool Commit(WorkspaceState state, bool restoreRemoved = true, bool animate = true)
     {
+        rejectedWindow = null;
         try
         {
             Validate(state); Apply(history.Current, state, restoreRemoved, animate); history.Commit(state); failedMembership = null;
@@ -470,7 +479,7 @@ public sealed class BentoController : IDisposable
             Status = "Windows arranged on the desktop.";
             RefreshDesktopDividers(); return true;
         }
-        catch (Exception ex) { Report(ex.Message); return false; }
+        catch (Exception ex) { rejectedWindow = (ex as PlacementFailure)?.WindowId; if (rejectedWindow is null) Report(ex.Message); return false; }
     }
     private void Apply(WorkspaceState previous, WorkspaceState next, bool restoreRemoved = true, bool animate = true)
     {
@@ -482,7 +491,7 @@ public sealed class BentoController : IDisposable
         try
         {
             foreach (var id in next.Windows.Select(w => w.WindowId))
-                if (!originals.ContainsKey(id)) originals[id] = native.Capture(id);
+                if (!originals.ContainsKey(id)) originals[id] = minimizedByBento.TryGetValue(id, out var minimized) ? minimized.Snapshot : native.Capture(id);
             var nextIds = next.Windows.Select(w => w.WindowId).ToHashSet();
             var removed = previous.Windows.Where(w => restoreRemoved && !nextIds.Contains(w.WindowId))
                 .Where(w => originals.ContainsKey(w.WindowId)).Select(w => originals[w.WindowId]).ToArray();
@@ -501,7 +510,10 @@ public sealed class BentoController : IDisposable
             foreach (var original in removed) native.Restore(original);
             foreach (var region in regions)
                 if (WindowCatalog.IsMinimized(region.Window.WindowId) || native.VisibleBounds(region.Window.WindowId) != region.Bounds)
-                    native.Move(region.Window.WindowId, region.Bounds);
+                {
+                    try { native.Move(region.Window.WindowId, region.Bounds); }
+                    catch (Exception ex) { throw new PlacementFailure(region.Window.WindowId, ex); }
+                }
             transition?.Play();
 
         }
