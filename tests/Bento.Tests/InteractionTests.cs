@@ -14,6 +14,20 @@ internal static class InteractionTests
     public static void RunAll()
     {
         var bounds = new PixelRect(0, 0, 1000, 800); var id = Guid.NewGuid();
+        Run("Background darkness is bounded and old settings default to fifty percent", () =>
+        {
+            Equal(50, BentoSettings.Parse("{\"Gap\":12}").BackgroundDarkness);
+            Check(!new BentoSettings(BackgroundDarkness: -1).IsValid); Check(!new BentoSettings(BackgroundDarkness: 101).IsValid);
+            Check(new BentoSettings(BackgroundDarkness: 0).IsValid); Check(new BentoSettings(BackgroundDarkness: 100).IsValid);
+            Equal(65, BentoSettings.Parse(JsonSerializer.Serialize(new BentoSettings(BackgroundDarkness: 65))).BackgroundDarkness);
+        });
+        Run("Grabber contrast accounts for darkness behind the layout", () =>
+        {
+            Check(WallpaperContrast.UseBlack(255, 255, 255, 0));
+            Check(WallpaperContrast.UseBlack(255, 255, 255, 50));
+            Check(!WallpaperContrast.UseBlack(255, 255, 255, 100));
+            Check(!WallpaperContrast.UseBlack(120, 120, 120, 50));
+        });
         Run("Longer split delay migrates the old default and preserves custom choices", () =>
         {
             Equal(900, new BentoSettings().SplitHoldMs);

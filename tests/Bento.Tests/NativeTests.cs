@@ -237,7 +237,7 @@ internal static class NativeTests
                     Equal(0d, grip.Opacity); Check(Math.Max(grip.Width, grip.Height) >= 40);
                 }
                 handles[0].RaiseEvent(new System.Windows.Input.MouseEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0) { RoutedEvent = UIElement.MouseEnterEvent });
-                for (int i = 0; i < handles.Length; i++) Equal(i == 0 ? 1d : 0d, ((Border)((Grid)handles[i].Content).Children[0]).Opacity);
+                for (int i = 0; i < handles.Length; i++) Equal(i == 0 ? .65 : 0d, ((Border)((Grid)handles[i].Content).Children[0]).Opacity);
                 handles[0].RaiseEvent(new System.Windows.Input.MouseEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0) { RoutedEvent = UIElement.MouseLeaveEvent });
                 controller.ShowInterface(); Pump();
                 Check(Application.Current.Windows.OfType<BentoWindow>().Single().IsActive);
@@ -302,6 +302,34 @@ internal static class NativeTests
                 controller.BeginDivider(monitor, divider);
                 controller.FinishDrag(new(divider.ParentBounds.X + (int)(divider.ParentBounds.Width * .6), divider.ParentBounds.Y + 200)); Pump();
                 VerifyBounds(controller.Layout(monitor), native);
+            });
+            Run("Divider drag uses only a longer solid grabber and cancels without moving applications", () =>
+            {
+                var before = fixtures.Select(w => native.VisibleBounds(w.Id)).ToArray();
+                var boundary = controller.Layout(monitor).Dividers.First();
+                controller.BeginDivider(monitor, boundary);
+                var point = new PixelPoint(boundary.ParentBounds.X + boundary.ParentBounds.Width / 2, boundary.ParentBounds.Y + boundary.ParentBounds.Height / 2);
+                controller.PreviewDrag(point);
+                Check(!Application.Current!.Windows.OfType<DropPreviewWindow>().Any(w => w.IsVisible));
+                var active = Application.Current.Windows.OfType<DesktopDividerWindow>().Single(w => w.IsVisible);
+                var grip = (Border)((Grid)active.Content).Children[0];
+                Equal(72d, Math.Max(grip.Width, grip.Height)); Equal(1d, grip.Opacity);
+                Equal(controller.Layout(monitor).Dividers.Single(d => d.SplitId == boundary.SplitId).Bounds, native.VisibleBounds(new System.Windows.Interop.WindowInteropHelper(active).Handle.ToInt64()));
+                for (int i = 0; i < fixtures.Length; i++) Equal(before[i], native.VisibleBounds(fixtures[i].Id));
+                controller.CancelDrag(); Equal(40d, Math.Max(grip.Width, grip.Height));
+                Equal(boundary.Bounds, native.VisibleBounds(new System.Windows.Interop.WindowInteropHelper(active).Handle.ToInt64()));
+            });
+            Run("Desktop background dims the usable area and supports clear, half and full darkness", () =>
+            {
+                var backdrop = Application.Current!.Windows.OfType<DesktopBackdropWindow>().Single(w => w.IsVisible);
+                var shade = (Border)backdrop.Content;
+                Equal(.5d, shade.Opacity); Check(!backdrop.IsHitTestVisible); Check(!backdrop.ShowActivated);
+                var handle = new System.Windows.Interop.WindowInteropHelper(backdrop).Handle;
+                Equal(monitor.WorkArea, native.VisibleBounds(handle.ToInt64()));
+                var applications = fixtures.Select(w => w.Id).ToArray();
+                backdrop.Present(monitor, 0, applications); Check(!backdrop.IsVisible);
+                backdrop.Present(monitor, 100, applications); Check(backdrop.IsVisible); Equal(1d, shade.Opacity);
+                backdrop.Present(monitor, 50, applications); Equal(.5d, shade.Opacity);
             });
             Run("Resizing a real window edge resizes its neighboring regions", () =>
             {
