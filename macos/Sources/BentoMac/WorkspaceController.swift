@@ -5,12 +5,26 @@ import BentoCore
 struct MacSettings: Codable {
     var gap = 8; var margin = 8; var splitHold = 900; var theme = "System"
     var onboardingComplete = false
+    var hideDock = false; var hideMenuBar = false; var edgeSnapping = "Keep"
+    init() {}
+    enum CodingKeys: String, CodingKey { case gap, margin, splitHold, theme, onboardingComplete, hideDock, hideMenuBar, edgeSnapping }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        gap = try values.decodeIfPresent(Int.self, forKey: .gap) ?? 8
+        margin = try values.decodeIfPresent(Int.self, forKey: .margin) ?? 8
+        splitHold = try values.decodeIfPresent(Int.self, forKey: .splitHold) ?? 900
+        theme = try values.decodeIfPresent(String.self, forKey: .theme) ?? "System"
+        onboardingComplete = try values.decodeIfPresent(Bool.self, forKey: .onboardingComplete) ?? false
+        hideDock = try values.decodeIfPresent(Bool.self, forKey: .hideDock) ?? false
+        hideMenuBar = try values.decodeIfPresent(Bool.self, forKey: .hideMenuBar) ?? false
+        edgeSnapping = try values.decodeIfPresent(String.self, forKey: .edgeSnapping) ?? "Keep"
+    }
     static var directory: URL { FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Bento", isDirectory: true) }
     static var url: URL { directory.appendingPathComponent("settings-macos.json") }
     static func load() -> MacSettings {
         guard let data = try? Data(contentsOf: url), let settings = try? JSONDecoder().decode(MacSettings.self, from: data),
               (4...32).contains(settings.gap), (0...64).contains(settings.margin), (0...2000).contains(settings.splitHold),
-              ["System", "Light", "Dark"].contains(settings.theme) else { return MacSettings() }
+              ["System", "Light", "Dark"].contains(settings.theme), ["Keep", "On", "Off"].contains(settings.edgeSnapping) else { return MacSettings() }
         return settings
     }
     func save() throws {
@@ -25,11 +39,13 @@ struct SavedWorkspace: Codable {
 }
 
 @MainActor final class WorkspaceController: ObservableObject {
-    let system = MacWindowSystem()
+    let system: MacWindowSystem
     @Published var settings = MacSettings.load()
     @Published var permission = false
     @Published var active = false
     @Published var busy = false
+    @Published var interacting = false
+    @Published var activating = false
     @Published var windows: [ManagedWindow] = []
     @Published var message: String?
     @Published var page = "Workspace"
@@ -37,17 +53,23 @@ struct SavedWorkspace: Codable {
     private var originals: [UUID: (ManagedWindow, Rect)] = [:]
     private var timer: Timer?
     private var lastDisplays: [DisplayArea] = []
+    private var activationGeneration = 0
     var onStateChange: (() -> Void)?
+    var cancelInteraction: (() async -> Void)?
+    private let desktopPreferences: ActivationOverrides
 
-    init() {
-        permission = system.trusted
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in Task { @MainActor in self?.tick() } }
+    init(system: MacWindowSystem? = nil, settings: MacSettings? = nil, preferences: ActivationOverrides? = nil, backgroundMonitoring: Bool = true) {
+        self.system = system ?? MacWindowSystem()
+        self.desktopPreferences = preferences ?? ActivationOverrides(backend: DesktopPreferenceBackend(), journal: MacSettings.directory.appendingPathComponent("desktop-preferences-session.json"))
+        if let settings { self.settings = settings }
+        permission = self.system.trusted
+        if backgroundMonitoring { timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in Task { @MainActor in self?.tick() } } }
     }
     func saveSettings() { do { try settings.save() } catch { message = "Could not save settings: \(error.localizedDescription)" } }
     private func tick() {
         permission = system.trusted
-        if active && !permission { active = false; message = "Bento paused because Accessibility access was removed. Enable access, then arrange again."; onStateChange?() }
-        guard permission, !busy else { return }
+        if active && !permission { active = false; recoverDesktopPreferences(); message = "Bento paused because Accessibility access was removed. Enable access, then arrange again."; onStateChange?() }
+        guard permission, !busy, !interacting else { return }
         if active {
             do {
                 let current = try system.discover()
@@ -70,13 +92,21 @@ struct SavedWorkspace: Codable {
         }
     }
     func arrange(preserving: Bool = false) async {
-        guard !busy else { return }
+        guard !busy, !interacting, !activating else { return }
+        activating = true; defer { activating = false }
+        let generation = activationGeneration
+        let wasActive = active
         do {
             let current = try system.discover(); windows = current
             guard !current.isEmpty else {
                 if preserving { history.commit(Workspace()) }
                 message = "Open an application window to begin."; return
             }
+            if !wasActive {
+                for window in current where originals[window.id] == nil { originals[window.id] = (window, window.frame) }
+                try desktopPreferences.activate(settings.desktopOverrides()); try await Task.sleep(for: .milliseconds(500))
+            }
+            guard generation == activationGeneration else { return }
             let displays = DisplayArea.all(margin: settings.margin)
             var next = preserving ? history.current : Workspace()
             for leaf in next.windows where !current.contains(where: { $0.id == leaf.windowID }) { next = next.removing(leaf.windowID) }
@@ -94,11 +124,15 @@ struct SavedWorkspace: Codable {
             }
             next.roots = next.roots.filter { key, _ in displays.contains(where: { $0.id == key }) }
             try await apply(next, displays: displays)
+            guard generation == activationGeneration else { return }
             lastDisplays = displays; history.commit(next); active = true; message = nil; onStateChange?()
-        } catch { message = error.localizedDescription }
+        } catch {
+            message = error.localizedDescription
+            if !wasActive { do { try desktopPreferences.restore() } catch { message = "\(message ?? "") \(error.localizedDescription)" } }
+        }
     }
-    private func apply(_ workspace: Workspace, displays: [DisplayArea]) async throws {
-        guard !busy else { return }; busy = true; defer { busy = false }
+    func apply(_ workspace: Workspace, displays: [DisplayArea]) async throws {
+        guard !busy else { throw LayoutError.invalidInput }; busy = true; defer { busy = false }
         var plan: [(ManagedWindow, Rect)] = []
         for (displayID, root) in workspace.roots {
             guard let display = displays.first(where: { $0.id == displayID }) else { throw LayoutError.invalidInput }
@@ -133,7 +167,10 @@ struct SavedWorkspace: Codable {
         }
     }
     func restore() async {
-        guard !busy else { return }; busy = true; defer { busy = false }
+        activationGeneration += 1
+        if interacting { await cancelInteraction?() }
+        while busy { try? await Task.sleep(for: .milliseconds(50)) }
+        busy = true; defer { busy = false }
         var remaining: [UUID: (ManagedWindow, Rect)] = [:]
         for (id, entry) in originals {
             // A closed process needs no restoration. Existing windows that refuse it remain retryable.
@@ -143,6 +180,7 @@ struct SavedWorkspace: Codable {
         }
         originals = remaining; active = false; history = LayoutHistory(); onStateChange?()
         message = remaining.isEmpty ? nil : "\(remaining.count) window(s) could not be restored. Allow Accessibility access and try Restore again."
+        do { try desktopPreferences.restore() } catch { message = error.localizedDescription }
     }
     func saveLayout() {
         guard active else { message = "Arrange windows before saving a layout."; return }
@@ -154,7 +192,9 @@ struct SavedWorkspace: Codable {
         } catch { message = error.localizedDescription }
     }
     func loadLayout() async {
-        guard !busy else { return }
+        guard !busy, !interacting, !activating else { return }
+        activating = true; defer { activating = false }
+        let wasActive = active, generation = activationGeneration
         do {
             let saved = try JSONDecoder().decode(SavedWorkspace.self, from: Data(contentsOf: SavedWorkspace.url))
             guard saved.version == 1, saved.platform == "macOS" else { throw LayoutError.invalidInput }
@@ -174,16 +214,43 @@ struct SavedWorkspace: Codable {
                     return .split(id: id, axis: axis, ratio: ratio, first: a, second: b)
                 }
             }
+            if !wasActive {
+                for window in windows where originals[window.id] == nil { originals[window.id] = (window, window.frame) }
+                try desktopPreferences.activate(settings.desktopOverrides()); try await Task.sleep(for: .milliseconds(500))
+            }
+            guard generation == activationGeneration else { return }
             let displays = DisplayArea.all(margin: settings.margin); var next = Workspace()
             for display in displays { if let root = saved.workspace.roots[display.id] { next.roots[display.id] = try remap(root) } }
-            guard !next.windows.isEmpty else { message = "No saved windows match this display setup. Open the saved applications or arrange a new layout."; return }
-            try await apply(next, displays: displays); history.commit(next); active = true; onStateChange?(); message = "Saved layout restored. Unmatched windows remain floating."
-        } catch { message = "Could not restore saved layout: \(error.localizedDescription)" }
+            guard !next.windows.isEmpty else {
+                if !wasActive { try desktopPreferences.restore() }
+                message = "No saved windows match this display setup. Open the saved applications or arrange a new layout."; return
+            }
+            try await apply(next, displays: displays)
+            guard generation == activationGeneration else { return }
+            lastDisplays = displays; history.commit(next); active = true; onStateChange?(); message = "Saved layout restored. Unmatched windows remain floating."
+        } catch {
+            message = "Could not restore saved layout: \(error.localizedDescription)"
+            if !wasActive { do { try desktopPreferences.restore() } catch { message = "\(message ?? "") \(error.localizedDescription)" } }
+        }
     }
     func undo(redo: Bool = false) async {
-        guard !busy else { return }
+        guard !busy, !interacting, !activating else { return }
+        activating = true; defer { activating = false }
+        let wasActive = active, generation = activationGeneration
         var candidate = history; let next = redo ? candidate.redo() : candidate.undo()
-        do { try await apply(next, displays: DisplayArea.all(margin: settings.margin)); history = candidate; active = !next.windows.isEmpty; onStateChange?() }
-        catch { message = error.localizedDescription }
+        do {
+            if !wasActive && !next.windows.isEmpty { try desktopPreferences.activate(settings.desktopOverrides()); try await Task.sleep(for: .milliseconds(500)) }
+            guard generation == activationGeneration else { return }
+            try await apply(next, displays: DisplayArea.all(margin: settings.margin))
+            guard generation == activationGeneration else { return }
+            history = candidate; active = !next.windows.isEmpty
+            if !active { try desktopPreferences.restore() }
+            onStateChange?()
+        } catch { message = error.localizedDescription; if !wasActive { try? desktopPreferences.restore() } }
+    }
+    func recoverDesktopPreferences() { do { try desktopPreferences.restore() } catch { message = error.localizedDescription } }
+    func finishInteraction(_ workspace: Workspace, commit: Bool) async throws {
+        try await apply(workspace, displays: DisplayArea.all(margin: settings.margin))
+        if commit { history.commit(workspace) }
     }
 }

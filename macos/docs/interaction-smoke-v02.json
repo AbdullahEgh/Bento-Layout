@@ -1,0 +1,23 @@
+{
+  "externalApplicationsTouched" : false,
+  "passed" : [
+    "Three disposable native windows arranged",
+    "Helper panels occupy gaps only",
+    "Native center drop commits matching geometry",
+    "Center drop swaps source into the target slot",
+    "Held edge drop splits and retains all windows",
+    "Escape restores native drag snapshot",
+    "Gap grip begins a native resize",
+    "Gap grip commits matching native bounds",
+    "Grip cancellation restores native geometry without history mutation",
+    "Native inner-border resize updates adjacent regions",
+    "Native undo restores the previous interaction",
+    "Native redo reapplies the interaction",
+    "A rejected native write rolls back the batch",
+    "Turning Bento off restores fixtures and removes helpers",
+    "Activation options request Dock, menu bar and tiling overrides through the injected backend",
+    "Deactivation restores all injected preference values",
+    "Restoring during activation cancels the pending arrangement"
+  ],
+  "systemPreferencesChanged" : false
+}

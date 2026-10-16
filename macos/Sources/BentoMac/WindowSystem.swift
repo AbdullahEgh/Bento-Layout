@@ -48,7 +48,7 @@ final class ManagedWindow {
     var leaf: WindowLeaf { WindowLeaf(windowID: id, minimum: minimum) }
 }
 
-@MainActor final class MacWindowSystem {
+@MainActor class MacWindowSystem {
     private var known: [ManagedWindow] = []
     var trusted: Bool { AXIsProcessTrusted() }
     func requestPermission() {
@@ -118,6 +118,13 @@ final class ManagedWindow {
         guard NSRunningApplication(processIdentifier: window.pid)?.isTerminated == false else { return false }
         var role: CFTypeRef?
         return AXUIElementCopyAttributeValue(window.element, kAXRoleAttribute as CFString, &role) != .invalidUIElement
+    }
+    func focusedWindow(in windows: [ManagedWindow]) -> ManagedWindow? {
+        guard let application = NSWorkspace.shared.frontmostApplication else { return nil }
+        let app = AXUIElementCreateApplication(application.processIdentifier)
+        AXUIElementSetMessagingTimeout(app, 0.05)
+        guard let focused = attribute(app, kAXFocusedWindowAttribute), CFGetTypeID(focused) == AXUIElementGetTypeID() else { return nil }
+        return windows.first { $0.pid == application.processIdentifier && CFEqual($0.element, focused) }
     }
     func write(_ window: ManagedWindow, frame: Rect) throws {
         guard trusted else { throw WindowFailure.permission }

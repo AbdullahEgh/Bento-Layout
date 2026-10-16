@@ -1,0 +1,1 @@
+Bento for macOS 0.2.0 adds native drag-to-swap, hold-at-edge splitting, gap resize grips, native-border resize tracking, signed Sparkle OTA update support, and optional Dock/menu-bar/edge-tiling overrides that restore when Bento turns off.

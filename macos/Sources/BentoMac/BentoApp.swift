@@ -15,15 +15,47 @@ import Carbon.HIToolbox
 
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = WorkspaceController()
+    let updater = MacUpdater()
+    private var interactions: DesktopInteractions?
     private var statusItem: NSStatusItem!
     private var window: NSWindow?
     private var hotKey: GlobalHotKey?
     private var canTerminate = false
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.applicationIconImage = BentoStyle.icon
+        if let flag = CommandLine.arguments.firstIndex(of: "--interaction-smoke"), CommandLine.arguments.count > flag + 1 {
+            Task {
+                do { try await NativeInteractionSmoke.run(at: URL(fileURLWithPath: CommandLine.arguments[flag + 1])); exit(0) }
+                catch { fputs("Native interaction smoke failed: \(error.localizedDescription)\n", stderr); exit(1) }
+            }
+            return
+        }
         if let flag = CommandLine.arguments.firstIndex(of: "--render-preview"), CommandLine.arguments.count > flag + 1 {
             renderPreviews(at: URL(fileURLWithPath: CommandLine.arguments[flag + 1])); return
         }
+        if let flag = CommandLine.arguments.firstIndex(of: "--render-settings"), CommandLine.arguments.count > flag + 1 {
+            updater.start(); renderSettings(at: URL(fileURLWithPath: CommandLine.arguments[flag + 1])); return
+        }
+        if let identifier = Bundle.main.bundleIdentifier,
+           let existing = NSRunningApplication.runningApplications(withBundleIdentifier: identifier).first(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }) {
+            existing.activate(); exit(0)
+        }
+        model.recoverDesktopPreferences()
+        interactions = DesktopInteractions(model: model)
+        model.cancelInteraction = { [weak self] in await self?.interactions?.finish(cancel: true) }
+        updater.beforeInstall = { [weak self] in
+            guard let self else { return false }
+            await self.interactions?.finish(cancel: true)
+            while self.model.busy || self.model.activating { try? await Task.sleep(for: .milliseconds(50)) }
+            await self.model.restore(); return self.model.message == nil
+        }
+        updater.start()
+        let menuBar = NSMenu(), appItem = NSMenuItem(), appMenu = NSMenu(title: "Bento")
+        menuBar.addItem(appItem); appItem.submenu = appMenu
+        for (title, action, key) in [("Settings…", #selector(settings), ","), ("Check for updates…", #selector(checkUpdates), ""), ("Quit Bento", #selector(quit), "q")] {
+            let entry = NSMenuItem(title: title, action: action, keyEquivalent: key); entry.target = self; appMenu.addItem(entry)
+        }
+        NSApp.mainMenu = menuBar
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
             let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
@@ -36,7 +68,7 @@ import Carbon.HIToolbox
             }
             image.isTemplate = true; button.image = image; button.toolTip = "Bento — window layouts"
         }
-        updateMenu(); model.onStateChange = { [weak self] in self?.updateMenu() }
+        updateMenu(); model.onStateChange = { [weak self] in self?.updateMenu(); self?.interactions?.synchronize() }
         hotKey = GlobalHotKey { [weak self] in self?.model.toggle() }
         if hotKey?.registered == false { model.message = "The ⌃⌥B shortcut is unavailable. Use Bento in the menu bar." }
         showWindow(onboarding: !model.settings.onboardingComplete)
@@ -48,6 +80,7 @@ import Carbon.HIToolbox
         item("Restore original positions", #selector(restore))
         menu.addItem(.separator())
         item("Settings…", #selector(settings)); item("View onboarding…", #selector(onboarding))
+        item("Check for updates…", #selector(checkUpdates))
         menu.addItem(.separator()); item("Quit Bento", #selector(quit))
         statusItem.menu = menu
     }
@@ -56,15 +89,17 @@ import Carbon.HIToolbox
     @objc private func settings() { showWindow(onboarding: false) }
     @objc private func onboarding() { showWindow(onboarding: true) }
     @objc private func quit() { NSApp.terminate(nil) }
+    @objc private func checkUpdates() { if updater.ready { updater.check() } else { model.page = "Updates"; showWindow(onboarding: false) } }
     func showWindow(onboarding: Bool) {
         window?.close()
         let content: AnyView
         if onboarding { content = AnyView(OnboardingView(model: model, finished: { [weak self] in self?.showWindow(onboarding: false) })) }
-        else { content = AnyView(SettingsView(model: model, showOnboarding: { [weak self] in self?.showWindow(onboarding: true) })) }
+        else { content = AnyView(SettingsView(model: model, updater: updater, showOnboarding: { [weak self] in self?.showWindow(onboarding: true) })) }
         let host = NSHostingController(rootView: ThemedRoot(model: model, content: content))
         let panel = NSWindow(contentViewController: host)
         panel.title = "Bento"; panel.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
         panel.titlebarAppearsTransparent = true; panel.titleVisibility = .hidden
+        panel.level = .floating
         panel.isReleasedWhenClosed = false
         panel.setContentSize(NSSize(width: onboarding ? 940 : 820, height: onboarding ? 650 : 620))
         panel.center(); panel.makeKeyAndOrderFront(nil); window = panel
@@ -73,8 +108,9 @@ import Carbon.HIToolbox
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if canTerminate { return .terminateNow }
         Task {
+            await interactions?.finish(cancel: true)
             // Wait for an in-flight transaction before restoring the activation snapshot.
-            while model.busy { try? await Task.sleep(for: .milliseconds(50)) }
+            while model.busy || model.activating { try? await Task.sleep(for: .milliseconds(50)) }
             await model.restore()
             if let message = model.message {
                 let alert = NSAlert(); alert.messageText = "Some windows could not be restored"
@@ -109,6 +145,28 @@ import Carbon.HIToolbox
                 }
             }
             print("Rendered 8 native SwiftUI onboarding screens to \(directory.path)"); exit(0)
+        }
+    }
+    private func renderSettings(at directory: URL) {
+        do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) } catch { exit(1) }
+        Task { @MainActor in
+            for dark in [false, true] {
+                for page in ["Workspace", "Gestures", "Updates"] {
+                    model.page = page
+                    let view = SettingsView(model: model, updater: updater, showOnboarding: {}).environment(\.colorScheme, dark ? .dark : .light)
+                    let host = NSHostingView(rootView: view)
+                    let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 620), styleMask: [.borderless], backing: .buffered, defer: false)
+                    panel.isReleasedWhenClosed = false; panel.appearance = NSAppearance(named: dark ? .darkAqua : .aqua); panel.contentView = host
+                    host.frame = NSRect(x: 0, y: 0, width: 820, height: 620); panel.orderFront(nil)
+                    try? await Task.sleep(for: .milliseconds(180)); host.layoutSubtreeIfNeeded()
+                    guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { exit(1) }
+                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                    guard let png = bitmap.representation(using: .png, properties: [:]) else { exit(1) }
+                    do { try png.write(to: directory.appendingPathComponent("\(page.lowercased())-\(dark ? "dark" : "light").png")) } catch { exit(1) }
+                    panel.close()
+                }
+            }
+            print("Rendered six native settings screens."); exit(0)
         }
     }
 }

@@ -15,10 +15,18 @@ jobs:
       - name: Test layout and gesture contracts
         run: macos/scripts/swift.sh test
       - name: Build app bundle
+        env:
+          BENTO_UNIVERSAL: '1'
         run: macos/scripts/build-app.sh
       - name: Isolated startup smoke
         run: artifacts/macos/Bento.app/Contents/MacOS/Bento --smoke
+      - name: Isolated native interaction checks
+        run: artifacts/macos/Bento.app/Contents/MacOS/Bento --interaction-smoke artifacts/macos/interaction-smoke
+      - name: Signed GitHub OTA fixture without Developer ID
+        run: macos/scripts/test-ota.sh
       - uses: actions/upload-artifact@v4
         with:
           name: Bento-macos-preview
-          path: artifacts/macos/*.zip
+          path: |
+            artifacts/macos/Bento-macos-universal.zip
+            artifacts/macos/interaction-smoke/results.json

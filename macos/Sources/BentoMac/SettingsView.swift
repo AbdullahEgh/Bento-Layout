@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var model: WorkspaceController
+    @ObservedObject var updater: MacUpdater
     var showOnboarding: () -> Void
     var body: some View {
         HStack(spacing: 0) {
@@ -17,7 +18,7 @@ struct SettingsView: View {
                     }.buttonStyle(.plain).foregroundStyle(model.page == page ? BentoStyle.accent : BentoStyle.secondary)
                 }
                 Spacer()
-                Text("macOS preview · 0.1.0").font(.system(size: 10)).foregroundStyle(BentoStyle.secondary)
+                Text("macOS · \(updater.version)").font(.system(size: 10)).foregroundStyle(BentoStyle.secondary)
             }.padding(22).frame(width: 195).background(BentoStyle.sidebar)
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
@@ -25,17 +26,21 @@ struct SettingsView: View {
                     switch model.page {
                     case "Workspace": workspace
                     case "Gestures": gestures
-                    case "Updates": updates
+                    case "Updates": UpdatesView(updater: updater)
                     default: about
                     }
                     if let message = model.message { Text(message).font(.system(size: 12)).foregroundStyle(BentoStyle.secondary).textSelection(.enabled) }
                 }.padding(30).frame(maxWidth: .infinity, alignment: .leading)
             }
         }.frame(width: 820, height: 620).foregroundStyle(BentoStyle.text).background(BentoStyle.page)
+            .disabled(model.busy || model.interacting || model.activating)
             .onChange(of: model.settings.gap) { _, _ in model.saveSettings() }
             .onChange(of: model.settings.margin) { _, _ in model.saveSettings() }
             .onChange(of: model.settings.splitHold) { _, _ in model.saveSettings() }
             .onChange(of: model.settings.theme) { _, _ in model.saveSettings() }
+            .onChange(of: model.settings.hideDock) { _, _ in model.saveSettings() }
+            .onChange(of: model.settings.hideMenuBar) { _, _ in model.saveSettings() }
+            .onChange(of: model.settings.edgeSnapping) { _, _ in model.saveSettings() }
     }
     private var workspace: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -51,6 +56,7 @@ struct SettingsView: View {
                     if !model.permission { Button("Allow Accessibility access") { model.system.requestPermission(); model.system.openPermissionSettings() } }
                 }
             }
+            activationOptions
             BentoCard {
                 VStack(spacing: 20) {
                     setting("Space between windows", symbol: "Gap", value: $model.settings.gap, range: 4...32)
@@ -65,6 +71,22 @@ struct SettingsView: View {
                 Spacer(); Button("Undo") { Task { await model.undo() } }.disabled(!model.active || model.busy)
                 Button("Redo") { Task { await model.undo(redo: true) } }.disabled(model.busy)
             }
+        }
+    }
+    private var activationOptions: some View {
+        BentoCard {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("When Bento activates").font(.system(size: 14, weight: .semibold))
+                    Toggle("Automatically hide the Dock", isOn: $model.settings.hideDock).toggleStyle(.switch)
+                    Toggle("Automatically hide the menu bar", isOn: $model.settings.hideMenuBar).toggleStyle(.switch)
+                    HStack {
+                        Text("macOS screen-edge snapping"); Spacer()
+                        Picker("macOS screen-edge snapping", selection: $model.settings.edgeSnapping) {
+                            Text("Keep current setting").tag("Keep"); Text("On while active").tag("On"); Text("Off while active").tag("Off")
+                        }.labelsHidden().frame(width: 175)
+                    }
+                    Text("Applies on the next activation. Turning Bento off restores your previous settings. Dock and tiling changes briefly restart the Dock.").font(.system(size: 11)).lineSpacing(4).foregroundStyle(BentoStyle.secondary)
+                }.font(.system(size: 12)).disabled(model.active)
         }
     }
     private func setting(_ title: String, symbol: String, value: Binding<Int>, range: ClosedRange<Int>) -> some View {
@@ -83,16 +105,9 @@ struct SettingsView: View {
                     Text("The menu-bar control is always available if another app has registered this shortcut.").font(.system(size: 12)).foregroundStyle(BentoStyle.secondary)
                     Divider()
                     HStack { Text("Hold to split"); Spacer(); Stepper("\(model.settings.splitHold) ms", value: $model.settings.splitHold, in: 0...2000, step: 100).frame(width: 125) }
-                    Text("Native title-bar drop gestures and gap grips are in development. This preview includes automatic arrangement, restoration, saved layouts, and the shared gesture policy.").font(.system(size: 12)).lineSpacing(4).foregroundStyle(BentoStyle.secondary)
+                    Text("Drag a real window onto another region to swap. Hold at its edge until the frosted slot divides, then release to split. Drag a gap grip to resize neighbors. Escape cancels and restores the committed layout.").font(.system(size: 12)).lineSpacing(4).foregroundStyle(BentoStyle.secondary)
                 }
             }
-        }
-    }
-    private var updates: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Bento for macOS · Development preview").font(.system(size: 15, weight: .medium))
-            Text("Download Mac builds from the same repository as Windows. Automatic installation is not included in this first Mac milestone.").font(.system(size: 13)).lineSpacing(5).foregroundStyle(BentoStyle.secondary)
-            Link(destination: URL(string: "https://github.com/AbdullahEgh/Bento-Layout/releases")!) { Label("Open GitHub releases", systemImage: "arrow.up.right.square") }.buttonStyle(PrimaryButtonStyle())
         }
     }
     private var about: some View {

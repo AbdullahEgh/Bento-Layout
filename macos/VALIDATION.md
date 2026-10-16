@@ -1,4 +1,25 @@
-# macOS validation — 2026-10-16
+# macOS 0.2.0 validation — 2026-10-16
+
+Current revision adds native interaction wiring, signed GitHub OTA and temporary activation preferences. The sections below the historical heading describe the earlier 0.1.0 milestone.
+
+| Check | Actual result |
+| --- | --- |
+| Debug and optimized universal build | Passed; executable contains arm64 and x86_64, both with macOS 15 minimum deployment target |
+| App and embedded Sparkle helper signatures | Ad-hoc signatures verified with deep/strict checks; Developer ID is optional |
+| Core XCTest suite | 22 tests passed, including geometry/gesture cases, seeded 1,000-operation exercise, preference rollback/recovery and official Sparkle archive signing |
+| Disposable native interaction harness | 17 checks passed against real in-process NSWindows using the production controller and gap panels, injected window/preferences backends and supplied pointer samples |
+| Native harness coverage | Arrangement, gap-only helper bounds, center swap, held-edge split, Escape restoration, live grip commit/cancel, inner-border resize, undo/redo, rejected-write rollback, deactivate/restore, activation options, and cancellation during activation |
+| OTA without Developer ID | Passed: copied ad-hoc app, temporary Ed25519 seed, generated signed feed/archive with official Sparkle tools, verified signed feed and app-embedded public key/archive relation, and rejected a corrupted archive. No production Keychain key was created |
+| New settings screens | Rendered Workspace/Gestures/Updates in light/dark and visually checked; activation options are visible near the top of Workspace |
+| Package smoke, shell syntax and whitespace | Passed |
+
+The OTA fixture caught an incorrect fixture key representation and a macOS XML import issue; both were fixed before the successful run. Sparkle's current exported private-key format is the base64-encoded 32-byte Ed25519 seed. Temporary fixture keys are removed automatically.
+
+The native harness changes only its own disposable windows. It proves controller-to-native-fixture geometry and rollback, not physical global mouse/keyboard routing or third-party Accessibility compatibility. The real Dock/menu-bar/WindowManager backend has **not** been activated during these tests. Its preference keys are OS-dependent; real system-setting effects, notification behavior and Dock restart recovery need interactive validation. No user's desktop preferences were changed by the harness or OTA fixture.
+
+No production update key/feed has been provisioned or published; no online OTA install/relaunch is claimed. GitHub authentication remains unavailable in this checkout. A paid Apple developer account is not needed for Ed25519-signed GitHub OTA. Intel code was built, not run on Intel hardware. Third-party AX movement, physical drag/hold/grip capture/Escape, multiple physical displays and longer sessions remain to be validated.
+
+## Historical 0.1.0 validation
 
 Development preview built locally on Apple Silicon with the installed Swift 6.4 toolchain and macOS SDK. SwiftPM uses Swift 5 language mode for this initial port and targets macOS 15+. The Windows base is commit `4069b23`; Windows-native results in the root validation document are historical, not rerun on this Mac.
 

@@ -1,6 +1,6 @@
 # Bento for macOS — development preview
 
-A native Swift, SwiftUI and AppKit app alongside the existing Windows version. Targets macOS 15+. No Electron, third-party packages, screen capture, display-resolution changes or application zoom changes.
+A native Swift, SwiftUI and AppKit app alongside the existing Windows version. Targets macOS 15+. Uses the pinned official Sparkle 2.10.0 binary for updates. No Electron, screen capture, display-resolution changes or application zoom changes.
 
 ## Run
 
@@ -12,7 +12,7 @@ macos/scripts/build-app.sh
 open artifacts/macos/Bento.app
 ```
 
-Open `macos/Package.swift` in Xcode to edit and debug. The build script makes a standalone `.app`, reuses the original Windows PNG as its Mac icon, copies SwiftPM resources, signs the local build ad hoc, verifies its signature, and creates an architecture-named ZIP. An ad-hoc signature is for local development, not a notarized public release. Set `BENTO_SIGNING_IDENTITY` to a Developer ID identity for a later distribution build; notarization is a separate release step.
+Open `macos/Package.swift` in Xcode to edit and debug. The build script makes a standalone `.app`, reuses the original Windows PNG as its Mac icon, embeds Sparkle and its helper processes, signs the local build ad hoc, verifies its signature, and creates an architecture-named ZIP. `BENTO_UNIVERSAL=1` builds Apple Silicon and Intel slices together. Developer ID signing and notarization are optional; GitHub OTA uses Bento's own Ed25519 signing key. See [OTA.md](OTA.md) for publishing.
 
 Keep the app at a stable path when granting Accessibility permission. Rebuilding or moving a development app can require renewing permission. Launch the app bundle, not `swift run`, for normal use.
 
@@ -37,11 +37,15 @@ Light and dark appearance follow the system or the selected setting. Onboarding 
 - Menu-bar app, native settings and fixed Control–Option–B toggle; shortcut registration failure leaves the menu-bar controls available.
 - Accessibility permission checks and public AX window discovery. The app excludes its own windows, hidden apps, minimized/fullscreen/fixed-size windows, and windows without matching public on-screen metadata.
 - Automatic constraint-aware recursive arrangement on each window's current display; display work areas exclude the Dock and menu bar.
-- Swift port of Windows automatic layout, insertion/removal, four-direction placement, center swapping, ratio resizing, bounded undo/redo and hold-to-split intent policy. The native gesture UI is **not connected yet**.
+- Swift port of Windows automatic layout, insertion/removal, four-direction placement, center swapping, ratio resizing, bounded undo/redo and hold-to-split intent policy, connected to the native interaction controller.
 - Native geometry validation before writes, pre-activation snapshots, post-write bounds verification, best-effort rollback, original-position restoration on toggle-off and normal quit.
 - One-second membership and display checks while active. Membership changes preserve existing ratios where feasible. Display changes rebuild against current visible areas. Permission revocation pauses management.
 - Mac-specific saved layouts, matching bundle identifier and title, with missing windows left floating. Disconnected display layouts are not silently reassigned.
 - Separate GitHub Actions checks for Mac builds/tests and Windows shared geometry contracts.
+- Native pointer/AX tracking connects quick center/edge swaps and timed edge splits to a text-free, click-through destination preview. Infeasible targets are hidden; releasing outside a valid slot restores the committed layout.
+- Gap-only nonactivating resize panels, 40-point hover grips extending to 104 points while held, coalesced live native resizing, one undo step per gesture, cancellation rollback, and native inner-border resize tracking.
+- Optional auto-hide Dock/menu bar and native screen-edge snapping policy while Bento is active. Defaults preserve system behavior. Exact preference values (including absent keys) are journaled before changes, restored on deactivation/quit, and recovered next launch after an interrupted session. A manual preference change made during a session takes precedence on restore. Dock/tiling changes restart the Dock briefly.
+- Sparkle checks, opt-in automatic checks/downloads, signature verification before extraction, update UI/menu entry and restoration before restart. Local previews without an embedded publisher key explain why OTA is unavailable. Publishing does not require an Apple Developer ID.
 
 ## Architecture and parity decisions
 
@@ -53,7 +57,7 @@ Windows saved files use executable paths and monitor names. Mac saved files are 
 
 ## Current limits
 
-This is the first Mac milestone, not full Windows feature parity. Native title-bar swaps and timed edge splits, gap grips, native-border resize tracking, backdrop dimming, thumbnail transitions, configurable shortcuts, floating-window release controls and automatic update installation remain to be integrated. Settings identify these limits instead of exposing inactive controls.
+This is a Mac development preview, not full Windows feature parity. Backdrop dimming, thumbnail transitions, configurable shortcuts and floating-window release controls remain to be integrated. The default hold delay is 900 ms. Physical title-bar routing, real third-party AX behavior and system preference effects still need an interactive pass; the isolated native harness supplies pointer samples and controls only disposable windows.
 
 Minimum window sizes use a conservative 320 × 240 point fallback because a universal minimum-size AX attribute is unavailable. An app may still refuse a resize; the controller checks actual bounds and attempts rollback. Writes across multiple apps cannot be atomic. Restoration is best effort when an app exits or access is revoked. Hard crashes cannot restore the session-only original-position snapshot. No automatic app launching, Spaces switching or full-screen management is performed.
 
@@ -68,3 +72,5 @@ artifacts/macos/Bento.app/Contents/MacOS/Bento --render-preview /tmp/bento-previ
 ```
 
 This renders eight PNGs (four steps in light and dark). `--smoke` exits before window discovery or arrangement. GitHub Actions builds an artifact; it does not publish a release or require signing secrets.
+
+`--render-settings /tmp/bento-settings` renders Workspace, Gestures and Updates in light/dark. `--interaction-smoke /tmp/bento-interactions` exercises the production gesture controller against disposable native NSWindows using an injected window backend and supplied input; it does not touch other apps or OS preferences. `macos/scripts/test-ota.sh` generates a disposable key and verifies an ad-hoc app's signed archive/feed and corruption rejection without Developer ID or Keychain changes.
