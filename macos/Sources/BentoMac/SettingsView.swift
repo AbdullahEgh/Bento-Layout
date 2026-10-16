@@ -63,7 +63,7 @@ struct SettingsView: View {
                             if model.permission { model.toggle() }
                             else { model.system.requestPermission(); model.system.openPermissionSettings() }
                         } label: { Text(!model.permission ? "Enable Accessibility" : model.active ? "Turn Bento off" : "Arrange windows") }.buttonStyle(PrimaryButtonStyle()).disabled(model.busy)
-                        Button("Restore originals") { Task { await model.restore() } }.disabled(model.busy)
+                        Button { Task { await model.restore() } } label: { settingLabel("Restore originals", symbol: "Restore") }.disabled(model.busy)
                     }
                     if !model.permission { Text("In System Settings → Privacy & Security → Accessibility, enable this copy: \(Bundle.main.bundlePath). If access stays blocked after an update, remove the old Bento entry and add this app again.").font(.system(size: 11)).lineSpacing(3).foregroundStyle(BentoStyle.secondary).textSelection(.enabled) }
                     else { HStack { Text("Accessibility connected").foregroundStyle(BentoStyle.accent); Spacer(); Button("Refresh windows") { model.refresh() } }.font(.system(size: 11)) }
@@ -82,7 +82,7 @@ struct SettingsView: View {
             activationOptions
             BentoCard {
                 VStack(alignment: .leading, spacing: 12) {
-                    Toggle("Start at login", isOn: Binding(get: { loginStartup.enabled }, set: { loginStartup.setEnabled($0) })).toggleStyle(.switch)
+                    Toggle(isOn: Binding(get: { loginStartup.enabled }, set: { loginStartup.setEnabled($0) })) { settingLabel("Start at login", symbol: "Startup") }.toggleStyle(.switch)
                     Text("Open Bento in the menu bar when you sign in to this Mac.").font(.system(size: 11)).foregroundStyle(BentoStyle.secondary)
                     if loginStartup.needsApproval { Button("Approve in Login Items") { loginStartup.openSettings() } }
                     if let message = loginStartup.message { Text(message).font(.system(size: 11)).foregroundStyle(BentoStyle.secondary) }
@@ -92,11 +92,11 @@ struct SettingsView: View {
                 VStack(spacing: 20) {
                     setting("Space between windows", symbol: "Gap", value: $model.settings.gap, range: 4...32)
                     setting("Desktop margin", symbol: "Margin", value: $model.settings.margin, range: 0...64)
-                    HStack { Text("Background darkness"); Slider(value: Binding(get: { Double(model.settings.backgroundDarkness) }, set: { model.settings.backgroundDarkness = Int($0) }), in: 0...100, step: 5); Text("\(model.settings.backgroundDarkness)%").monospacedDigit().frame(width: 36) }
-                    Toggle("Animate layout changes", isOn: $model.settings.animate).toggleStyle(.switch)
-                    if model.settings.animate { HStack { Text("Animation duration"); Spacer(); Stepper("\(model.settings.animationMS) ms", value: $model.settings.animationMS, in: 80...400, step: 20).frame(width: 120) } }
+                    HStack { settingLabel("Background darkness", symbol: "Darkness"); Slider(value: Binding(get: { Double(model.settings.backgroundDarkness) }, set: { model.settings.backgroundDarkness = Int($0) }), in: 0...100, step: 5); Text("\(model.settings.backgroundDarkness)%").monospacedDigit().frame(width: 36) }
+                    Toggle(isOn: $model.settings.animate) { settingLabel("Animate layout changes", symbol: "Animation") }.toggleStyle(.switch)
+                    if model.settings.animate { HStack { settingLabel("Animation duration", symbol: "Duration"); Spacer(); Stepper("\(model.settings.animationMS) ms", value: $model.settings.animationMS, in: 80...400, step: 20).frame(width: 120) } }
                     Text("Motion follows macOS Reduce Motion. Background darkness applies while Bento is on.").font(.system(size: 11)).foregroundStyle(BentoStyle.secondary)
-                    HStack { Text("Appearance"); Spacer(); Picker("Appearance", selection: $model.settings.theme) { Text("System").tag("System"); Text("Light").tag("Light"); Text("Dark").tag("Dark") }.labelsHidden().frame(width: 130) }
+                    HStack { settingLabel("Appearance", symbol: "Appearance"); Spacer(); Picker("Appearance", selection: $model.settings.theme) { Text("System").tag("System"); Text("Light").tag("Light"); Text("Dark").tag("Dark") }.labelsHidden().frame(width: 130) }
                     Text("Spacing changes apply the next time you arrange windows.").font(.system(size: 11)).foregroundStyle(BentoStyle.secondary).frame(maxWidth: .infinity, alignment: .leading)
                 }.font(.system(size: 12))
             }
@@ -112,16 +112,22 @@ struct SettingsView: View {
         BentoCard {
                 VStack(alignment: .leading, spacing: 18) {
                     Text("When Bento activates").font(.system(size: 14, weight: .semibold))
-                    Toggle("Automatically hide the Dock", isOn: $model.settings.hideDock).toggleStyle(.switch)
-                    Toggle("Automatically hide the menu bar", isOn: $model.settings.hideMenuBar).toggleStyle(.switch)
+                    Toggle(isOn: $model.settings.hideDock) { settingLabel("Automatically hide the Dock", symbol: "Dock") }.toggleStyle(.switch)
+                    Toggle(isOn: $model.settings.hideMenuBar) { settingLabel("Automatically hide the menu bar", symbol: "MenuBar") }.toggleStyle(.switch)
                     HStack {
-                        Text("macOS screen-edge snapping"); Spacer()
+                        settingLabel("macOS screen-edge snapping", symbol: "Snap"); Spacer()
                         Picker("macOS screen-edge snapping", selection: $model.settings.edgeSnapping) {
                             Text("Keep current setting").tag("Keep"); Text("On while active").tag("On"); Text("Off while active").tag("Off")
                         }.labelsHidden().frame(width: 175)
                     }
                     Text("Applies on the next activation. Turning Bento off restores your previous settings. Dock and tiling changes briefly restart the Dock.").font(.system(size: 11)).lineSpacing(4).foregroundStyle(BentoStyle.secondary)
                 }.font(.system(size: 12)).disabled(model.active)
+        }
+    }
+    private func settingLabel(_ title: String, symbol: String) -> some View {
+        HStack(spacing: 10) {
+            BentoSymbol(name: symbol, size: 18).foregroundStyle(BentoStyle.secondary)
+            Text(title)
         }
     }
     private func setting(_ title: String, symbol: String, value: Binding<Int>, range: ClosedRange<Int>) -> some View {
@@ -137,7 +143,7 @@ struct SettingsView: View {
             BentoCard {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack { BentoSymbol(name: "Keyboard"); Text("Toggle Bento"); Spacer(); Text(model.settings.shortcut.label).font(.system(.body, design: .monospaced)).foregroundStyle(BentoStyle.accent) }
-                    Toggle("Enable keyboard shortcut", isOn: $model.settings.shortcut.enabled).toggleStyle(.switch)
+                    Toggle(isOn: $model.settings.shortcut.enabled) { settingLabel("Enable keyboard shortcut", symbol: "Keyboard") }.toggleStyle(.switch)
                     HStack {
                         Toggle("Control", isOn: $model.settings.shortcut.control)
                         Toggle("Option", isOn: $model.settings.shortcut.option)
@@ -147,7 +153,7 @@ struct SettingsView: View {
                     }.toggleStyle(.checkbox).font(.system(size: 11)).disabled(!model.settings.shortcut.enabled)
                     Text("Choose a letter or number with at least one modifier. Click the menu-bar icon to toggle Bento; right-click for its menu.").font(.system(size: 12)).foregroundStyle(BentoStyle.secondary)
                     Divider()
-                    HStack { Text("Hold to split"); Spacer(); Stepper("\(model.settings.splitHold) ms", value: $model.settings.splitHold, in: 0...2000, step: 100).frame(width: 125) }
+                    HStack { settingLabel("Hold to split", symbol: "Gestures"); Spacer(); Stepper("\(model.settings.splitHold) ms", value: $model.settings.splitHold, in: 0...2000, step: 100).frame(width: 125) }
                     Text("Drag a real window onto another region to swap. Hold at its edge until the frosted slot divides, then release to split. Drag a gap grip to resize neighbors. Escape cancels and restores the committed layout.").font(.system(size: 12)).lineSpacing(4).foregroundStyle(BentoStyle.secondary)
                 }
             }

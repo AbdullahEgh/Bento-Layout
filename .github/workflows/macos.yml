@@ -9,7 +9,11 @@ permissions:
   contents: read
 jobs:
   build:
-    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - name: Test layout and gesture contracts
@@ -26,7 +30,7 @@ jobs:
         run: macos/scripts/test-ota.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: Bento-macos-preview
+          name: Bento-${{ matrix.os }}-preview
           path: |
             artifacts/macos/Bento-macos-universal.zip
             artifacts/macos/interaction-smoke/results.json

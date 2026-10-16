@@ -1,5 +1,7 @@
-Bento for macOS 0.2.3 arranges the windows that fit and leaves the others alone.
+Bento for macOS 0.2.4 arranges the windows that fit and leaves the others alone.
 
+- Matching settings icons for Dock, menu bar, edge snapping, login startup, appearance, animation and gesture controls.
+- Compatibility checks run on macOS 15 and 26; the app supports macOS 15 or later on Intel and Apple Silicon.
 - An oversized window no longer blocks the entire layout. Smaller windows receive usable slots; skipped windows keep their original positions.
 - Native minimum-size restrictions trigger a bounded retry with a fitting subset. Windows that refuse resizing are also left alone after rollback is verified.
 - Workspace shows how many windows are arranged and lists the windows left floating.

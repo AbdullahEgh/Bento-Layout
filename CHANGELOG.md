@@ -1,5 +1,10 @@
 # Bento releases
 
+## macOS 0.2.4 — October 2026
+
+- Add Bento-style icons to settings controls, reusing Windows artwork where applicable.
+- Run build, layout, native interaction and OTA fixture checks on macOS 15 and 26. The minimum remains macOS 15.
+
 ## macOS 0.2.3 — October 2026
 
 - Also skip windows that refuse native resize requests, after verifying rollback. An unresponsive or incompatible window does not block fitting windows.
