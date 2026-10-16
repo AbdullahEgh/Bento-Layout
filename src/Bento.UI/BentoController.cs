@@ -45,6 +45,7 @@ public sealed class BentoController : IDisposable
     private long nativeResizeWindow;
     private PixelRect? nativeStartBounds;
     private Divider? divider;
+    private PixelPoint dividerStart;
     private string? dividerMonitor;
     private WorkspaceState? dragStart;
     private WindowSnapshot[]? liveResizeStart;
@@ -263,7 +264,7 @@ public sealed class BentoController : IDisposable
         transition?.Dispose(); transition = null;
         liveResizeStart = Layout(monitor, dragStart).Regions.Select(r => native.Capture(r.Window.WindowId)).ToArray();
         foreach (var region in Layout(monitor, dragStart).Regions) liveBounds[region.Window.WindowId] = native.VisibleBounds(region.Window.WindowId);
-        touchPoint = touch;
+        touchPoint = touch; dividerStart = touch ?? WindowCatalog.Cursor;
         timer.Interval = TimeSpan.FromMilliseconds(16);
         foreach (var handle in dividers) if (handle.SplitId != value.SplitId) handle.Hide();
         UpdatePreview(touch);
@@ -356,12 +357,8 @@ public sealed class BentoController : IDisposable
             }
             else if (divider is not null && dividerMonitor is not null)
             {
-                var rect = divider.ParentBounds;
-                bool horizontal = divider.Axis == SplitAxis.Horizontal;
-                double ratio = ((horizontal ? point.X - rect.X : point.Y - rect.Y) - Settings.Gap / 2d) /
-                    Math.Max(1, (horizontal ? rect.Width : rect.Height) - Settings.Gap);
                 var root = dragStart!.Roots[dividerMonitor]!;
-                preview = dragStart.WithRoot(dividerMonitor, LayoutEngine.Resize(root, divider.SplitId, ratio));
+                preview = dragStart.WithRoot(dividerMonitor, LayoutEngine.ResizeDivider(root, divider, point, dividerStart, Settings.Gap));
             }
             else if (incoming is not null)
             {
@@ -439,6 +436,7 @@ public sealed class BentoController : IDisposable
             try { Apply(history.Current, history.Current); RefreshDesktopDividers(); }
             catch (Exception ex) { Report(ex.Message); }
         }
+        if (!applied) RefreshDesktopDividers();
     }
     public void CancelDrag() => ClearDrag(restoreLive: true);
     private void RestoreLiveResize(WindowSnapshot[] snapshots)
@@ -456,7 +454,8 @@ public sealed class BentoController : IDisposable
         nativeResizeWindow = 0; validPreview = false;
         timer.Interval = TimeSpan.FromSeconds(1);
         dropPreview?.Hide();
-        foreach (var handle in dividers) { handle.ResetPresentation(); handle.Show(); }
+        if (restoreLive)
+            foreach (var handle in dividers) { handle.ResetPresentation(); handle.Show(); }
         PlaceDividersBelowInterface();
     }
     public void Remove(long id)
@@ -612,7 +611,6 @@ public sealed class BentoController : IDisposable
             var monitor = monitors.Single(m => m.Id == dividerMonitor);
             var boundary = Layout(monitor, preview).Dividers.Single(d => d.SplitId == divider.SplitId);
             dividers.FirstOrDefault(h => h.SplitId == divider.SplitId)?.PresentResize(boundary.Bounds);
-            PlaceDividersBelowInterface();
             return;
         }
         foreach (var monitor in monitors)
@@ -641,7 +639,7 @@ public sealed class BentoController : IDisposable
             {
                 var handle = dividers.FirstOrDefault(h => h.SplitId == boundary.SplitId && h.MonitorId == monitor.Id);
                 if (handle is null) { handle = new DesktopDividerWindow(this, monitor, boundary); dividers.Add(handle); handle.Show(); }
-                else handle.UpdateDivider(boundary);
+                else { handle.UpdateDivider(boundary); if (!handle.IsVisible) handle.Show(); }
             }
             PlaceDividersBelowInterface();
         }

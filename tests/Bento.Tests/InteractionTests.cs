@@ -108,6 +108,20 @@ internal static class InteractionTests
             g.Reset(); Check(!g.Update("A",id,bounds,new(10,400),2000,450).Armed);
         });
         Run("Zero hold supports immediate split preference", () => Equal(Placement.Right,new DragIntent().Update("A",id,bounds,new(990,400),0,0).Placement));
+        foreach (var axis in new[] { SplitAxis.Horizontal, SplitAxis.Vertical })
+            foreach (int gap in new[] { 7, 8 })
+                Run($"Off-center {axis} grab retains its anchor with gap {gap}", () =>
+                {
+                    var root = new SplitNode(Guid.NewGuid(), axis, .5, WindowNode.Create(1, new(200, 150)), WindowNode.Create(2, new(200, 150)));
+                    var divider = LayoutEngine.Calculate(root, bounds, gap).Dividers[0];
+                    var start = new PixelPoint(divider.Bounds.X + 1, divider.Bounds.Y + 1);
+                    Check(ReferenceEquals(root, LayoutEngine.ResizeDivider(root, divider, start, start, gap)));
+                    var moved = LayoutEngine.ResizeDivider(root, divider, new(start.X + 37, start.Y + 37), start, gap);
+                    var after = LayoutEngine.Calculate(moved, bounds, gap).Dividers[0];
+                    Equal(37, axis == SplitAxis.Horizontal ? after.Bounds.X - divider.Bounds.X : after.Bounds.Y - divider.Bounds.Y);
+                    var limited = LayoutEngine.Calculate(LayoutEngine.ResizeDivider(root, divider, new(-10000, -10000), start, gap), bounds, gap).Regions[0];
+                    Equal(axis == SplitAxis.Horizontal ? 200 : 150, axis == SplitAxis.Horizontal ? limited.Bounds.Width : limited.Bounds.Height);
+                });
         Run("Motion reaches exact negative-origin endpoints without overshoot", () =>
         {
             var from = new PixelRect(-1900,-200,900,600); var to = new PixelRect(100,200,800,500);

@@ -1,12 +1,19 @@
 import Foundation
 
 public enum InteractionGeometry {
-    public static func resize(_ workspace: Workspace, display: String, divider: Divider, pointer: Point, area: Rect, gap: Int) throws -> Workspace {
+    public static func resize(_ workspace: Workspace, display: String, divider: Divider, pointer: Point, area: Rect, gap: Int, grabbedAt: Point? = nil) throws -> Workspace {
         guard let root = workspace.roots[display], (try LayoutEngine.calculate(root, in: area, gap: gap)).dividers.contains(where: { $0.id == divider.id }) else { throw LayoutError.missingTarget }
         let horizontal = divider.axis == .horizontal
         let length = (horizontal ? divider.parent.width : divider.parent.height) - gap
         guard length > 0 else { throw LayoutError.invalidInput }
-        let position = (horizontal ? pointer.x - divider.parent.x : pointer.y - divider.parent.y) - gap / 2
+        let position: Int
+        if let grabbedAt {
+            let delta = horizontal ? pointer.x - grabbedAt.x : pointer.y - grabbedAt.y
+            if delta == 0 { return workspace }
+            position = (horizontal ? divider.bounds.x - divider.parent.x : divider.bounds.y - divider.parent.y) + delta
+        } else {
+            position = (horizontal ? pointer.x - divider.parent.x : pointer.y - divider.parent.y) - gap / 2
+        }
         let candidate = root.resizing(divider.id, ratio: max(0, min(1, Double(position) / Double(length))))
         _ = try LayoutEngine.calculate(candidate, in: area, gap: gap)
         var next = workspace; next.roots[display] = candidate; return next

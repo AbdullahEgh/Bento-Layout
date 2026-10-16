@@ -15,10 +15,11 @@ import AppKit
             }
         }
         for (panel, screen) in zip(panels, NSScreen.screens) {
-            panel.backgroundColor = .black.withAlphaComponent(CGFloat(darkness) / 100)
-            panel.setFrame(screen.frame, display: true)
+            let color = NSColor.black.withAlphaComponent(CGFloat(darkness) / 100)
+            if panel.backgroundColor != color { panel.backgroundColor = color }
+            if panel.frame != screen.frame { panel.setFrame(screen.frame, display: true) }
             // Above the desktop, behind ordinary application windows; never activates.
-            panel.orderBack(nil)
+            if !panel.isVisible { panel.orderBack(nil) }
         }
     }
     func hide() { panels.forEach { $0.orderOut(nil) }; panels.removeAll() }

@@ -440,8 +440,8 @@ struct SavedWorkspace: Codable {
         } catch { message = error.localizedDescription; if !wasActive { try? desktopPreferences.restore() } }
     }
     func recoverDesktopPreferences() { do { try desktopPreferences.restore() } catch { message = error.localizedDescription } }
-    func finishInteraction(_ workspace: Workspace, commit: Bool) async throws {
-        try await apply(workspace, displays: DisplayArea.all(margin: settings.margin))
+    func finishInteraction(_ workspace: Workspace, commit: Bool, animate: Bool = true) async throws {
+        try await apply(workspace, displays: DisplayArea.all(margin: settings.margin), animate: animate)
         if commit { history.commit(workspace) }
     }
 }

@@ -1,3 +1,9 @@
+# Split and resize UX review — unreleased, 2026-10-16
+
+Local release build passed, with 32 core tests and 61 isolated native interaction checks. Added coverage for off-center grabs on both axes, odd/even gaps, minimum-size clamping, stationary pointer samples, rapid release retaining the newest queued sample, delayed native frame acceptance without a second animation, and final helper geometry. Results: `artifacts/macos/split-ux-review/results/results.json`.
+
+The live pointer test remains paused at the user's request. These checks use disposable fixture windows, leave external app windows and system preferences alone, and do not establish physical hover/drag feel. The installed 0.2.9 app is unchanged by this review.
+
 # macOS 0.2.9 grabber input and responsive settings — 2026-10-16
 
 [Release run 38911048468](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/38911048468) and [macOS 15/26 run 38911047800](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/38911047800) passed at `d0d3adc`: 31 core tests, universal build, and 56 isolated native interaction checks. The new checks verify nonzero background pixels across the otherwise hidden gap, native mouse-enter/press/exit/release handlers, and unchanged helper level below app windows and above the dimmer. These are fixture checks, not a claim of a physical pointer pass over every external app.

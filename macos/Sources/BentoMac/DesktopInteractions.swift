@@ -28,6 +28,7 @@ struct DesktopInput {
     private var candidate: Workspace?
     private var nativeResize = false
     private var grip: (display: String, divider: Divider)?
+    private var gripStart = Point(0, 0)
     private var pending: Workspace?
     private var liveTask: Task<Void, Never>?
     private var liveFailure = false
@@ -67,7 +68,8 @@ struct DesktopInput {
                     panel.gripView.onEnd = { [weak self] cancel in Task { await self?.finish(cancel: cancel) } }
                     grips[divider.id] = panel
                 }
-                panel.setFrame(DesktopCoordinates.appKit(divider.bounds), display: true)
+                let frame = DesktopCoordinates.appKit(divider.bounds)
+                if panel.frame != frame { panel.setFrame(frame, display: true) }
                 panel.gripView.animate = model.settings.animate
                 panel.gripView.duration = Double(model.settings.animationMS) / 1000
                 panel.gripView.lightInk = model.settings.backgroundDarkness >= 40 || NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
@@ -143,20 +145,27 @@ struct DesktopInput {
               let root = model.history.current.roots[display], let area = areas()[display],
               let divider = try? LayoutEngine.calculate(root, in: area, gap: model.settings.gap).dividers.first(where: { $0.id == id }) else { return false }
         snapshot = model.history.current; candidate = snapshot; grip = (display, divider)
+        gripStart = input().point
         model.interacting = true; liveFailure = false; preview.orderOut(nil)
         return true
     }
     func moveGrip() {
         guard !finishing, !liveFailure, let grip, let original = snapshot, let area = areas()[grip.display] else { return }
         do {
-            let next = try InteractionGeometry.resize(original, display: grip.display, divider: grip.divider, pointer: input().point, area: area, gap: model.settings.gap)
-            candidate = next; pending = next; updateGrips(next)
+            let next = try InteractionGeometry.resize(original, display: grip.display, divider: grip.divider, pointer: input().point, area: area, gap: model.settings.gap, grabbedAt: gripStart)
+            guard next != candidate else { return }
+            candidate = next; pending = next
             if liveTask == nil {
                 liveTask = Task { @MainActor [weak self] in
                     guard let self else { return }
                     while let next = self.pending {
                         self.pending = nil
-                        do { try await self.model.apply(next, displays: DisplayArea.all(margin: self.model.settings.margin), liveResize: true) }
+                        do {
+                            try await self.model.apply(next, displays: DisplayArea.all(margin: self.model.settings.margin), liveResize: true)
+                            // Move the hit surface with the applied sample, not ahead
+                            // of the windows while a newer sample is still queued.
+                            self.updateGrips(next)
+                        }
                         catch { self.liveFailure = true; self.pending = nil; self.model.message = error.localizedDescription; break }
                     }
                     self.liveTask = nil
@@ -167,16 +176,18 @@ struct DesktopInput {
     }
     func finish(cancel: Bool) async {
         guard !finishing, let original = snapshot else { return }
-        finishing = true; pending = nil; preview.orderOut(nil)
+        finishing = true
+        if cancel { pending = nil; preview.orderOut(nil) }
         if let liveTask { await liveTask.value }
         let next = cancel || liveFailure ? original : candidate ?? original
         trace?("Gesture finish: cancel=\(cancel), candidate=\(candidate != nil)")
-        do { try await model.finishInteraction(next, commit: !cancel && !liveFailure && candidate != nil) }
+        do { try await model.finishInteraction(next, commit: !cancel && !liveFailure && candidate != nil, animate: grip == nil || cancel || liveFailure) }
         catch {
             let failure = error.localizedDescription
             do { try await model.finishInteraction(original, commit: false); model.message = failure }
             catch { model.message = "\(failure) Restoring the committed layout also failed: \(error.localizedDescription)" }
         }
+        preview.orderOut(nil)
         snapshot = nil; candidate = nil; session = nil; grip = nil; pressedWindow = nil; pressedFrame = nil
         liveTask = nil; liveFailure = false; nativeResize = false; model.interacting = false; finishing = false
         model.onStateChange?()

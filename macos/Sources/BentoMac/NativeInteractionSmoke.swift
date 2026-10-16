@@ -122,15 +122,35 @@ private final class FixturePreferences: PreferenceBackend {
             input.pressed = false; input.escape = false; interactions.sample()
             try check(try model.history.current == beforeCancel && matchingGeometry(), "Escape restores native drag snapshot")
             let (display, gripLayout) = try regions(), divider = gripLayout.dividers[0]
+            input.point = Point(divider.bounds.x + 1, divider.bounds.y + 1)
             try check(interactions.beginGrip(display: display, id: divider.id), "Gap grip begins a native resize")
             input.point = Point(divider.bounds.x + 90, divider.bounds.y + 90); interactions.moveGrip()
             try? await Task.sleep(for: .milliseconds(180)); await interactions.finish(cancel: false)
             try check(try matchingGeometry(), "Gap grip commits matching native bounds")
             let beforeGripCancel = model.history.current, currentDivider = try regions().1.dividers[0]
+            input.point = Point(currentDivider.bounds.x + 1, currentDivider.bounds.y + 1)
             _ = interactions.beginGrip(display: display, id: currentDivider.id)
             input.point = Point(currentDivider.bounds.x - 80, currentDivider.bounds.y - 80); interactions.moveGrip()
             try? await Task.sleep(for: .milliseconds(180)); await interactions.finish(cancel: true)
             try check(try model.history.current == beforeGripCancel && matchingGeometry(), "Grip cancellation restores native geometry without history mutation")
+            let releaseDivider = try regions().1.dividers[0], beforeRelease = model.history.current
+            let releaseStart = Point(releaseDivider.bounds.x + 1, releaseDivider.bounds.y + 1)
+            input.point = releaseStart
+            model.settings.animate = true; system.deferWrites = true; system.writeDelay = 0.08
+            system.writes.removeAll()
+            try check(interactions.beginGrip(display: display, id: releaseDivider.id), "Off-center grab starts without moving windows")
+            interactions.moveGrip()
+            try check(system.writes.isEmpty, "Stationary grip does not enqueue native writes")
+            input.point = Point(releaseStart.x + 20, releaseStart.y + 20); interactions.moveGrip()
+            input.point = Point(releaseStart.x + 40, releaseStart.y + 40); interactions.moveGrip()
+            await interactions.finish(cancel: false)
+            let releaseArea = DisplayArea.all(margin: model.settings.margin).first { $0.id == display }!.bounds
+            let expectedRelease = try InteractionGeometry.resize(beforeRelease, display: display, divider: releaseDivider, pointer: input.point, area: releaseArea, gap: model.settings.gap, grabbedAt: releaseStart)
+            try check(try model.history.current == expectedRelease && matchingGeometry(), "Quick release drains the newest queued pointer sample")
+            try check(!system.writes.isEmpty && system.writes.values.allSatisfy { $0 <= 2 }, "Delayed native resize release has no second animation")
+            let releaseLayout = try regions().1
+            try check(interactions.helperFrames.allSatisfy { frame in releaseLayout.dividers.contains { $0.bounds == frame } }, "Grabbers finish at the accepted window boundaries")
+            model.settings.animate = false; system.deferWrites = false; system.writeDelay = 0.04
             let borderLayout = try regions().1
             if let borderSource = borderLayout.regions.first(where: { region in borderLayout.dividers.contains { $0.axis == .horizontal && $0.bounds.x == region.bounds.right } && region.bounds.width > region.window.minimum.width + 30 }) {
                 let record = system.records.first { $0.0.id == borderSource.window.windowID }!.0

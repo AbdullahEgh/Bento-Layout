@@ -88,6 +88,18 @@ public static class LayoutEngine
         _ => node
     };
 
+    // Anchor movement to the press location, including off-center and touch grabs.
+    public static LayoutNode ResizeDivider(LayoutNode root, Divider divider, PixelPoint point, PixelPoint grabbedAt, int gap)
+    {
+        bool horizontal = divider.Axis == SplitAxis.Horizontal;
+        int delta = horizontal ? point.X - grabbedAt.X : point.Y - grabbedAt.Y;
+        if (delta == 0) return root;
+        int position = (horizontal ? divider.Bounds.X - divider.ParentBounds.X : divider.Bounds.Y - divider.ParentBounds.Y) + delta;
+        int length = (horizontal ? divider.ParentBounds.Width : divider.ParentBounds.Height) - gap;
+        if (length <= 0) throw new LayoutConstraintException("This divider has no usable space.");
+        return Resize(root, divider.SplitId, position / (double)length);
+    }
+
     // Translate resizing a real window's inner edges into changes to its ancestor dividers.
     public static LayoutNode ResizeWindow(LayoutNode root, long windowId, PixelRect requested, PixelRect area, int gap = 8)
     {

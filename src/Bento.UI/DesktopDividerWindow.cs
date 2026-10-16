@@ -64,22 +64,24 @@ public sealed class DesktopDividerWindow : Window
     public void PresentResize(PixelRect bounds)
     {
         bool first = !resizing;
+        bool moved = presentedBounds != bounds;
         resizing = true; presentedBounds = bounds;
         bool horizontal = divider.Axis == SplitAxis.Horizontal;
         Animate(WidthProperty, horizontal ? 2 : Math.Min(104, bounds.Width / monitor.Scale));
         Animate(HeightProperty, horizontal ? Math.Min(104, bounds.Height / monitor.Scale) : 2);
         grip.CornerRadius = new CornerRadius(1); Animate(OpacityProperty, 1);
         if (first) RefreshContrast();
-        DesktopIntegration.PositionOverlay(new WindowInteropHelper(this).Handle, bounds, topmost: false);
+        if (moved) DesktopIntegration.MoveOverlay(new WindowInteropHelper(this).Handle, bounds);
     }
     public void ResetPresentation()
     {
+        bool moved = presentedBounds != divider.Bounds;
         resizing = false; presentedBounds = divider.Bounds;
         bool horizontal = divider.Axis == SplitAxis.Horizontal;
         Animate(WidthProperty, horizontal ? 2 : Math.Min(40, divider.Bounds.Width / monitor.Scale));
         Animate(HeightProperty, horizontal ? Math.Min(40, divider.Bounds.Height / monitor.Scale) : 2);
         grip.CornerRadius = new CornerRadius(1); Animate(OpacityProperty, IsMouseOver ? 1 : 0);
-        DesktopIntegration.PositionOverlay(new WindowInteropHelper(this).Handle, divider.Bounds, topmost: false);
+        if (moved) DesktopIntegration.MoveOverlay(new WindowInteropHelper(this).Handle, divider.Bounds);
     }
 
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)

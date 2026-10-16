@@ -394,10 +394,22 @@ internal static class NativeTests
                 Check(!ReferenceEquals(fresh, controller.DisplayState));
                 controller.CancelDrag();
             });
+            Run("Moving a divider preserves its stacking position before any controller repair", () =>
+            {
+                controller.Refresh();
+                var handle = Application.Current!.Windows.OfType<DesktopDividerWindow>().First();
+                nint hwnd = new System.Windows.Interop.WindowInteropHelper(handle).Handle;
+                nint above = GetWindow(hwnd, 3), below = GetWindow(hwnd, 2);
+                var bounds = handle.DesktopBounds;
+                handle.PresentResize(new(bounds.X + 10, bounds.Y + 10, bounds.Width, bounds.Height));
+                Equal(above, GetWindow(hwnd, 3)); Equal(below, GetWindow(hwnd, 2));
+                handle.ResetPresentation();
+                Equal(above, GetWindow(hwnd, 3)); Equal(below, GetWindow(hwnd, 2));
+            });
             Run("Divider commits native resize once gesture completes", () =>
             {
                 var divider = controller.Layout(monitor).Dividers.First();
-                controller.BeginDivider(monitor, divider);
+                controller.BeginDivider(monitor, divider, new(divider.Bounds.X + 1, divider.Bounds.Y + 1));
                 controller.FinishDrag(new(divider.ParentBounds.X + (int)(divider.ParentBounds.Width * .6), divider.ParentBounds.Y + 200)); Pump();
                 VerifyBounds(controller.Layout(monitor), native);
             });
@@ -405,7 +417,7 @@ internal static class NativeTests
             {
                 var before = fixtures.Select(w => native.VisibleBounds(w.Id)).ToArray();
                 var boundary = controller.Layout(monitor).Dividers.First();
-                controller.BeginDivider(monitor, boundary);
+                controller.BeginDivider(monitor, boundary, new(boundary.Bounds.X + 1, boundary.Bounds.Y + 1));
                 var point = new PixelPoint(boundary.ParentBounds.X + boundary.ParentBounds.Width / 2, boundary.ParentBounds.Y + boundary.ParentBounds.Height / 2);
                 controller.PreviewDrag(point);
                 Check(!Application.Current!.Windows.OfType<DropPreviewWindow>().Any(w => w.IsVisible));

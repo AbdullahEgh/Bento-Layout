@@ -109,6 +109,23 @@ final class InteractionAndUpdateTests: XCTestCase {
         XCTAssertEqual(state.roots["A"], root)
         XCTAssertThrowsError(try InteractionGeometry.resize(state, display: "missing", divider: divider, pointer: Point(500, 0), area: area, gap: 8))
     }
+    func testOffCenterGripKeepsAnchorAcrossBothAxesAndOddGaps() throws {
+        for axis in [Axis.horizontal, .vertical] {
+            for gap in [7, 8] {
+                let root = LayoutNode.split(id: UUID(), axis: axis, ratio: 0.5, first: .window(leaf()), second: .window(leaf()))
+                let state = Workspace(roots: ["A": root])
+                let divider = try LayoutEngine.calculate(root, in: area, gap: gap).dividers[0]
+                let start = Point(divider.bounds.x + 1, divider.bounds.y + 1)
+                XCTAssertEqual(try InteractionGeometry.resize(state, display: "A", divider: divider, pointer: start, area: area, gap: gap, grabbedAt: start), state)
+                let moved = try InteractionGeometry.resize(state, display: "A", divider: divider, pointer: Point(start.x + 37, start.y + 37), area: area, gap: gap, grabbedAt: start)
+                let after = try LayoutEngine.calculate(moved.roots["A"], in: area, gap: gap).dividers[0]
+                XCTAssertEqual(axis == .horizontal ? after.bounds.x - divider.bounds.x : after.bounds.y - divider.bounds.y, 37)
+                let limited = try InteractionGeometry.resize(state, display: "A", divider: divider, pointer: Point(-10000, -10000), area: area, gap: gap, grabbedAt: start)
+                let first = try LayoutEngine.calculate(limited.roots["A"], in: area, gap: gap).regions[0]
+                XCTAssertEqual(axis == .horizontal ? first.bounds.width : first.bounds.height, axis == .horizontal ? 200 : 150)
+            }
+        }
+    }
     func testNativeBorderChangesAncestorAndNeighbor() throws {
         let a = leaf(), b = leaf(), root = LayoutNode.split(id: UUID(), axis: .horizontal, ratio: 0.5, first: .window(a), second: .window(b))
         let before = try LayoutEngine.calculate(root, in: area).regions
