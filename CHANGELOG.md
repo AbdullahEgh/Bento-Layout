@@ -1,5 +1,9 @@
 # Bento releases
 
+## macOS 0.2.6 — October 2026
+
+- Publish a maintenance update with the same permanent identity as 0.2.5 for live OTA Accessibility-retention validation. Window behavior is unchanged.
+
 ## macOS 0.2.5 — October 2026
 
 - Keep one certificate-pinned app identity across releases so Accessibility approval can survive updates. Older ad-hoc builds require a one-time permission migration.

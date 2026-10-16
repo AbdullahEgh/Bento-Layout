@@ -1,9 +1,9 @@
-Bento for macOS 0.2.5 keeps a stable app identity across updates.
+Bento for macOS 0.2.6 is a maintenance release for verifying OTA permission continuity.
 
-- Releases now use the same persistent code-signing certificate and app requirement. macOS can recognize future versions as the same app instead of tying Accessibility approval to one build.
-- The release workflow refuses ad-hoc signing and verifies that a different version satisfies the same app identity.
-- Sparkle continues to verify GitHub OTA downloads with the existing Ed25519 update key.
-- Upgrading from 0.2.4 or earlier changes the app identity once. Enable the newly installed app in Accessibility after this migration. Later updates signed by this identity are designed to retain that approval.
-- Includes quiet menu-bar activation, fitting-window arrangement, precise split previews, visible resize grips and settings icons from 0.2.4.
+- Uses the same permanent app-signing certificate and designated requirement as 0.2.5.
+- Keeps the existing window arrangement, split, resize and restoration behavior.
+- Continues to verify GitHub update downloads with the existing Ed25519 update key.
 
-This is a free, self-signed app identity, not Apple Developer ID signing or notarization. It establishes continuity between Bento releases. It does not grant Accessibility access automatically or override a permission you revoke.
+This release allows a real 0.2.5 → 0.2.6 update to verify that an existing Accessibility grant remains valid. Results will be recorded in macos/VALIDATION.md after installation; publication alone does not establish permission retention.
+
+Users upgrading from 0.2.4 or earlier still need the one-time migration to the permanent identity. This free signing identity is not Apple Developer ID signing or notarization.
