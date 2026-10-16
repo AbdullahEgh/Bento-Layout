@@ -4,26 +4,27 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.13</title>
-            <pubDate>Fri, 16 Oct 2026 19:45:57 +0000</pubDate>
-            <sparkle:version>116</sparkle:version>
-            <sparkle:shortVersionString>0.2.13</sparkle:shortVersionString>
+            <title>0.2.14</title>
+            <pubDate>Fri, 16 Oct 2026 20:24:45 +0000</pubDate>
+            <sparkle:version>117</sparkle:version>
+            <sparkle:shortVersionString>0.2.14</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.13
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.14
 
 What’s new
 
-- Keep valid window moves committed when macOS briefly returns the dragged window to its old position.
-- Improve fast drags and split drops when window focus changes late.
-- Pause background rearrangement while dragging and ignore brief window-discovery gaps.
-- Keep split previews stable and reuse their geometry, with fewer native frame reads and redraws.
-- Apply the final drop once after mouse-up, including the last native resize position.
-- Recover cleanly when a source or target closes during a gesture, and add local interaction tracing for QA.
+- Turn Bento off and on without rebuilding your edited slots, display assignments, or floating-window choices.
+- Restore overflow windows to the Dock when resuming the same layout.
+- Drag floating windows into a slot to split it without ejecting another window, using Bento’s shared placement rules.
+- Move windows onto an empty display through the same validated drop calculation.
+- Clamp divider moves to newly discovered app size limits within the existing split tree, with one bounded correction.
+- Show clear swap, hold-to-split, and directional split feedback; ignore stationary clicks on drifted windows.
+- Restore newly admitted windows to their pre-drag positions when Bento is turned off.
 ]]></description>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.13/Bento-macos-universal.zip" length="3005685" type="application/octet-stream" sparkle:edSignature="+T1ZgT3V5kr4E6ILIPPxalAwr2bMptT/v+Mle39+oK6kezaI56Nf/Ti2WNON/0BPzHofho67822G0RtFOtRYDg=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.14/Bento-macos-universal.zip" length="3059668" type="application/octet-stream" sparkle:edSignature="easJ+x2o+2WMKUQLXMPUEvHh9Vw54MOsIW//HSI9Ezif6cJJm7EfD1ePzf2E1kI1orcjIQm+e0OX+km/WpxtBQ=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: yt6GjbVqXkgrOZmt9A0PkEnSfl4I2z2ZzbMaBowC/++GNNNU0pLrXsgzbFfB3sG1uAVkJBnEua9FzkM3t22OAw==
-length: 1733
+edSignature: NYITmX0edFMtpOcQQzYKG/UYhSjy7icHdXpdATUpqJeAn5ejTF7X5j327ZQYsfCBgbrIX1Rob1VvTmxH42MjDA==
+length: 1880
 -->
