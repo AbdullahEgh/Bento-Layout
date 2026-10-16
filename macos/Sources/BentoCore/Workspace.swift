@@ -7,6 +7,17 @@ public struct Workspace: Codable, Equatable, Sendable {
     public func removing(_ id: UUID) -> Workspace {
         Workspace(roots: roots.compactMapValues { $0.removing(id) })
     }
+    /// Reconcile membership and constraints without rebuilding slots or changing displays.
+    public func reconciled(with available: [WindowLeaf]) -> Workspace {
+        let leaves = Dictionary(uniqueKeysWithValues: available.map { ($0.windowID, $0) })
+        var next = self
+        for old in windows {
+            guard let current = leaves[old.windowID] else { next = next.removing(old.windowID); continue }
+            var updated = old; updated.minimum = current.minimum
+            for (display, root) in next.roots { next.roots[display] = root.replacing(old.id, with: .window(updated)) }
+        }
+        return next
+    }
     public func placing(_ incoming: WindowLeaf, on display: String, target targetID: UUID?, placement: Placement) throws -> Workspace {
         let original = roots[display], target = original?.windows.first { $0.id == targetID }
         if targetID == nil && original != nil { throw LayoutError.missingTarget }

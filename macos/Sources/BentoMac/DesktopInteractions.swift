@@ -137,6 +137,7 @@ struct DesktopInput {
                     // A fast drag may already have moved before this first sample.
                     pressedFrame = region.bounds; break
                 }
+                if pressedFrame == nil { pressedFrame = model.system.frame(of: window.element) }
                 model.recordInteraction(window)
                 trace?("pointer down window=\(window.id) at=\(pressPoint)")
             }
@@ -156,10 +157,13 @@ struct DesktopInput {
         if snapshot == nil {
             let moved = abs(before.x - current.x) > 2 || abs(before.y - current.y) > 2
             let resized = abs(before.width - current.width) > 2 || abs(before.height - current.height) > 2
-            if moved || resized, let source = model.history.current.windows.first(where: { $0.windowID == window.id }) {
-                snapshot = model.history.current; session = DropSession(workspace: model.history.current, source: source)
+            let pointerMoved = abs(state.point.x - pressPoint.x) >= 4 || abs(state.point.y - pressPoint.y) >= 4
+            if (moved || resized) && pointerMoved {
+                let original = model.history.current.reconciled(with: model.windows.map(\.leaf))
+                let source = original.windows.first(where: { $0.windowID == window.id }) ?? window.leaf
+                snapshot = original; session = DropSession(workspace: original, source: source)
                 let onBorder = abs(pressPoint.x - before.x) <= 6 || abs(pressPoint.x - before.right) <= 6 || abs(pressPoint.y - before.y) <= 6 || abs(pressPoint.y - before.bottom) <= 6
-                nativeResize = resized && (!moved || onBorder); model.interacting = true
+                nativeResize = original.windows.contains(where: { $0.windowID == window.id }) && resized && onBorder; model.interacting = true
                 trace?(nativeResize ? "native resize started" : "native drag started")
                 grips.values.forEach { $0.orderOut(nil) }
             }
@@ -204,7 +208,7 @@ struct DesktopInput {
               let root = model.history.current.roots[display], let area = areas()[display],
               let divider = try? LayoutEngine.calculate(root, in: area, gap: model.settings.gap).dividers.first(where: { $0.id == id }) else { return false }
         gestureAreas = areas()
-        snapshot = model.history.current; candidate = snapshot; grip = (display, divider)
+        snapshot = model.history.current.reconciled(with: model.windows.map(\.leaf)); candidate = snapshot; grip = (display, divider)
         gripStart = input().point
         model.interacting = true; liveFailure = false; preview.orderOut(nil)
         grips[id]?.gripView.dragging = true
@@ -249,6 +253,10 @@ struct DesktopInput {
         if !disappeared.isEmpty { trace?("gesture target/source closed; recovering remaining windows count=\(disappeared.count)") }
         let started = ProcessInfo.processInfo.systemUptime
         trace?("gesture finishing cancel=\(cancel) candidate=\(candidate != nil)")
+        if !cancel, !liveFailure, candidate != nil, let window = pressedWindow, let frame = pressedFrame,
+           !original.windows.contains(where: { $0.windowID == window.id }) {
+            model.rememberOriginal(window, frame: frame)
+        }
         do { try await model.finishInteraction(next, commit: !disappeared.isEmpty || !cancel && !liveFailure && candidate != nil, animate: cancel || liveFailure) }
         catch {
             trace?("gesture commit rejected; rolling back")
@@ -256,7 +264,7 @@ struct DesktopInput {
             do { try await model.finishInteraction(recovery, commit: false); model.message = failure }
             catch { model.message = "\(failure) Restoring the committed layout also failed: \(error.localizedDescription)" }
         }
-        trace?("gesture settled elapsedMS=\(Int((ProcessInfo.processInfo.systemUptime - started) * 1000)) committed=\(model.history.current == next && next != original)")
+        trace?("gesture settled elapsedMS=\(Int((ProcessInfo.processInfo.systemUptime - started) * 1000)) committed=\(!cancel && !liveFailure && model.message == nil && model.history.current != original)")
         preview.orderOut(nil)
         gestureAreas = nil; escapeRequested = false; releasePending = false
         snapshot = nil; candidate = nil; session = nil; grip = nil; pressedWindow = nil; pressedFrame = nil
@@ -342,6 +350,13 @@ struct DesktopInput {
             let icon = NSRect(x: chip.midX - 12, y: chip.midY - 12, width: 24, height: 24)
             symbol.draw(in: icon)
         }
+        let label = conflict ? "Cannot fit here" : progress != nil ? "Hold to split" : placement == .center ? "Swap windows" : "Split \(placement.rawValue)"
+        let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11, weight: .semibold), .foregroundColor: NSColor.white]
+        let textSize = label.size(withAttributes: attributes)
+        let caption = NSRect(x: chip.midX - textSize.width / 2 - 7, y: chip.minY - 24, width: textSize.width + 14, height: 20)
+        NSColor(calibratedWhite: 0.09, alpha: 0.94).setFill()
+        NSBezierPath(roundedRect: caption, xRadius: 6, yRadius: 6).fill()
+        label.draw(at: NSPoint(x: caption.minX + 7, y: caption.minY + 3), withAttributes: attributes)
         if let progress {
             let ring = NSBezierPath()
             ring.appendArc(withCenter: NSPoint(x: chip.midX, y: chip.midY), radius: size / 2 + 5,

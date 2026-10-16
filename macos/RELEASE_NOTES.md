@@ -1,10 +1,11 @@
-Bento for macOS 0.2.13
+Bento for macOS 0.2.14
 
 What’s new
 
-- Keep valid window moves committed when macOS briefly returns the dragged window to its old position.
-- Improve fast drags and split drops when window focus changes late.
-- Pause background rearrangement while dragging and ignore brief window-discovery gaps.
-- Keep split previews stable and reuse their geometry, with fewer native frame reads and redraws.
-- Apply the final drop once after mouse-up, including the last native resize position.
-- Recover cleanly when a source or target closes during a gesture, and add local interaction tracing for QA.
+- Turn Bento off and on without rebuilding your edited slots, display assignments, or floating-window choices.
+- Restore overflow windows to the Dock when resuming the same layout.
+- Drag floating windows into a slot to split it without ejecting another window, using Bento’s shared placement rules.
+- Move windows onto an empty display through the same validated drop calculation.
+- Clamp divider moves to newly discovered app size limits within the existing split tree, with one bounded correction.
+- Show clear swap, hold-to-split, and directional split feedback; ignore stationary clicks on drifted windows.
+- Restore newly admitted windows to their pre-drag positions when Bento is turned off.

@@ -99,6 +99,8 @@ struct SavedWorkspace: Codable {
     private var lastDisplays: [DisplayArea] = []
     private var released = Set<UUID>()
     private var lastBento: Workspace?
+    private var lastReleased = Set<UUID>()
+    private var lastMinimized = Set<UUID>()
     private var activationGeneration = 0
     private var activateAfterPermission = false
     var onStateChange: (() -> Void)?
@@ -152,7 +154,7 @@ struct SavedWorkspace: Codable {
         }
     }
     private func discoverWindows() throws -> [ManagedWindow] {
-        var visible = try system.discover().filter { !released.contains($0.id) }
+        var visible = try system.discover()
         let visibleIDs = Set(visible.map(\.id))
         if active {
             // Includes newly launched, manually restored and unhidden windows,
@@ -225,9 +227,9 @@ struct SavedWorkspace: Codable {
         let previousWindows = windows
         let generation = activationGeneration
         let wasActive = active
-        trace?("arrangement start preserving=\(preserving) active=\(wasActive)")
+        trace?("arrangement start preserving=\(preserving) resuming=\(resuming) active=\(wasActive)")
         do {
-            if !preserving { released.removeAll() }
+            if !preserving { released = resuming ? lastReleased : [] }
             let current = try discoverWindows(); windows = current
             guard !current.isEmpty else {
                 if preserving { history.commit(Workspace()); onStateChange?() }
@@ -238,6 +240,26 @@ struct SavedWorkspace: Codable {
             }
             let displays = DisplayArea.all(margin: settings.margin)
             let previous = preserving ? history.current : resuming ? lastBento ?? Workspace() : Workspace()
+            if resuming, lastBento != nil {
+                // Resume the edited tree itself. Native frames have just been restored
+                // to pre-Bento positions and cannot determine saved display ownership.
+                let next = previous.reconciled(with: current.map(\.leaf))
+                for (id, root) in next.roots {
+                    guard let area = displays.first(where: { $0.id == id }) else { throw LayoutError.missingTarget }
+                    _ = try LayoutEngine.calculate(root, in: area.bounds, gap: settings.gap)
+                }
+                try await apply(next, displays: displays, animate: false)
+                for window in current where lastMinimized.contains(window.id) && !next.windows.contains(where: { $0.windowID == window.id }) {
+                    try? system.setMinimized(window, true)
+                    if system.isMinimized(window) { minimizedByBento[window.id] = window }
+                }
+                guard generation == activationGeneration else { return }
+                history.commit(next); lastDisplays = displays; reopenedWindows.removeAll()
+                active = !next.windows.isEmpty || !minimizedByBento.isEmpty
+                if !active { try desktopPreferences.restore() }
+                message = nil; trace?("saved arrangement resumed without automatic placement")
+                onStateChange?(); return
+            }
             // Plan with known constraints first. An unknown native minimum gets one
             // correction, never a per-window series of visible layout attempts.
             let attemptLimit = 1
@@ -246,7 +268,7 @@ struct SavedWorkspace: Codable {
                 guard generation == activationGeneration else { return }
                 var next = Workspace()
                 for area in displays {
-                    let members = current.filter { !excluded.contains($0.id) && display(for: $0, displays: displays)?.id == area.id }
+                    let members = current.filter { !released.contains($0.id) && !excluded.contains($0.id) && display(for: $0, displays: displays)?.id == area.id }
                     let oldestFirst = members.enumerated().sorted {
                         // Already minimized overflow gives up space before visible apps.
                         let a = minimizedByBento[$0.element.id] != nil ? -1 : lastInteraction[$0.element.id] ?? 0
@@ -272,7 +294,7 @@ struct SavedWorkspace: Codable {
                 // are forgotten so restoration cannot undo later user movement.
                 let currentIDs = Set(current.map(\.id))
                 originals = originals.filter { included.contains($0.key) || !currentIDs.contains($0.key) || settings.minimizeOverflow }
-                minimizeOverflow(included: included, current: current)
+                minimizeOverflow(included: included, current: current.filter { !released.contains($0.id) })
                 trace?("arrangement committed attempt=\(attempt + 1) tiled=\(included.count) overflow=\(current.count - included.count)")
                 reopenedWindows.removeAll(); failedAutomaticInput = nil
                 lastDisplays = displays; history.commit(next); active = !included.isEmpty || !minimizedByBento.isEmpty
@@ -366,6 +388,7 @@ struct SavedWorkspace: Codable {
         if CommandLine.arguments.contains("--fixture-pid") {
             for (window, wanted) in rejected { print("Rejected fixture bounds: \(window.title), wanted=\(wanted), actual=\(String(describing: system.frame(of: window.element)))") }
         }
+        for (window, wanted) in rejected { trace?("native frame rejected window=\(window.id) wanted=\(wanted) actual=\(String(describing: system.frame(of: window.element)))") }
         var constrained = Set<String>()
         for (window, wanted) in rejected {
             guard let actual = system.frame(of: window.element) else { continue }
@@ -432,7 +455,12 @@ struct SavedWorkspace: Codable {
         if interacting { await cancelInteraction?() }
         while busy { try? await Task.sleep(for: .milliseconds(50)) }
         busy = true; defer { busy = false }
-        if !history.current.windows.isEmpty { lastBento = history.current }
+        if active {
+            lastBento = history.current
+            let tiled = Set(history.current.windows.map(\.windowID))
+            lastReleased = released.union(windows.map(\.id).filter { !tiled.contains($0) && minimizedByBento[$0] == nil })
+            lastMinimized = Set(minimizedByBento.keys)
+        }
         var remaining: [UUID: (ManagedWindow, Rect)] = [:]
         let pending = originals.filter { system.isAlive($0.value.0) }
         try? await move(Array(pending.values), animated: true) { window, frame in
@@ -463,7 +491,7 @@ struct SavedWorkspace: Codable {
         let next = history.current.removing(window.id)
         do {
             try await apply(next, displays: DisplayArea.all(margin: settings.margin))
-            released.insert(window.id); windows.removeAll { $0.id == window.id }; history.commit(next)
+            released.insert(window.id); history.commit(next)
             message = "Window released. Arrange all windows to include it again."; onStateChange?()
         } catch { message = error.localizedDescription }
     }
@@ -523,15 +551,29 @@ struct SavedWorkspace: Codable {
             let nextIDs = Set(next.windows.map(\.windowID))
             released.subtract(nextIDs)
             released.formUnion(history.current.windows.map(\.windowID).filter { !nextIDs.contains($0) })
-            windows.removeAll { released.contains($0.id) }
             history = candidate; active = !next.windows.isEmpty
             if !active { try desktopPreferences.restore() }
             onStateChange?()
         } catch { message = error.localizedDescription; if !wasActive { try? desktopPreferences.restore() } }
     }
     func recoverDesktopPreferences() { do { try desktopPreferences.restore() } catch { message = error.localizedDescription } }
+    func rememberOriginal(_ window: ManagedWindow, frame: Rect) {
+        if originals[window.id] == nil { originals[window.id] = (window, frame) }
+    }
     func finishInteraction(_ workspace: Workspace, commit: Bool, animate: Bool = true) async throws {
-        try await apply(workspace, displays: DisplayArea.all(margin: settings.margin), animate: animate)
-        if commit { history.commit(workspace); trace?("interaction history committed windows=\(workspace.windows.count)") }
+        var resolved = workspace.reconciled(with: windows.map(\.leaf))
+        let displays = DisplayArea.all(margin: settings.margin)
+        do { try await apply(resolved, displays: displays, animate: animate) }
+        catch WindowFailure.minimumSize {
+            // One correction of this exact split tree using the native constraint.
+            // Never invoke automatic arrangement during a user's gesture.
+            resolved = workspace.reconciled(with: windows.map(\.leaf))
+            try await apply(resolved, displays: displays, animate: false)
+        }
+        if commit {
+            released.subtract(resolved.windows.map(\.windowID))
+            history.commit(resolved); message = nil
+            trace?("interaction history committed windows=\(resolved.windows.count)")
+        }
     }
 }

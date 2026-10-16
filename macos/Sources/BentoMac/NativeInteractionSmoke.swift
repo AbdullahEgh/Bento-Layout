@@ -142,6 +142,15 @@ private final class FixturePreferences: PreferenceBackend {
             try check(hoverPanels.contains { $0.gripView.visibleInk > 0 }, "Pointer polling reveals a grabber without a mouse-enter event")
             input.point = Point(-100_000, -100_000); interactions.sample()
             try check(hoverPanels.allSatisfy { $0.gripView.visibleInk == 0 }, "Pointer polling hides grabbers after leaving the gap")
+            let driftSource = firstLayout.regions[0]
+            let driftWindow = system.records.first { $0.0.id == driftSource.window.windowID }!.0
+            var driftFrame = driftSource.bounds; driftFrame.x += 12
+            try system.write(driftWindow, frame: driftFrame)
+            system.pointed = driftWindow
+            input = DesktopInput(point: Point(driftFrame.x + 70, driftFrame.y + 20), pressed: true, escape: false, time: 0.1)
+            interactions.sample(); input.pressed = false; interactions.sample()
+            try check(!model.interacting && model.history.current == beforeMonitor, "A stationary click on a drifted native window never starts a relocation")
+            try system.write(driftWindow, frame: driftSource.bounds); system.pointed = nil
             func startDrag(source: Region, target: Point, time: Double) throws {
                 let record = system.records.first { $0.0.id == source.window.windowID }!.0
                 system.focused = record
@@ -238,6 +247,25 @@ private final class FixturePreferences: PreferenceBackend {
             let releaseLayout = try regions().1
             try check(interactions.helperFrames.allSatisfy { frame in releaseLayout.dividers.contains { $0.bounds == frame } }, "Grabbers finish at the accepted window boundaries")
             model.settings.animate = false; system.deferWrites = false; system.writeDelay = 0.04
+            let constrainedLayout = try regions().1
+            let constrainedDivider = constrainedLayout.dividers[0]
+            let firstSide = constrainedLayout.regions.first { region in
+                constrainedDivider.axis == .horizontal ? region.bounds.right == constrainedDivider.bounds.x : region.bounds.bottom == constrainedDivider.bounds.y
+            }!
+            let limited = system.records.first { $0.0.id == firstSide.window.windowID }!.0
+            var nativeLimit = limited.minimum
+            if constrainedDivider.axis == .horizontal { nativeLimit.width = firstSide.bounds.width - 20 }
+            else { nativeLimit.height = firstSide.bounds.height - 20 }
+            system.nativeMinimum[limited.id] = nativeLimit
+            input.point = Point(constrainedDivider.bounds.x + 1, constrainedDivider.bounds.y + 1)
+            _ = interactions.beginGrip(display: display, id: constrainedDivider.id)
+            input.point = Point(input.point.x - 100, input.point.y - 100); interactions.moveGrip()
+            await interactions.finish(cancel: false)
+            try check(try model.history.current.roots[display]?.id == constrainedLayout.dividers[0].id && matchingGeometry(), "A newly discovered native minimum clamps the existing divider instead of rolling back or rearranging the tree")
+            try check(model.history.current.windows.first { $0.windowID == limited.id }?.minimum == nativeLimit, "Native size constraints persist in the committed split for subsequent gestures")
+            system.nativeMinimum.removeAll()
+            limited.minimum = Size(160, 120)
+            try await model.finishInteraction(model.history.current, commit: true, animate: false)
             let borderLayout = try regions().1
             func trailingDivider(_ region: Region) -> Divider? {
                 borderLayout.dividers.first {
@@ -256,8 +284,10 @@ private final class FixturePreferences: PreferenceBackend {
                 interactions.sample()
                 var requested = borderSource.bounds
                 if horizontal { requested.width -= 20 } else { requested.height -= 20 }
+                input.point = horizontal ? Point(point.x - 20, point.y) : Point(point.x, point.y - 20)
                 try system.write(record, frame: requested); interactions.sample()
                 if horizontal { requested.width -= 20 } else { requested.height -= 20 }
+                input.point = horizontal ? Point(point.x - 40, point.y) : Point(point.x, point.y - 40)
                 try system.write(record, frame: requested)
                 input.pressed = false; interactions.sample(); await settle()
                 let changed = try regions().1.regions.first { $0.window.windowID == record.id }!
@@ -295,6 +325,28 @@ private final class FixturePreferences: PreferenceBackend {
             try check(try model.history.current.windows.count == 3 && matchingGeometry(), "Undo release returns the window to Bento")
             await model.undo(redo: true)
             try check(try model.history.current.windows.count == 2 && matchingGeometry(), "Redo release leaves the window floating")
+            let releasedLayout = model.history.current
+            await model.restore(); await model.toggleLayout()
+            try check(try model.history.current == releasedLayout && matchingGeometry(), "Toggle resume retains the exact edited tree and keeps a released window floating")
+            model.tick(); await Task.yield()
+            try check(model.history.current == releasedLayout, "Background discovery does not readmit a released window after resume")
+            interactions.synchronize()
+            let floatingRecord = system.records[0].0
+            let floatingFrame = system.frame(of: floatingRecord.element)!
+            let floatingTarget = try regions().1.regions[0].bounds
+            system.pointed = floatingRecord
+            input = DesktopInput(point: Point(floatingFrame.x + 70, floatingFrame.y + 20), pressed: true, escape: false, time: 20)
+            interactions.sample()
+            var floatingMoved = floatingFrame; floatingMoved.x += 45; floatingMoved.y += 30
+            try system.write(floatingRecord, frame: floatingMoved)
+            input.point = Point(floatingTarget.x + floatingTarget.width / 2, floatingTarget.y + floatingTarget.height / 2)
+            input.time += 0.1; interactions.sample()
+            input.pressed = false; interactions.sample(); await settle()
+            system.pointed = nil
+            try check(try model.history.current.windows.count == 3 && matchingGeometry(), "A floating native window dragged to a slot inserts through the production gesture path without ejecting a neighbor")
+            let admittedLayout = model.history.current
+            model.tick(); await Task.yield()
+            try check(model.history.current == admittedLayout, "Dragging a released window into Bento clears its exclusion without a background reflow")
             await model.arrange()
             try check(try model.history.current.windows.count == 3 && matchingGeometry(), "Arrange all includes released windows again")
             await model.restore()
@@ -404,6 +456,9 @@ private final class FixturePreferences: PreferenceBackend {
             try check(model.active && system.isMinimized(oversized) && model.minimizedByBento.count == 1, "Overflow window is minimized without blocking fitting windows")
             await model.arrange(preserving: true)
             try check(system.isMinimized(oversized) && model.history.current.windows.count == 2, "Reflow retains ownership of minimized overflow")
+            let overflowLayout = model.history.current
+            await model.restore(); await model.toggleLayout()
+            try check(try model.history.current == overflowLayout && system.isMinimized(oversized) && matchingGeometry(), "Toggle resume restores Dock overflow ownership without readmitting or moving other slots")
             oversized.minimum = Size(160, 120)
             try system.setMinimized(oversized, false)
             await model.arrange(preserving: true)

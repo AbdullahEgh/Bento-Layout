@@ -3,6 +3,41 @@ import CryptoKit
 @testable import BentoCore
 
 final class InteractionAndUpdateTests: XCTestCase {
+    func testResumeRetainsDisplaySlotIdentityAndRatioWithoutAdmittingFloatingWindows() throws {
+        let a = leaf(), b = leaf(), c = leaf(), floating = leaf()
+        let branch = UUID()
+        let state = Workspace(roots: ["left": .window(a), "right": .split(id: branch, axis: .horizontal, ratio: 0.37, first: .window(b), second: .window(c))])
+        XCTAssertEqual(state.reconciled(with: [c, floating, a, b]), state)
+        let closed = state.reconciled(with: [a, c, floating])
+        XCTAssertEqual(closed.roots["left"], .window(a))
+        XCTAssertEqual(closed.roots["right"], .window(c))
+        XCTAssertFalse(closed.windows.contains { $0.windowID == floating.windowID })
+        var constrained = b; constrained.minimum.width = 680
+        let refreshed = state.reconciled(with: [a, constrained, c])
+        let regions = try LayoutEngine.calculate(refreshed.roots["right"], in: Rect(1200, 0, 1000, 800)).regions
+        XCTAssertEqual(refreshed.roots["right"]?.id, branch)
+        XCTAssertEqual(regions[0].window.id, b.id)
+        XCTAssertEqual(regions[0].bounds.width, 680)
+        XCTAssertEqual(regions[1].window.id, c.id)
+    }
+    func testFloatingCenterDropInsertsWithoutDisplacingAndEmptyDisplayAcceptsDrop() throws {
+        for area in [Rect(0, 0, 1200, 800), Rect(0, 0, 800, 1200)] {
+            let a = leaf(), incoming = leaf()
+            let state = Workspace(roots: ["A": .window(a)])
+            var session = DropSession(workspace: state, source: incoming)
+            let proposal = try XCTUnwrap(session.propose(pointer: Point(area.width / 2, area.height / 2), areas: ["A": area], gap: 8, hold: 900, now: 0))
+            XCTAssertEqual(proposal.placement, area.width >= area.height ? .right : .bottom)
+            XCTAssertEqual(Set(proposal.workspace.windows.map(\.windowID)), [a.windowID, incoming.windowID])
+            XCTAssertFalse(proposal.waitingForSplit)
+            XCTAssertEqual(proposal.bounds, try LayoutEngine.calculate(proposal.workspace.roots["A"], in: area).regions.first { $0.window.windowID == incoming.windowID }?.bounds)
+        }
+        let a = leaf(), empty = Rect(1200, 0, 1000, 800)
+        var session = DropSession(workspace: Workspace(roots: ["A": .window(a)]), source: a)
+        let moved = try XCTUnwrap(session.propose(pointer: Point(1500, 400), areas: ["A": Rect(0, 0, 1200, 800), "B": empty], gap: 8, hold: 900, now: 0))
+        XCTAssertNil(moved.workspace.roots["A"])
+        XCTAssertEqual(moved.workspace.roots["B"], .window(a))
+        XCTAssertEqual(moved.bounds, empty)
+    }
     func testImpossibleDropShowsConflictWithoutChangingWorkspace() throws {
         let a = leaf(900, 100), b = leaf(200, 100), area = Rect(0, 0, 1000, 500)
         let state = Workspace(roots: ["A": .split(id: UUID(), axis: .vertical, ratio: 0.5, first: .window(a), second: .window(b))])

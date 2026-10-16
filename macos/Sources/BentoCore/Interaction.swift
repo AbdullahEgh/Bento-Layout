@@ -55,7 +55,7 @@ public struct DropSession {
     public let source: WindowLeaf
     public private(set) var conflictBounds: Rect?
     private var intent = DragIntent()
-    private struct GeometryKey: Equatable { let display: String; let target: UUID; let placement: Placement }
+    private struct GeometryKey: Equatable { let display: String; let target: UUID?; let placement: Placement }
     private struct Geometry { let workspace: Workspace; let bounds: Rect; let neighbors: [Rect] }
     private var cachedAreas: [String: Rect] = [:]
     private var cachedGap: Int?
@@ -75,14 +75,24 @@ public struct DropSession {
                 layouts[id] = try LayoutEngine.calculate(node, in: area, gap: gap)
             }
         }
-        guard let display = areas.keys.sorted().first(where: { areas[$0]!.contains(pointer) }),
-              let target = layouts[display]?.regions.first(where: { $0.bounds.contains(pointer) }),
-              target.window.windowID != source.windowID else { intent.reset(); return nil }
-        let gesture = try intent.update(display: display, target: target.window.id, bounds: target.bounds, point: pointer, now: now, holdMilliseconds: hold)
-        let key = GeometryKey(display: display, target: target.window.id, placement: gesture.placement)
+        guard let display = areas.keys.sorted().first(where: { areas[$0]!.contains(pointer) }) else { intent.reset(); return nil }
+        let target = layouts[display]?.regions.first(where: { $0.bounds.contains(pointer) })
+        guard target?.window.windowID != source.windowID,
+              target != nil || original.roots[display] == nil else { intent.reset(); return nil }
+        let targetBounds = target?.bounds ?? areas[display]!
+        let gesture: (placement: Placement, progress: Double, waitingForSplit: Bool)
+        if let target {
+            gesture = try intent.update(display: display, target: target.window.id, bounds: target.bounds, point: pointer, now: now, holdMilliseconds: hold)
+        } else { intent.reset(); gesture = (.center, 0, false) }
+        // Match the shared Windows interaction: floating windows insert beside a
+        // slot, rather than silently ejecting its occupant on a quick center drop.
+        let floating = !original.windows.contains { $0.windowID == source.windowID }
+        let placement = floating && target != nil && gesture.placement == .center
+            ? (targetBounds.width >= targetBounds.height ? Placement.right : .bottom) : gesture.placement
+        let key = GeometryKey(display: display, target: target?.window.id, placement: placement)
         if geometryKey != key {
             geometryKey = key; geometry = nil; cachedConflict = nil; geometryBuildCount += 1
-            let next = try original.placing(source, on: display, target: target.window.id, placement: gesture.placement)
+            let next = try original.placing(source, on: display, target: target?.window.id, placement: placement)
             var destination: Rect?, neighbors: [Rect] = []
             do {
                 for id in next.roots.keys.sorted() {
@@ -95,11 +105,11 @@ public struct DropSession {
                 }
                 guard let destination else { throw LayoutError.missingTarget }
                 geometry = Geometry(workspace: next, bounds: destination, neighbors: neighbors)
-            } catch LayoutError.cannotFit { cachedConflict = target.bounds }
+            } catch LayoutError.cannotFit { cachedConflict = targetBounds }
         }
         conflictBounds = cachedConflict
         guard let geometry else { return nil }
-        return DropProposal(workspace: geometry.workspace, bounds: geometry.bounds, placement: gesture.placement, neighbors: geometry.neighbors,
+        return DropProposal(workspace: geometry.workspace, bounds: geometry.bounds, placement: placement, neighbors: geometry.neighbors,
                             progress: gesture.progress, waitingForSplit: gesture.waitingForSplit)
     }
 }
