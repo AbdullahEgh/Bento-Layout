@@ -34,7 +34,7 @@ internal static class Symbols
             "Smooth transitions" => "M2,17 C7,17 7,7 13,7 L21,7 M17,3 L21,7 L17,11 M3,21 L7,21 M2,12 L5,12",
             "Transition duration" => "M12,6 A8,8 0 1 1 12,22 A8,8 0 1 1 12,6 M12,10 L12,14 L16,14 M9,2 L15,2 M12,2 L12,6 M19,5 L21,7",
             "Let Bento handle edge snapping" => "M3,4 L21,4 L21,20 L3,20 Z M12,4 L12,20 M6,9 L9,12 L6,15 M18,9 L15,12 L18,15",
-            "Arrange shortcut" => "M3,5 L21,5 Q23,5 23,7 L23,18 L1,18 L1,7 Q1,5 3,5 M5,9 L7,9 M11,9 L13,9 M17,9 L19,9 M5,13 L7,13 M10,14 L18,14",
+            "Toggle Bento shortcut" => "M3,5 L21,5 Q23,5 23,7 L23,18 L1,18 L1,7 Q1,5 3,5 M5,9 L7,9 M11,9 L13,9 M17,9 L19,9 M5,13 L7,13 M10,14 L18,14",
             "GitHub repository" => "M6,3 A2,2 0 1 1 6,7 A2,2 0 1 1 6,3 M18,3 A2,2 0 1 1 18,7 A2,2 0 1 1 18,3 M6,17 A2,2 0 1 1 6,21 A2,2 0 1 1 6,17 M6,7 L6,17 M18,7 L18,9 Q18,13 14,13 L10,13 Q6,13 6,17",
             "Check when Bento starts" => "M12,2 L12,11 M7,5 A9,9 0 1 0 17,5 M8,15 L11,18 L17,12",
             "Save" => "M3,3 L18,3 L21,6 L21,21 L3,21 Z M7,3 L7,9 L17,9 L17,3 M7,21 L7,14 L17,14 L17,21",

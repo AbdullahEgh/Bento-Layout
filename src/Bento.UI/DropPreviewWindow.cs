@@ -8,7 +8,8 @@ public sealed class DropPreviewWindow : Window
 {
     public PixelRect PreviewBounds { get; private set; }
     public bool AcrylicEnabled { get; private set; }
-    private readonly Border surface = new() { BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12) };
+    private readonly Border surface = new() { BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8) };
+    private readonly Border innerEdge = new() { BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(7) };
     private readonly DispatcherTimer motion = new() { Interval = TimeSpan.FromMilliseconds(16) };
     private PixelRect rendered, from;
     private long started;
@@ -19,7 +20,7 @@ public sealed class DropPreviewWindow : Window
         WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
         Background = Brushes.Transparent;
         ShowInTaskbar = false; ShowActivated = false; Topmost = true;
-        IsHitTestVisible = false; Content = surface;
+        IsHitTestVisible = false; surface.Child = innerEdge; Content = surface;
         motion.Tick += (_, _) =>
         {
             double t = (Environment.TickCount64 - started) / 140d;
@@ -44,8 +45,14 @@ public sealed class DropPreviewWindow : Window
         bool dark = AppTheme.SystemDark;
         var handle = new WindowInteropHelper(this).Handle;
         AcrylicEnabled = handle != 0 && !SystemParameters.HighContrast && WindowAppearance.SetAcrylic(handle, dark);
-        surface.BorderBrush = new SolidColorBrush(dark ? Color.FromArgb(90, 255, 255, 255) : Color.FromArgb(65, 0, 0, 0));
-        surface.Background = AcrylicEnabled ? Brushes.Transparent : new SolidColorBrush(dark ? Color.FromRgb(45, 49, 53) : Color.FromRgb(238, 241, 245));
+        // Match the native eight-DIP corner, with a quiet rim and a soft glass highlight.
+        // Tint the acrylic lightly so the destination remains recognizable underneath.
+        surface.BorderBrush = new SolidColorBrush(dark ? Color.FromArgb(65, 255, 255, 255) : Color.FromArgb(38, 0, 0, 0));
+        innerEdge.BorderBrush = new SolidColorBrush(Color.FromArgb(dark ? (byte)12 : (byte)90, 255, 255, 255));
+        surface.Background = AcrylicEnabled
+            ? new LinearGradientBrush(dark ? Color.FromArgb(18, 255, 255, 255) : Color.FromArgb(48, 255, 255, 255),
+                dark ? Color.FromArgb(8, 0, 0, 0) : Color.FromArgb(16, 255, 255, 255), 90)
+            : new SolidColorBrush(dark ? Color.FromRgb(38, 41, 45) : Color.FromRgb(242, 244, 247));
     }
     public void Present(PixelRect bounds, double scale, bool animate = true)
     {

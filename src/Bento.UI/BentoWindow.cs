@@ -12,6 +12,7 @@ public sealed class BentoWindow : Window
     private readonly ScrollViewer scroll = new();
     private readonly Dictionary<string, Button> navigation = new();
     private TextBlock status = new(), count = new();
+    private Button? pause;
     private readonly TextBlock feedback = new();
     private readonly DispatcherTimer refresh = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly Button save;
@@ -61,7 +62,7 @@ public sealed class BentoWindow : Window
         save.Click += (_, _) => Save(); DockPanel.SetDock(save, Dock.Right); footer.Children.Add(save);
         feedback.FontSize = 12; feedback.VerticalAlignment = VerticalAlignment.Center; feedback.Margin = new Thickness(0, 0, 12, 0); feedback.SetResourceReference(TextBlock.ForegroundProperty, "Secondary");
         footer.Children.Add(feedback); Grid.SetRow(footer, 1); main.Children.Add(footer); root.Children.Add(main); Content = root;
-        refresh.Tick += (_, _) => { status.Text = controller.Automatic ? "Bento is active" : "Bento is paused"; count.Text = $"{controller.ManagedCount} windows arranged"; };
+        refresh.Tick += (_, _) => RefreshWorkspaceStatus();
         refresh.Start(); Closed += (_, _) => { refresh.Stop(); lifetime.Cancel(); };
         SelectPage("Workspace");
     }
@@ -128,6 +129,17 @@ public sealed class BentoWindow : Window
         }
         catch (Exception ex) { feedback.Text = ex.Message; return false; }
     }
+    private void RefreshWorkspaceStatus()
+    {
+        status.Text = controller.Automatic ? "Bento is active" : "Bento is paused";
+        count.Text = $"{controller.ManagedCount} windows arranged";
+        string caption = controller.Automatic ? "Pause" : "Resume";
+        if (pause is not null && AutomationProperties.GetName(pause) != caption)
+        {
+            pause.Content = Symbols.Caption(caption, caption);
+            AutomationProperties.SetName(pause, caption);
+        }
+    }
     private void Workspace()
     {
         status = new(); count = new();
@@ -139,9 +151,9 @@ public sealed class BentoWindow : Window
         var arrange = new Button { Content = Symbols.Caption("Arrange windows", "Workspace"), Style = (Style)FindResource("Primary"), Margin = new Thickness(0, 0, 8, 0) };
         AutomationProperties.SetName(arrange, "Arrange windows");
         arrange.Click += (_, _) => { controller.AutoArrangeAll(); feedback.Text = controller.Status; };
-        var pause = new Button { Content = Symbols.Caption(controller.Automatic ? "Pause" : "Resume", controller.Automatic ? "Pause" : "Resume") };
+        pause = new Button { Content = Symbols.Caption(controller.Automatic ? "Pause" : "Resume", controller.Automatic ? "Pause" : "Resume") };
         AutomationProperties.SetName(pause, controller.Automatic ? "Pause" : "Resume");
-        pause.Click += (_, _) => { controller.SetAutomatic(!controller.Automatic); pause.Content = Symbols.Caption(controller.Automatic ? "Pause" : "Resume", controller.Automatic ? "Pause" : "Resume"); AutomationProperties.SetName(pause, controller.Automatic ? "Pause" : "Resume"); };
+        pause.Click += (_, _) => { controller.ToggleBento(); RefreshWorkspaceStatus(); };
         actions.Children.Add(arrange); actions.Children.Add(pause); intro.Children.Add(actions); hero.Children.Add(intro);
         var layout = Card("Layout");
         Row(layout, "Space between windows", "Physical pixels", Range(draft.Gap, 4, 32, 2, " px", n => draft = draft with { Gap = n }));
@@ -179,7 +191,7 @@ public sealed class BentoWindow : Window
             uint modifiers = ((m & ModifierKeys.Alt) != 0 ? 1u : 0) | ((m & ModifierKeys.Control) != 0 ? 2u : 0) | ((m & ModifierKeys.Shift) != 0 ? 4u : 0) | ((m & ModifierKeys.Windows) != 0 ? 8u : 0);
             draft = draft with { Key = vk, Modifiers = modifiers }; hotkey.Text = draft.Shortcut; Dirty();
         };
-        Row(windows, "Arrange shortcut", "Click and press your preferred shortcut", hotkey);
+        Row(windows, "Toggle Bento shortcut", "Restore your windows or turn Bento on", hotkey);
     }
     private void Updates()
     {

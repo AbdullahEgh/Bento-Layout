@@ -1,4 +1,5 @@
 using System.Windows.Interop;
+using System.Windows.Media.Animation;
 
 namespace Bento.UI;
 
@@ -7,13 +8,28 @@ public sealed class DesktopDividerWindow : Window
 {
     private readonly BentoController controller;
     private readonly DesktopMonitor monitor;
-    private readonly Divider divider;
+    private Divider divider;
     private bool finishing;
     private readonly Border grip;
     private bool resizing;
     private PixelRect presentedBounds;
     public Guid SplitId => divider.SplitId;
     public PixelRect DesktopBounds => divider.Bounds;
+    public string MonitorId => monitor.Id;
+    public double MonitorScale => monitor.Scale;
+    private void Animate(DependencyProperty property, double value)
+    {
+        if ((double)grip.GetAnimationBaseValue(property) == value) return;
+        double from = (double)grip.GetValue(property);
+        grip.BeginAnimation(property, null); grip.SetValue(property, value);
+        if (controller.Settings.Animate && SystemParameters.ClientAreaAnimation)
+            grip.BeginAnimation(property, new DoubleAnimation(from, value, TimeSpan.FromMilliseconds(120))
+            { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }, FillBehavior = FillBehavior.Stop });
+    }
+    public void UpdateDivider(Divider value)
+    {
+        divider = value; ResetPresentation();
+    }
 
     public DesktopDividerWindow(BentoController controller, DesktopMonitor monitor, Divider divider)
     {
@@ -35,8 +51,8 @@ public sealed class DesktopDividerWindow : Window
         };
         var area = new Grid { Background = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0)) };
         area.Children.Add(grip); Content = area;
-        MouseEnter += (_, _) => { RefreshContrast(); grip.Opacity = resizing ? 1 : .65; };
-        MouseLeave += (_, _) => { if (!resizing && !IsMouseCaptured && !AreAnyTouchesCaptured) grip.Opacity = 0; };
+        MouseEnter += (_, _) => { RefreshContrast(); Animate(OpacityProperty, 1); };
+        MouseLeave += (_, _) => { if (!resizing && !IsMouseCaptured && !AreAnyTouchesCaptured) Animate(OpacityProperty, 0); };
         SourceInitialized += (_, _) =>
         {
             var handle = new WindowInteropHelper(this).Handle;
@@ -50,9 +66,9 @@ public sealed class DesktopDividerWindow : Window
         bool first = !resizing;
         resizing = true; presentedBounds = bounds;
         bool horizontal = divider.Axis == SplitAxis.Horizontal;
-        grip.Width = horizontal ? Math.Min(4, bounds.Width / monitor.Scale) : Math.Min(72, bounds.Width / monitor.Scale);
-        grip.Height = horizontal ? Math.Min(72, bounds.Height / monitor.Scale) : Math.Min(4, bounds.Height / monitor.Scale);
-        grip.CornerRadius = new CornerRadius(2); grip.Opacity = 1;
+        Animate(WidthProperty, horizontal ? 2 : Math.Min(104, bounds.Width / monitor.Scale));
+        Animate(HeightProperty, horizontal ? Math.Min(104, bounds.Height / monitor.Scale) : 2);
+        grip.CornerRadius = new CornerRadius(1); Animate(OpacityProperty, 1);
         if (first) RefreshContrast();
         DesktopIntegration.PositionOverlay(new WindowInteropHelper(this).Handle, bounds, topmost: false);
     }
@@ -60,9 +76,9 @@ public sealed class DesktopDividerWindow : Window
     {
         resizing = false; presentedBounds = divider.Bounds;
         bool horizontal = divider.Axis == SplitAxis.Horizontal;
-        grip.Width = horizontal ? 2 : Math.Min(40, divider.Bounds.Width / monitor.Scale);
-        grip.Height = horizontal ? Math.Min(40, divider.Bounds.Height / monitor.Scale) : 2;
-        grip.CornerRadius = new CornerRadius(1); grip.Opacity = IsMouseOver ? .65 : 0;
+        Animate(WidthProperty, horizontal ? 2 : Math.Min(40, divider.Bounds.Width / monitor.Scale));
+        Animate(HeightProperty, horizontal ? Math.Min(40, divider.Bounds.Height / monitor.Scale) : 2);
+        grip.CornerRadius = new CornerRadius(1); Animate(OpacityProperty, IsMouseOver ? 1 : 0);
         DesktopIntegration.PositionOverlay(new WindowInteropHelper(this).Handle, divider.Bounds, topmost: false);
     }
 
@@ -76,7 +92,6 @@ public sealed class DesktopDividerWindow : Window
     {
         base.OnMouseLeftButtonUp(e);
         finishing = true;
-        grip.Opacity = 0;
         ReleaseMouseCapture();
         controller.FinishDrag();
         e.Handled = true;
@@ -85,7 +100,7 @@ public sealed class DesktopDividerWindow : Window
     {
         base.OnLostMouseCapture(e);
         if (!finishing && controller.Dragging) controller.CancelDrag();
-        if (!IsMouseOver) grip.Opacity = 0;
+        if (!IsMouseOver) Animate(OpacityProperty, 0);
     }
     private PixelPoint TouchPosition(TouchEventArgs e)
     {
@@ -97,7 +112,7 @@ public sealed class DesktopDividerWindow : Window
         base.OnTouchDown(e);
         e.Handled = true;
         if (AreAnyTouchesCaptured) return;
-        finishing = false; RefreshContrast(); grip.Opacity = 1;
+        finishing = false; RefreshContrast(); Animate(OpacityProperty, 1);
         controller.BeginDivider(monitor, divider, TouchPosition(e)); CaptureTouch(e.TouchDevice);
     }
     protected override void OnTouchMove(TouchEventArgs e)
@@ -109,13 +124,13 @@ public sealed class DesktopDividerWindow : Window
     {
         base.OnTouchUp(e); e.Handled = true;
         if (e.TouchDevice.Captured != this) return;
-        var point = TouchPosition(e); finishing = true; grip.Opacity = 0;
+        var point = TouchPosition(e); finishing = true;
         ReleaseTouchCapture(e.TouchDevice); controller.FinishDrag(point);
     }
     protected override void OnLostTouchCapture(TouchEventArgs e)
     {
         base.OnLostTouchCapture(e);
         if (!finishing && controller.Dragging) controller.CancelDrag();
-        if (!IsMouseOver) grip.Opacity = 0;
+        if (!IsMouseOver) Animate(OpacityProperty, 0);
     }
 }
