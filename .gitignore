@@ -4,3 +4,6 @@
 artifacts/
 .vs/
 *.user
+**/.build/
+**/.swiftpm/
+**/.DS_Store

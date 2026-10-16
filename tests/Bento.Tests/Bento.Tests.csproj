@@ -6,4 +6,5 @@
     <ApplicationManifest>../../src/Bento.UI/app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../../src/Bento.UI/Bento.UI.csproj" /></ItemGroup>
+  <ItemGroup><None Include="../../shared/fixtures/layout-v1.json" Link="fixtures/layout-v1.json" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
 </Project>

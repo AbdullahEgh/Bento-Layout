@@ -1,4 +1,12 @@
-# Bento for Windows
+# Bento Layout
+
+Native window management for Windows, with a new native **macOS development preview** in the same repository.
+
+- **Windows:** existing application and release instructions below.
+- **macOS:** [build, onboarding and current scope](macos/README.md), targeting macOS 15 or later.
+- **Shared behavior:** [geometry fixtures](shared/fixtures/layout-v1.json) consumed by both test suites.
+
+## Bento for Windows
 
 A native Windows 11 window manager built with C#/.NET 10, WPF and Win32. Real application windows automatically fill adaptive split-tree layouts directly on the desktop. Drag their native title bars to swap or split, and resize through their borders or the narrow gaps between windows. Independent implementation inspired by the requested MindSpace Bento Smart Layout behavior; no affiliation or bundled MindSpace code/assets.
 

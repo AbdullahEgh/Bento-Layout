@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "units": "abstract integer layout units; adapter chooses OS units",
+  "cases": [
+    {"name":"single-negative-origin", "area":[-1440,-200,1440,900], "gap":8,
+     "tree":{"window":1,"minimum":[320,240]}, "expected":{"1":[-1440,-200,1440,900]}},
+    {"name":"odd-half-ties-to-even", "area":[0,0,1001,600], "gap":8,
+     "tree":{"axis":"horizontal","ratio":0.5,"first":{"window":1,"minimum":[100,100]},"second":{"window":2,"minimum":[100,100]}},
+     "expected":{"1":[0,0,496,600],"2":[504,0,497,600]}},
+    {"name":"nested-negative-origin", "area":[-1200,100,1200,800], "gap":8,
+     "tree":{"axis":"horizontal","ratio":0.6,"first":{"window":1,"minimum":[320,240]},"second":{"axis":"vertical","ratio":0.5,"first":{"window":2,"minimum":[320,240]},"second":{"window":3,"minimum":[320,240]}}},
+     "expected":{"1":[-1200,100,715,800],"2":[-477,100,477,396],"3":[-477,504,477,396]}},
+    {"name":"minimum-clamps-ratio", "area":[0,0,1000,600], "gap":8,
+     "tree":{"axis":"horizontal","ratio":0.1,"first":{"window":1,"minimum":[400,200]},"second":{"window":2,"minimum":[200,200]}},
+     "expected":{"1":[0,0,400,600],"2":[408,0,592,600]}},
+    {"name":"impossible-retains-caller-state", "area":[0,0,600,400], "gap":8,
+     "tree":{"axis":"horizontal","ratio":0.5,"first":{"window":1,"minimum":[400,240]},"second":{"window":2,"minimum":[400,240]}}, "reject":true}
+  ]
+}
