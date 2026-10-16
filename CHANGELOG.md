@@ -1,5 +1,14 @@
 # Bento releases
 
+## 0.3.2 — October 2026
+
+- Add background darkness beneath the layout, adjustable from clear to black with a 50% default.
+- Illustrate each setting and primary action with an original vector icon.
+- Add a separate What's New screen showing only the latest release, with older releases and installation history in a nested Update Log.
+- Replace the full divider-drag guide with a 72-DIP solid grabber; the idle hover grip remains 40 DIPs.
+- Keep the dimmer beneath applications and remove it on pause or exit; adjust grabber contrast to the dimmed wallpaper.
+- Verify 116 layout, interaction and native desktop checks, including grabber cancellation and desktop background dimming.
+
 ## 0.3.1 — October 2026
 
 - Anchor split highlights to the existing target slot, before removing or reflowing the dragged window.
