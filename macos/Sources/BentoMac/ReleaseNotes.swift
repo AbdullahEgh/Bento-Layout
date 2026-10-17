@@ -7,6 +7,11 @@ struct ReleaseNotes: Identifiable {
 
     // Keep newest first; ship the log with the app so it also works offline.
     static let history: [ReleaseNotes] = [
+        .init(version: "0.2.28", points: [
+            "Finder and other apps settle reliably into their slots.",
+            "Bringing an app forward retries placement automatically.",
+            "Size-limit recovery finds a fitting split without repeated shuffling.",
+        ]),
         .init(version: "0.2.27", points: [
             "Drag anywhere along an exposed divider to resize its slots.",
             "Gentler window returns, cancellations, and recovery animations.",

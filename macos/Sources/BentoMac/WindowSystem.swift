@@ -130,13 +130,14 @@ final class ManagedWindow {
             guard let value = AXValueCreate(.cgPoint, &point), AXUIElementSetAttributeValue(window.element, kAXPositionAttribute as CFString, value) == .success else { throw WindowFailure.rejected(window.title) }
         }
     }
-    /// Chromium's enhanced AX mode animates native frame writes independently.
-    /// Suspend it only for a Vivaldi transaction, preserve its previous value, and
-    /// never interrupt built-in assistive technology. This does not enable a web AX tree.
+    /// Enhanced AX mode can animate frame writes independently of Bento (including
+    /// Finder). Suspend an already-enabled mode for the transaction on every app,
+    /// restore its exact prior value, and leave built-in assistive technology alone.
+    /// Unsupported attributes are ignored; this never enables an accessibility tree.
     func beginFrameAdjustment(_ windows: [ManagedWindow]) -> () -> Void {
         guard !NSWorkspace.shared.isVoiceOverEnabled, !NSWorkspace.shared.isSwitchControlEnabled else { return {} }
         var restored: [AXUIElement] = [], seen = Set<pid_t>()
-        for window in windows where window.bundleID == "com.vivaldi.Vivaldi" || window.bundleID.hasPrefix("com.vivaldi.Vivaldi.") {
+        for window in windows {
             guard seen.insert(window.pid).inserted else { continue }
             let app = AXUIElementCreateApplication(window.pid)
             AXUIElementSetMessagingTimeout(app, 0.15)

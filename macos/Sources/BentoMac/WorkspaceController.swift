@@ -78,9 +78,19 @@ struct MacSettings: Codable {
         lastInteraction[window.id] = interactionSequence
         lastFocusedWindow = window.id
     }
-    private func observeFocus(in current: [ManagedWindow]) {
+    private func observeFocus(in current: [ManagedWindow], activation: Bool = false) {
         let focused = system.focusedWindow(in: current)
-        if let focused, focused.id != lastFocusedWindow { recordInteraction(focused) }
+        if let focused, focused.id != lastFocusedWindow || activation {
+            recordInteraction(focused)
+            // Bringing an already-visible floating app forward is admission intent,
+            // even when its window identity and frame have not changed. Consume
+            // that intent once; a permanently oversized app must not cause a loop.
+            if active, !released.contains(focused.id),
+               !history.current.windows.contains(where: { $0.windowID == focused.id }) {
+                reopenedWindows.insert(focused.id)
+                failedAutomaticInput = nil
+            }
+        }
         if let focused { lastFocusedWindow = focused.id }
     }
     private struct ArrangementInput: Equatable {
@@ -141,7 +151,7 @@ struct MacSettings: Codable {
                     self.lastMembershipScan = 0
                     // Keep recent-use history even while Bento is off. Settings
                     // activation must not replace the last focused external app.
-                    if let current = try? self.system.discover() { self.observeFocus(in: current) }
+                    if let current = try? self.system.discover() { self.observeFocus(in: current, activation: true) }
                 }
             }
         }
@@ -630,7 +640,14 @@ struct MacSettings: Codable {
             }
             await settle(rollback)
             let failed = rollback.filter { system.isAlive($0.0) && !system.accepted($0.0, $0.1) }.count
-            if failed > 0 { throw NSError(domain: "Bento", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(error.localizedDescription) \(failed) window(s) could not be restored."]) }
+            if failed > 0 {
+                trace?("rollback incomplete windows=\(failed); preserving original failure for bounded correction")
+                // A restored frame may itself violate a newly learned minimum.
+                // Keep the typed failure so admission can replan using that limit.
+                if !allowSkipping {
+                    throw NSError(domain: "Bento", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(error.localizedDescription) \(failed) window(s) could not be restored."])
+                }
+            }
             throw error
         }
     }

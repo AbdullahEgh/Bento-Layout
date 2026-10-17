@@ -194,6 +194,52 @@ private final class FixturePreferences: PreferenceBackend {
             chat.minimum = Size(160, 120)
             system.undiscovered.removeAll()
             for (index, record) in system.records.enumerated() { try system.write(record.0, frame: initial[index]) }
+            // A visible app rejected once must get another admission attempt when
+            // focused, even though discovery returns the exact same membership.
+            system.rejectedWindows.insert(hidden.id)
+            await lifecycle.arrange()
+            try check(lifecycle.history.current.windows.count == 2 && lifecycle.floatingWindows.contains { $0.id == hidden.id },
+                "A temporarily refusing incoming app remains discoverable outside the layout")
+            system.rejectedWindows.removeAll(); system.focused = hidden
+            lifecycle.tick()
+            for _ in 0..<150 {
+                if lifecycle.history.current.windows.count == 3 && !lifecycle.activating { break }
+                try? await Task.sleep(for: .milliseconds(30))
+            }
+            try check(lifecycle.history.current.windows.count == 3,
+                "Focusing a previously rejected visible app retries admission without a membership change or manual refresh")
+            let admittedWrites = system.writes
+            lifecycle.tick(); try? await Task.sleep(for: .milliseconds(100))
+            try check(system.writes == admittedWrites,
+                "Consumed focus admission does not repeatedly reflow unchanged windows")
+            await lifecycle.restore(); system.focused = nil
+
+            // Learn height limits after a valid top/bottom layout was created.
+            // Both old rollback rectangles now violate the native limits; the
+            // correction must retain the minimum-size failure and switch axes.
+            let repairArea = lifecycle.displayAreas()[0]
+            system.areaOverride = [DisplayArea(id: repairArea.id, name: repairArea.name,
+                bounds: Rect(repairArea.bounds.x, repairArea.bounds.y, 1200, 900))]
+            system.undiscovered = [hidden.id]
+            let firstRepair = system.records[0].0, secondRepair = system.records[1].0
+            firstRepair.minimum = Size(700, 120); secondRepair.minimum = Size(700, 120)
+            await lifecycle.arrange()
+            firstRepair.minimum = Size(160, 120); secondRepair.minimum = Size(160, 120)
+            system.nativeMinimum[firstRepair.id] = Size(160, 600)
+            system.nativeMinimum[secondRepair.id] = Size(160, 600)
+            let repaired = await lifecycle.arrange(preserving: true)
+            let repairRegions = try LayoutEngine.calculate(lifecycle.history.current.roots[repairArea.id], in: system.areaOverride![0].bounds, gap: lifecycle.layoutGap).regions
+            try check(repaired && repairRegions.count == 2 && repairRegions.allSatisfy { region in
+                system.records.first { $0.0.id == region.window.windowID }.map { system.accepted($0.0, region.bounds) } ?? false
+            }, "Incomplete rollback preserves learned limits and admits both apps using the feasible alternate split")
+            try check(firstRepair.minimum.width == 160 && secondRepair.minimum.width == 160,
+                "A refused height never teaches the previous full-screen width as a minimum")
+            system.nativeMinimum.removeAll(); system.areaOverride = nil
+            await lifecycle.restore(); system.undiscovered.removeAll()
+            for (index, record) in system.records.enumerated() {
+                record.0.minimum = Size(160, 120)
+                try system.write(record.0, frame: initial[index])
+            }
             // Reproduce the small-screen browser/chat workspace with true native
             // limits. A large primary must not hide the other usable apps.
             let fourth = NSWindow(contentRect: NSRect(x: 300, y: 100, width: 420, height: 320), styleMask: [.titled, .resizable, .closable], backing: .buffered, defer: false)
