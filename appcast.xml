@@ -4,21 +4,20 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.26</title>
-            <pubDate>Sat, 17 Oct 2026 17:16:35 +0000</pubDate>
-            <sparkle:version>138</sparkle:version>
-            <sparkle:shortVersionString>0.2.26</sparkle:shortVersionString>
+            <title>0.2.27</title>
+            <pubDate>Sat, 17 Oct 2026 17:43:45 +0000</pubDate>
+            <sparkle:version>139</sparkle:version>
+            <sparkle:shortVersionString>0.2.27</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.26
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.27
 
-- Terminal-sized splits tolerate native text-grid rounding.
-- Bento resumes after minimizing or restoring windows.
-- Available apps can reshape old slots to fit the display.
+- Drag anywhere along an exposed divider to resize its slots.
+- Gentler window returns, cancellations, and recovery animations.
 ]]></description>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.26/Bento-macos-universal.zip" length="3943892" type="application/octet-stream" sparkle:edSignature="K2vupLGCxmwETwcLIcMEY9F9Y/38qADFFRoCuOLUwnuCNXmMemZhmefmgwNOI7lGNXmnfG/bNrRW5q7sL8opCw=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.27/Bento-macos-universal.zip" length="3982160" type="application/octet-stream" sparkle:edSignature="Ccyxf+K7SsUqSuAg4mKUPXrzjJ1sco1unkQ2kpkS5YcUVRNdhgvyay8YLyLNMIHeXX0UYC5YfYhj+50Pey6dAA=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: 3+H7AmXLMyQdWiZy71iDKj705EdG83n6XHEwLvBRgeZ3xAqj7W7Z7gYPF0+oa70G2mHd258ZEtHeOH5JJOygCA==
-length: 1339
+edSignature: VhK7QsQPJo2e3PPm7FWqZ5/AEUKAiCpCxJK8ZKgs+5il4Xdwle/k0qJ7Y/HyLBmtxj82hU4Lh8iYUuWhEI99DQ==
+length: 1293
 -->
