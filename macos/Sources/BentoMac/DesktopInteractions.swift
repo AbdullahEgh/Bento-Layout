@@ -289,11 +289,13 @@ struct DesktopInput {
     private var panels: [PreviewSlotPanel] = []
     var animate = true
     private var motion: Timer?
+    private var hiding = false
     private struct Transition { let panel: PreviewSlotPanel; let from: NSRect; let to: NSRect; let alpha: CGFloat; let targetAlpha: CGFloat }
     private var transitions: [Transition] = []
     private var started = 0.0
     private func transition(to rectangles: [Rect]) {
-        motion?.invalidate()
+        motion?.invalidate(); motion = nil
+        hiding = rectangles.isEmpty
         while panels.count < rectangles.count { panels.append(PreviewSlotPanel()) }
         transitions = panels.enumerated().map { index, panel in
             let destination = index < rectangles.count ? DesktopCoordinates.appKit(rectangles[index]) : panel.frame
@@ -327,7 +329,7 @@ struct DesktopInput {
     }
     private var lastProposal: DropProposal?
     private var lastConflict: Rect?
-    func orderOut(_ sender: Any?) { if panels.contains(where: { $0.isVisible }) { transition(to: []) }; lastProposal = nil; lastConflict = nil }
+    func orderOut(_ sender: Any?) { if !hiding && panels.contains(where: { $0.isVisible }) { transition(to: []) }; lastProposal = nil; lastConflict = nil }
     func presentConflict(_ bounds: Rect) {
         guard lastConflict != bounds || panels.first?.isVisible != true else { return }
         lastConflict = bounds; lastProposal = nil

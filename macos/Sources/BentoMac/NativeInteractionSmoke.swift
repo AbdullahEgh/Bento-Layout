@@ -734,8 +734,9 @@ private final class FixturePreferences: PreferenceBackend {
             softPreview.presentConflict(retarget)
             try? await Task.sleep(for: .milliseconds(200))
             try check(softPanel.frame == DesktopCoordinates.appKit(retarget) && softPanel.alphaValue == 1, "Preview retargeting reaches the latest destination without an old animation snapping back")
-            softPreview.orderOut(nil); try? await Task.sleep(for: .milliseconds(200))
-            try check(!softPanel.isVisible, "Preview fades out and removes its overlay after the gesture")
+            softPreview.orderOut(nil)
+            for _ in 0..<12 { try? await Task.sleep(for: .milliseconds(20)); softPreview.orderOut(nil) }
+            try check(!softPanel.isVisible, "Repeated hide requests finish one fade and remove the overlay instead of restarting it")
             softPreview.animate = false; softPreview.presentConflict(retarget)
             try check(softPanel.frame == DesktopCoordinates.appKit(retarget) && softPanel.alphaValue == 1, "Disabling motion applies preview geometry immediately")
             softPreview.orderOut(nil)
