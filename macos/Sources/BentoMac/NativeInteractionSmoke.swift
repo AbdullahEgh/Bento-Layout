@@ -25,6 +25,7 @@ import BentoCore
     var deferWrites = false
     var writeDelay = 0.04
     var nativeMinimum: [UUID: Size] = [:]
+    var nativeGrid: [UUID: Size] = [:]
     var writes: [UUID: Int] = [:]
     var minimized = Set<UUID>()
     var denyMinimize = false
@@ -58,6 +59,10 @@ import BentoCore
         guard let actual = records.first(where: { $0.0.id == window.id })?.1 else { throw WindowFailure.unavailable(window.title) }
         var accepted = frame
         if let minimum = nativeMinimum[window.id] { accepted.width = max(accepted.width, minimum.width); accepted.height = max(accepted.height, minimum.height) }
+        if let grid = nativeGrid[window.id] {
+            accepted.width = Int((Double(accepted.width) / Double(grid.width)).rounded()) * grid.width
+            accepted.height = Int((Double(accepted.height) / Double(grid.height)).rounded()) * grid.height
+        }
         let nativeFrame = DesktopCoordinates.appKit(accepted)
         if deferWrites { DispatchQueue.main.asyncAfter(deadline: .now() + writeDelay) { actual.setFrame(nativeFrame, display: true) } }
         else { actual.setFrame(nativeFrame, display: true) }
@@ -124,6 +129,60 @@ private final class FixturePreferences: PreferenceBackend {
         let initial = system.records.map { DesktopCoordinates.engine($0.1.frame) }
         defer { system.records.forEach { $0.1.close() } }
         do {
+            let lifecycle = WorkspaceController(system: system, settings: fixtureSettings,
+                preferences: ActivationOverrides(backend: FixturePreferences(), journal: output.appendingPathComponent("lifecycle-preferences.json")),
+                persistSettings: { _ in }, backgroundMonitoring: false)
+            let hidden = system.records[2].0
+            system.undiscovered.insert(hidden.id)
+            await lifecycle.arrange(); lifecycle.saveLayout(); await lifecycle.stop()
+            system.undiscovered.removeAll()
+            await lifecycle.toggleLayout()
+            try check(lifecycle.active && lifecycle.history.current.windows.count == 3,
+                "Resuming a saved layout admits newly available windows instead of silently omitting them")
+            await lifecycle.stop()
+            // The only visible window was not in the original saved two-app tree.
+            // Remove it from the remembered tree by activating the first two again.
+            system.undiscovered = [hidden.id]
+            await lifecycle.arrange(); lifecycle.saveLayout(); await lifecycle.stop()
+            system.undiscovered = Set(system.records.prefix(2).map { $0.0.id })
+            await lifecycle.toggleLayout()
+            try check(lifecycle.active && lifecycle.history.current.windows.map(\.windowID) == [hidden.id],
+                "An unavailable saved tree falls back to visible apps rather than reporting a successful inactive resume")
+            system.minimized.insert(hidden.id)
+            await lifecycle.arrange(preserving: true)
+            try check(lifecycle.active && lifecycle.windows.isEmpty && lifecycle.history.current.windows.isEmpty,
+                "Minimizing every tiled window keeps Bento armed with empty visible membership")
+            system.minimized.remove(hidden.id)
+            lifecycle.tick()
+            for _ in 0..<100 {
+                if lifecycle.history.current.windows.count == 1 && !lifecycle.activating { break }
+                try? await Task.sleep(for: .milliseconds(30))
+            }
+            try check(lifecycle.active && lifecycle.history.current.windows.map(\.windowID) == [hidden.id],
+                "Restoring an identical window frame after minimizing all windows automatically resumes Bento")
+            let nativeArea = lifecycle.displayAreas()[0]
+            var gridBounds = nativeArea.bounds
+            gridBounds.width = (min(1264, gridBounds.width) / 7) * 7 - 3
+            gridBounds.height = (min(687, gridBounds.height) / 15) * 15 - 6
+            system.areaOverride = [DisplayArea(id: nativeArea.id, name: nativeArea.name, bounds: gridBounds)]
+            system.nativeGrid[hidden.id] = Size(7, 15)
+            let gridMinimum = hidden.minimum
+            await lifecycle.arrange()
+            let gridWrites = system.writes[hidden.id] ?? 0
+            for _ in 0..<3 { lifecycle.tick(); try? await Task.sleep(for: .milliseconds(40)) }
+            try check(lifecycle.active && lifecycle.history.current.windows.count == 1 && hidden.minimum == gridMinimum && (system.writes[hidden.id] ?? 0) == gridWrites,
+                "Terminal-style cell rounding stays tiled without drift corrections or invented size limits")
+            system.undiscovered = [system.records[1].0.id]
+            let chat = system.records[0].0
+            system.nativeMinimum[chat.id] = Size(min(480, gridBounds.width / 2), min(600, gridBounds.height - 140))
+            await lifecycle.arrange()
+            try check(lifecycle.active && lifecycle.history.current.windows.count == 2 && hidden.minimum == gridMinimum,
+                "A minimum-height chat and grid-sized terminal share the display without excluding either app")
+            system.nativeGrid.removeAll(); system.nativeMinimum.removeAll(); system.areaOverride = nil
+            lifecycle.clearSavedLayout(); await lifecycle.restore()
+            chat.minimum = Size(160, 120)
+            system.undiscovered.removeAll()
+            for (index, record) in system.records.enumerated() { try system.write(record.0, frame: initial[index]) }
             // Reproduce the small-screen browser/chat workspace with true native
             // limits. A large primary must not hide the other usable apps.
             let fourth = NSWindow(contentRect: NSRect(x: 300, y: 100, width: 420, height: 320), styleMask: [.titled, .resizable, .closable], backing: .buffered, defer: false)

@@ -172,6 +172,11 @@ public enum AutoLayout {
         for window in windows where !priority.contains(window.windowID) && !displaced.contains(window.windowID)
             && !(root?.windows.contains { $0.windowID == window.windowID } ?? false) {
             if let inserted = try insertLocally(window, into: root, in: area, gap: gap) { root = inserted }
+            else {
+                // Focus may remain on an existing app while another becomes
+                // visible. Its admission deserves the same whole-display search.
+                if let reflowed = try? arrange((root?.windows ?? []) + [window], in: area, gap: gap) { root = reflowed }
+            }
         }
         return root
     }

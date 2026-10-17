@@ -290,7 +290,7 @@ struct MacSettings: Codable {
                 let drift = current.filter { window in
                     guard let wanted = expected[window.id] else { return false }
                     let frame = window.frame
-                    return abs(frame.x - wanted.x) > 2 || abs(frame.y - wanted.y) > 2 || abs(frame.width - wanted.width) > 2 || abs(frame.height - wanted.height) > 2
+                    return !NativeFrameFit.accepts(frame, in: wanted)
                 }.sorted { $0.id.uuidString < $1.id.uuidString }.map(\.frame)
                 if !drift.isEmpty && !displaysChanged {
                     if pendingDrift == drift { driftSamples += 1 } else { pendingDrift = drift; driftSamples = 1 }
@@ -389,11 +389,15 @@ struct MacSettings: Codable {
             if !preserving { released = resuming ? lastReleased : [] }
             let current = try discoverWindows(); windows = current
             guard !current.isEmpty else {
-                if preserving && previousWindows.contains(where: { system.isAlive($0) }) {
-                    windows = previousWindows; failedAutomaticInput = arrangementInput(current)
-                    message = "Waiting for visible windows before updating the layout."; return false
+                if preserving && wasActive {
+                    // An empty visible workspace is a normal minimize/full-screen
+                    // transition. Keep monitoring, but forget its stale membership
+                    // so returning windows are admitted even at identical frames.
+                    windows = []; history.commit(Workspace())
+                    reopenedWindows.removeAll(); failedAutomaticInput = nil
+                    pendingMembership = nil; membershipSamples = 0
+                    message = nil; onStateChange?(); return true
                 }
-                if preserving { history.commit(Workspace()); onStateChange?() }
                 message = "Open an application window to begin."; return false
             }
             if !wasActive {
@@ -405,7 +409,11 @@ struct MacSettings: Codable {
                 // Resume the edited tree itself. Native frames have just been restored
                 // to pre-Bento positions and cannot determine saved display ownership.
                 let next = previous.reconciled(with: current.map(\.leaf))
-                let rememberedFits = next.roots.allSatisfy { id, root in
+                let rememberedIDs = Set(next.windows.map(\.windowID))
+                let newlyAvailable = current.contains {
+                    !rememberedIDs.contains($0.id) && !released.contains($0.id) && !lastMinimized.contains($0.id)
+                }
+                let rememberedFits = !rememberedIDs.isEmpty && !newlyAvailable && next.roots.allSatisfy { id, root in
                     guard let area = displays.first(where: { $0.id == id }) else { return false }
                     return (try? LayoutEngine.calculate(root, in: area.bounds, gap: layoutGap)) != nil
                 }
@@ -603,7 +611,7 @@ struct MacSettings: Codable {
                     // spacing edit still needs a write at its exact target.
                     if system.frame(of: entry.0.element) == entry.1 { continue }
                     try write(entry.0, frame: entry.1)
-                    await settle([entry], retry: false)
+                    await settle([entry])
                     try validate([entry], allowSkipping: true)
                 }
             } else { try await move(plan, animated: animate && !liveResize, write: write) }
@@ -632,7 +640,7 @@ struct MacSettings: Codable {
         let rejected = plan.filter { window, wanted in
             guard let actual = system.frame(of: window.element) else { return true }
             frames[window.id] = actual
-            return abs(actual.x - wanted.x) > 2 || abs(actual.y - wanted.y) > 2 || abs(actual.width - wanted.width) > 2 || abs(actual.height - wanted.height) > 2
+            return !NativeFrameFit.accepts(actual, in: wanted)
         }
         if CommandLine.arguments.contains("--fixture-pid") {
             for (window, wanted) in rejected { print("Rejected fixture bounds: \(window.title), wanted=\(wanted), actual=\(String(describing: frames[window.id]))") }
@@ -659,7 +667,7 @@ struct MacSettings: Codable {
     }
     private func settle(_ plan: [(ManagedWindow, Rect)], retry: Bool = true) async {
         // AX writes may return before a remote app finishes its native animation.
-        // Wait for two matching samples and retry the exact target once after the
+        // Wait for two accepted samples and retry a contained target once after the
         // intermediate writes have drained. Never learn minima from a moving frame.
         var matchingSamples = 0
         let started = ProcessInfo.processInfo.systemUptime
@@ -673,7 +681,10 @@ struct MacSettings: Codable {
             if elapsed >= 1 { return }
             if retry && elapsed >= 0.35 && !retried {
                 retried = true
-                for (window, target) in pending { try? system.write(window, frame: target) }
+                for (window, target) in pending {
+                    let fitted = system.frame(of: window.element).map { NativeFrameFit.inwardTarget(actual: $0, slot: target) } ?? target
+                    try? system.write(window, frame: fitted)
+                }
             }
         }
     }

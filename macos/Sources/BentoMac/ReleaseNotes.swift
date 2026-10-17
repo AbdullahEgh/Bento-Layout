@@ -7,6 +7,11 @@ struct ReleaseNotes: Identifiable {
 
     // Keep newest first; ship the log with the app so it also works offline.
     static let history: [ReleaseNotes] = [
+        .init(version: "0.2.26", points: [
+            "Terminal-sized splits tolerate native text-grid rounding.",
+            "Bento resumes after minimizing or restoring windows.",
+            "Available apps can reshape old slots to fit the display.",
+        ]),
         .init(version: "0.2.25", points: [
             "Black background dimming follows your darkness setting.",
         ]),

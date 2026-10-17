@@ -1,3 +1,5 @@
-Bento for macOS 0.2.25
+Bento for macOS 0.2.26
 
-- Black background dimming follows your darkness setting.
+- Terminal-sized splits tolerate native text-grid rounding.
+- Bento resumes after minimizing or restoring windows.
+- Available apps can reshape old slots to fit the display.

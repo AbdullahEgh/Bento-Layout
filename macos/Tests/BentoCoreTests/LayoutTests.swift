@@ -41,6 +41,45 @@ final class LayoutTests: XCTestCase {
         XCTAssertFalse(result.regions.contains { $0.window.windowID == recent[0].windowID })
         XCTAssertThrowsError(try AutoLayout.activating([window(0, 20)], in: bounds))
     }
+    func testPairCapacityMatchesBothPossibleSplitAxes() throws {
+        for bounds in [Rect(0, 0, 480, 850), Rect(0, 0, 824, 600), Rect(0, 0, 1280, 720), Rect(0, 0, 1920, 1113)] {
+            for widthA in [160, 336, 480, 700] { for heightA in [120, 242, 600] {
+                for widthB in [160, 336, 480, 700] { for heightB in [120, 242, 600] {
+                    let apps = [window(widthA, heightA), window(widthB, heightB)]
+                    let fits = (widthA + widthB + 8 <= bounds.width && max(heightA, heightB) <= bounds.height) ||
+                        (max(widthA, widthB) <= bounds.width && heightA + heightB + 8 <= bounds.height)
+                    let root = try AutoLayout.activating(apps, in: bounds, gap: 8)
+                    XCTAssertEqual(root?.windows.count == 2, fits)
+                    if fits { assertValid(try LayoutEngine.calculate(root, in: bounds, gap: 8), in: bounds, count: 2) }
+                } }
+            } }
+        }
+    }
+    func testNativeCellRoundingStaysInsideItsSlot() {
+        let slot = Rect(962, 30, 958, 1113)
+        XCTAssertTrue(NativeFrameFit.accepts(Rect(962, 30, 958, 1099), in: slot))
+        XCTAssertFalse(NativeFrameFit.accepts(Rect(962, 30, 961, 1113), in: slot))
+        XCTAssertFalse(NativeFrameFit.accepts(Rect(952, 30, 958, 1099), in: slot))
+        XCTAssertFalse(NativeFrameFit.accepts(Rect(962, 30, 958, 1000), in: slot))
+        XCTAssertEqual(NativeFrameFit.inwardTarget(actual: Rect(962, 30, 961, 1117), slot: slot), Rect(962, 30, 954, 1108))
+        XCTAssertEqual(NativeFrameFit.inwardTarget(actual: Rect(962, 30, 1200, 1200), slot: slot), slot)
+    }
+    func testVisibleNonFocusedAppCanReflowExistingSlots() throws {
+        let a = window(400, 500), b = window(400, 500), terminal = window(800, 150)
+        let bounds = Rect(0, 0, 1000, 800)
+        let original = LayoutNode.split(id: UUID(), axis: .horizontal, ratio: 0.5, first: .window(a), second: .window(b))
+        let result = try LayoutEngine.calculate(AutoLayout.fitting([a, b, terminal], in: bounds, gap: 8,
+            preserving: original, prioritizing: [a.windowID]), in: bounds, gap: 8)
+        assertValid(result, in: bounds, count: 3)
+    }
+    func testChatAndTerminalFitEitherOrientationAtExactLimits() throws {
+        let chat = window(480, 600), terminal = window(336, 242)
+        for bounds in [Rect(0, 0, 824, 600), Rect(0, 0, 480, 850)] {
+            for apps in [[chat, terminal], [terminal, chat]] {
+                assertValid(try LayoutEngine.calculate(AutoLayout.activating(apps, in: bounds, gap: 8), in: bounds, gap: 8), in: bounds, count: 2)
+            }
+        }
+    }
     func testLiveDockGeometryReplacesStaleReservation() {
         let frame = Rect(0, 0, 1280, 800), stale = Rect(0, 30, 1280, 707)
         XCTAssertEqual(DesktopWorkArea.correctingDock(frame: frame, visible: stale, dock: Rect(300, 710, 680, 90)), Rect(0, 30, 1280, 680))

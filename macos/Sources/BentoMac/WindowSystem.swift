@@ -277,6 +277,6 @@ final class ManagedWindow {
     }
     func accepted(_ window: ManagedWindow, _ wanted: Rect) -> Bool {
         guard let actual = frame(of: window.element) else { return false }
-        return abs(actual.x - wanted.x) <= 2 && abs(actual.y - wanted.y) <= 2 && abs(actual.width - wanted.width) <= 2 && abs(actual.height - wanted.height) <= 2
+        return NativeFrameFit.accepts(actual, in: wanted)
     }
 }
