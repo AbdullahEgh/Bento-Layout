@@ -4,21 +4,20 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.22</title>
-            <pubDate>Sat, 17 Oct 2026 03:29:01 +0000</pubDate>
-            <sparkle:version>133</sparkle:version>
-            <sparkle:shortVersionString>0.2.22</sparkle:shortVersionString>
+            <title>0.2.23</title>
+            <pubDate>Sat, 17 Oct 2026 08:35:10 +0000</pubDate>
+            <sparkle:version>134</sparkle:version>
+            <sparkle:shortVersionString>0.2.23</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.22
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.23
 
-- Dock and menu-bar changes reclaim desktop space automatically.
-- Recent apps get priority and a larger starting slot; idle apps make room.
-- More reliable Vivaldi resizing and visible native window shadows.
+- Native Dock and menu-bar hiding updates usable space live.
+- Safer size-limit handling keeps recent apps in the largest slot.
 ]]></description>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.22/Bento-macos-universal.zip" length="3776288" type="application/octet-stream" sparkle:edSignature="IV5RKn0JMICaIc+GCnSE3jF5Vv/BXvMfgyGhi6fh2yZBWK4/aGJQ+9Madixccqfpa4djou9uHLbblo6FMMsaAQ=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.23/Bento-macos-universal.zip" length="3828661" type="application/octet-stream" sparkle:edSignature="echSY4VyOJLC6j0VPUsMbn51qgEl16mAVufwzf7Hvtzis6hDNHUTHGgKs6WGn8/blveejXItN605+izufXOKBA=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: Dg44tadAvpPPATyDCg1rJ/+ybzDkr3TUyLwLy1Y5Xx4cunwkAHZLgLUdJexFqrwk6F8i/fSQfNskKd0fKAFGBQ==
-length: 1374
+edSignature: BubrdV/KimCTtN58qJm7z5/LdmQniaqzzl/Q9E8i8Or00c6c1vKXGhsJ2/BQIoMhb/+9RRA7RAlr/jlxM9iHCQ==
+length: 1293
 -->
