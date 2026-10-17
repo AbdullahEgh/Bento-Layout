@@ -4,19 +4,21 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.25</title>
-            <pubDate>Sat, 17 Oct 2026 12:06:51 +0000</pubDate>
-            <sparkle:version>137</sparkle:version>
-            <sparkle:shortVersionString>0.2.25</sparkle:shortVersionString>
+            <title>0.2.26</title>
+            <pubDate>Sat, 17 Oct 2026 17:16:35 +0000</pubDate>
+            <sparkle:version>138</sparkle:version>
+            <sparkle:shortVersionString>0.2.26</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.25
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.26
 
-- Black background dimming follows your darkness setting.
+- Terminal-sized splits tolerate native text-grid rounding.
+- Bento resumes after minimizing or restoring windows.
+- Available apps can reshape old slots to fit the display.
 ]]></description>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.25/Bento-macos-universal.zip" length="3913681" type="application/octet-stream" sparkle:edSignature="/3dn2Wt8LM+b5mbzT1GxcHj8oOP+ydvXoBCx3dRKx2mv/hDRq534M0FP/bIoZmLlX/WLPPqf3p29lFbzU21ZBA=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.26/Bento-macos-universal.zip" length="3943892" type="application/octet-stream" sparkle:edSignature="K2vupLGCxmwETwcLIcMEY9F9Y/38qADFFRoCuOLUwnuCNXmMemZhmefmgwNOI7lGNXmnfG/bNrRW5q7sL8opCw=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: G1Hn7Prjz2IVJG85jn+uxJUKZ3/SV+LHK+hgfh9ps1Hdg/Wbc7s/Xkhlo6nCvMMUl1fZGNo2X+pr6olbzs6xBQ==
-length: 1223
+edSignature: 3+H7AmXLMyQdWiZy71iDKj705EdG83n6XHEwLvBRgeZ3xAqj7W7Z7gYPF0+oa70G2mHd258ZEtHeOH5JJOygCA==
+length: 1339
 -->
