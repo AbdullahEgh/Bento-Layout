@@ -5,22 +5,21 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
         <title>Bento</title>
         <item>
             <title>0.2.30</title>
-            <pubDate>Sat, 17 Oct 2026 21:09:14 +0000</pubDate>
+            <pubDate>Sat, 17 Oct 2026 21:11:44 +0000</pubDate>
             <sparkle:version>145</sparkle:version>
             <sparkle:shortVersionString>0.2.30</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.29
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.30
 
-- Separate desktop layouts remember their arrangement automatically.
-- Pin Bento keeps newly opened apps outside the current layout.
-- Hold the menu icon to toggle Dock and menu-bar hiding.
-- Brighter grips, fading black backdrop, and better divider alignment.
-- Quicker Dock and menu-bar space updates.
+- Preserve layouts through interruptions and Dock/menu-bar changes.
+- Use hidden screen space and restore original slot proportions.
+- Reliable menu-icon hold and longer, quicker grabbers.
+- Pinned apps dim; click the pin icon to minimize floating apps and return.
 ]]></description>
             <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.30/Bento-macos-universal.zip" length="4175166" type="application/octet-stream" sparkle:edSignature="uUTiqzyfy+ZTmEBXIWikvgzlAdBygGzxQWIeAMhv8yRcCSmwshNwyFqCQ6dzXL4KyGM8I23I6D4G63LnEGiiDA=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: BWS1EWzHGKL4hlNA9ZIBZJOFCpqj+HJ13y79NB/LhBP5uCnT0Y8A4FriPmtOi99TDVLZbpEk7ET7zURxz2AzCQ==
-length: 1469
+edSignature: kLbfqoSWtQJVKlRBFKSiQ2HYIf2OrplbdbGJHsGORuQ18CNduaW/viJePqvZPt7coQq9D1mq9VOL6azV5+SQDw==
+length: 1430
 -->
