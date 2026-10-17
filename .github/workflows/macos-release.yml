@@ -6,6 +6,10 @@ on:
         description: 'Mac version, for example 0.2.0 (must be a new release)'
         required: true
         type: string
+      notes_only:
+        description: 'Refresh signed notes for an existing release without replacing its app'
+        type: boolean
+        default: false
 permissions:
   contents: write
   actions: read
@@ -14,6 +18,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   publish:
+    if: ${{ !inputs.notes_only }}
     runs-on: macos-15
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
@@ -77,3 +82,38 @@ jobs:
           if [[ -f "$RUNNER_TEMP/bento-signing.keychain-db" ]]; then
             security delete-keychain "$RUNNER_TEMP/bento-signing.keychain-db"
           fi
+
+  refresh-notes:
+    if: ${{ inputs.notes_only }}
+    runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve Sparkle signing tools
+        run: macos/scripts/swift.sh package resolve
+      - name: Verify existing app and refresh signed release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          BENTO_PRIVATE_UPDATE_KEY: ${{ secrets.BENTO_MACOS_ED25519_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          set +x
+          [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          tag="macos-v$RELEASE_VERSION"
+          mkdir -p artifacts/macos
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern Bento-macos-universal.zip --dir artifacts/macos
+          ditto -x -k artifacts/macos/Bento-macos-universal.zip artifacts/macos
+          macos/scripts/verify-code-identity.sh artifacts/macos/Bento.app
+          [[ -n "$BENTO_PRIVATE_UPDATE_KEY" ]]
+          key_file="$(mktemp "$RUNNER_TEMP/bento-key.XXXXXX")"
+          chmod 600 "$key_file"
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s' "$BENTO_PRIVATE_UPDATE_KEY" > "$key_file"
+          unset BENTO_PRIVATE_UPDATE_KEY
+          export BENTO_ED_KEY_FILE="$key_file"
+          macos/scripts/prepare-update.sh "$tag"
+          gh auth setup-git
+          macos/scripts/publish-update.sh "$tag"
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file macos/RELEASE_NOTES.md

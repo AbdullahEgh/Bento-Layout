@@ -11,6 +11,7 @@ archive="$output_dir/Bento-macos-universal.zip"
 [[ -f "$archive" ]] || { echo 'Build the universal OTA release first.' >&2; exit 1; }
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :BentoDevelopmentBuild' "$app/Contents/Info.plist")" == 'false' ]] || { echo 'Development builds cannot be published for OTA.' >&2; exit 1; }
 version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
+[[ "$(head -n 1 "$mac_root/RELEASE_NOTES.md")" == "Bento for macOS $version" ]] || { echo 'Release notes do not match the app version.' >&2; exit 1; }
 [[ "$release_tag" == "macos-v$version" ]] || { echo 'Release tag and app version differ.' >&2; exit 1; }
 /usr/bin/codesign --verify --deep --strict "$app"
 if [[ -n "${BENTO_NOTARY_PROFILE:-}" ]]; then

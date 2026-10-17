@@ -1,7 +1,6 @@
-Bento for macOS 0.2.29
+Bento for macOS 0.2.30
 
-- Separate desktop layouts remember their arrangement automatically.
-- Pin Bento keeps newly opened apps outside the current layout.
-- Hold the menu icon to toggle Dock and menu-bar hiding.
-- Brighter grips, fading black backdrop, and better divider alignment.
-- Quicker Dock and menu-bar space updates.
+- Preserve layouts through interruptions and Dock/menu-bar changes.
+- Use hidden screen space and restore original slot proportions.
+- Reliable menu-icon hold and longer, quicker grabbers.
+- Pinned apps dim; click the pin icon to minimize floating apps and return.
