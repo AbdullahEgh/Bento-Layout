@@ -383,6 +383,7 @@ struct MacSettings: Codable {
         let generation = activationGeneration
         let wasActive = active
         var attemptedInput: ArrangementInput?
+        var primaryFloors: [UUID: Size] = [:]
         trace?("arrangement start preserving=\(preserving) resuming=\(resuming) active=\(wasActive)")
         do {
             if !preserving { released = resuming ? lastReleased : [] }
@@ -436,6 +437,11 @@ struct MacSettings: Codable {
                 for area in displays {
                     let members = current.filter { window in
                         guard !released.contains(window.id), !excluded.contains(window.id) else { return false }
+                        // A geometry repair is not a request to readmit quiet
+                        // overflow. Wait for new space, an explicit arrangement,
+                        // or the user restoring that app from the Dock.
+                        if preserving, displays == lastDisplays,
+                           minimizedByBento[window.id] != nil, !reopenedWindows.contains(window.id) { return false }
                         let savedDisplay = previous.roots.first { $0.value.windows.contains { $0.windowID == window.id } }?.key
                         let owner = savedDisplay.flatMap { id in displays.first { $0.id == id } } ?? display(for: window, displays: displays)
                         return owner?.id == area.id
@@ -454,7 +460,15 @@ struct MacSettings: Codable {
                     if previous.roots[area.id] == nil {
                         let rank = Dictionary(uniqueKeysWithValues: oldestFirst.enumerated().map { ($0.element, $0.offset) })
                         let recent = members.sorted { (rank[$0.id] ?? 0) > (rank[$1.id] ?? 0) }
-                        next.roots[area.id] = try AutoLayout.activating(recent.map(\.leaf), in: area.bounds, gap: layoutGap)
+                        let leaves = recent.map { window -> WindowLeaf in
+                            var leaf = window.leaf
+                            if let floor = primaryFloors[window.id] {
+                                leaf.minimum.width = max(leaf.minimum.width, floor.width)
+                                leaf.minimum.height = max(leaf.minimum.height, floor.height)
+                            }
+                            return leaf
+                        }
+                        next.roots[area.id] = try AutoLayout.activating(leaves, in: area.bounds, gap: layoutGap)
                     } else {
                         next.roots[area.id] = try AutoLayout.fitting(members.map(\.leaf), in: area.bounds, gap: layoutGap, preserving: previous.roots[area.id], prioritizing: priority, leastRecentlyUsed: oldestFirst)
                     }
@@ -471,6 +485,14 @@ struct MacSettings: Codable {
                     excluded.insert(id); continue
                 }
                 catch WindowFailure.minimumSize where attempt < attemptLimit {
+                    // Keep the already accepted primary pane during the single
+                    // correction. Do not expose a second unknown constraint by
+                    // shrinking it along a different axis to rescue an older app.
+                    for area in displays where previous.roots[area.id] == nil {
+                        guard let root = next.roots[area.id], let primary = root.windows.first,
+                              let region = try LayoutEngine.calculate(root, in: area.bounds, gap: layoutGap).regions.first(where: { $0.window.windowID == primary.windowID }) else { continue }
+                        primaryFloors[primary.windowID] = Size(region.bounds.width, region.bounds.height)
+                    }
                     continue
                 }
                 guard generation == activationGeneration else { return false }
@@ -483,7 +505,10 @@ struct MacSettings: Codable {
                 trace?("arrangement committed attempt=\(attempt + 1) tiled=\(included.count) overflow=\(current.count - included.count)")
                 reopenedWindows.removeAll(); failedAutomaticInput = nil
                 if !preserving && !resuming { editedLayout = false }
-                lastDisplays = displays; history.commit(next); active = !included.isEmpty || !minimizedByBento.isEmpty
+                // Activation plans store exact cut ratios, so relaxing temporary
+                // primary floors preserves the verified frames for future gestures.
+                let committed = primaryFloors.isEmpty ? next : next.reconciled(with: current.map(\.leaf))
+                lastDisplays = displays; history.commit(committed); active = !included.isEmpty || !minimizedByBento.isEmpty
                 if !active { try desktopPreferences.restore() }
                 message = active ? nil : "No windows fit on this display. Your windows were left in their original positions."
                 scheduleSettledValidation(); onStateChange?(); return active
@@ -587,12 +612,16 @@ struct MacSettings: Codable {
         var constrained = Set<String>()
         for (window, wanted) in rejected {
             guard let actual = system.frame(of: window.element) else { continue }
-            var learned = false
-            if actual.width > wanted.width + 2 { window.minimum.width = max(window.minimum.width, actual.width); learned = true }
-            if abs(actual.y - wanted.y) <= 2, actual.height > wanted.height + 2 {
-                window.minimum.height = max(window.minimum.height, actual.height); learned = true
+            let widthClamped = actual.width > wanted.width + 2
+            let heightClamped = abs(actual.y - wanted.y) <= 2 && actual.height > wanted.height + 2
+            if widthClamped || heightClamped {
+                // Both dimensions are now a verified usable pair. Learning only
+                // the refused axis can ask for an untested smaller other axis in
+                // the correction and exhaust the retry budget on the same app.
+                window.minimum.width = max(window.minimum.width, actual.width)
+                window.minimum.height = max(window.minimum.height, actual.height)
+                constrained.insert(window.application)
             }
-            if learned { constrained.insert(window.application) }
         }
         if !constrained.isEmpty { throw WindowFailure.minimumSize(constrained.sorted().joined(separator: ", ")) }
         if let first = rejected.first {

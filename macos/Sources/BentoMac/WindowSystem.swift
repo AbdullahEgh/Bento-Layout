@@ -58,13 +58,12 @@ struct DisplayArea: Equatable {
             CFPreferencesSynchronize(domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
             return (CFPreferencesCopyValue(key as CFString, domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? NSNumber)?.boolValue ?? false
         }
-        let hideMenu = flag(kCFPreferencesAnyApplication, "_HIHideMenuBar")
         let hideDock = flag("com.apple.dock" as CFString, "autohide")
         let dock = hideDock ? nil : DockGeometry.current()
         return NSScreen.screens.map { screen in
             let number = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
             let uuid = CGDisplayCreateUUIDFromDisplayID(number).takeRetainedValue()
-            return DisplayArea(id: CFUUIDCreateString(nil, uuid) as String, name: screen.localizedName, bounds: fullScreen ? DesktopCoordinates.engine(screen.frame).inset(margin) : DesktopWorkArea.calculate(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopWorkArea.correctingDock(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopCoordinates.engine(screen.visibleFrame), dock: dock), hideMenuBar: hideMenu && DesktopCoordinates.engine(screen.visibleFrame).y <= DesktopCoordinates.engine(screen.frame).y + Int(screen.safeAreaInsets.top.rounded(.up)), hideDock: hideDock, safeTop: Int(screen.safeAreaInsets.top.rounded(.up)), margin: margin))
+            return DisplayArea(id: CFUUIDCreateString(nil, uuid) as String, name: screen.localizedName, bounds: fullScreen ? DesktopCoordinates.engine(screen.frame).inset(margin) : DesktopWorkArea.calculate(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopWorkArea.correctingDock(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopCoordinates.engine(screen.visibleFrame), dock: dock), hideMenuBar: false, hideDock: false, safeTop: Int(screen.safeAreaInsets.top.rounded(.up)), margin: margin))
         }
     }
 }
@@ -136,10 +135,13 @@ final class ManagedWindow {
     }
     func desktopSpaceReady() -> Bool {
         let hideMenu = (CFPreferencesCopyValue("_HIHideMenuBar" as CFString, kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? NSNumber)?.boolValue ?? false
+        let hideDock = (CFPreferencesCopyValue("autohide" as CFString, "com.apple.dock" as CFString, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? NSNumber)?.boolValue ?? false
         return NSScreen.screens.allSatisfy { screen in
             let top = Int((screen.frame.maxY - screen.visibleFrame.maxY).rounded())
             let safe = Int(screen.safeAreaInsets.top.rounded(.up))
-            return hideMenu ? top <= safe : top >= max(1, safe)
+            let menuReady = hideMenu ? top <= safe : top >= max(1, safe)
+            let dockReady = !hideDock || (abs(screen.visibleFrame.minY - screen.frame.minY) <= 4 && abs(screen.visibleFrame.minX - screen.frame.minX) <= 4 && abs(screen.visibleFrame.maxX - screen.frame.maxX) <= 4)
+            return menuReady && dockReady
         }
     }
     func requestPermission() {
@@ -160,6 +162,16 @@ final class ManagedWindow {
         guard AXValueGetValue(p as! AXValue, .cgPoint, &position), AXValueGetValue(s as! AXValue, .cgSize, &size),
               position.x.isFinite, position.y.isFinite, size.width.isFinite, size.height.isFinite else { return nil }
         return Rect(Int(position.x.rounded()), Int(position.y.rounded()), Int(size.width.rounded()), Int(size.height.rounded()))
+    }
+    private func reportedMinimum(_ element: AXUIElement) -> Size? {
+        for name in ["AXMinSize", "AXMinimumSize"] {
+            guard let raw = attribute(element, name), CFGetTypeID(raw) == AXValueGetTypeID() else { continue }
+            var size = CGSize.zero
+            if AXValueGetValue(raw as! AXValue, .cgSize, &size), size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 {
+                return Size(Int(size.width.rounded(.up)), Int(size.height.rounded(.up)))
+            }
+        }
+        return nil
     }
     func discover() throws -> [ManagedWindow] {
         guard trusted else { throw WindowFailure.permission }
@@ -197,6 +209,9 @@ final class ManagedWindow {
                         application: application.localizedName ?? "Application", bundleID: application.bundleIdentifier ?? application.bundleURL?.path ?? "", frame: bounds))
                 }
             }
+        }
+        for window in found {
+            if let minimum = reportedMinimum(window.element) { window.minimum = minimum }
         }
         // Minimized/hidden/off-Space windows retain their session identity so a later
         // return cannot overwrite the original activation snapshot with tiled bounds.

@@ -1,3 +1,11 @@
+# Native desktop visibility and bounded activation — 0.2.23, 2026-10-17
+
+Live testing of installed 0.2.22 on macOS 27 found that changing the Dock preference and restarting its host left a stale reserved area. The follow-up applies native Dock/menu visibility before storing preferences, posts the matching notifications and waits for stable native geometry. A disposable UI check using the production native bridge reclaimed the full 1280 × 800 display with both controls hidden and restored the original 63-point Dock and 30-point menu reservations on quit. Missing native symbols retain the existing host-refresh fallback. Exact preference values remain journaled and session options remain excluded from persistent settings.
+
+The same desktop exposed constraints on both dimensions of several apps. Activation now learns a safe accepted size pair, preserves the primary pane during its one correction, and requires the most recent app to remain largest. Routine geometry repair does not readmit quiet minimized overflow without new space or a user restore. The isolated native regression reproduces previously unknown constraints, bounded correction, least-recent overflow and stable subsequent repair. Core coverage also checks the largest-pane invariant and the small Dock AX visual fringe.
+
+54 core tests and 155 isolated native interaction checks passed locally. Signed OTA and installed third-party-window checks are recorded after publication; isolated fixtures alone do not certify physical drag feel or native shadow appearance.
+
 # Native title contrast correction — 2026-10-17
 
 Installed 0.2.20 confirmed session saves start empty, both hiding options start off, macOS visibility is restored, and Accessibility stays connected. Its live dark-mode title bar still exposed a white backing behind white text: native title chrome needs an opaque window background even when content uses materials. The corrected window uses the native background color, and a separate live dark preview confirmed title and controls remain readable while content keeps its glass treatment. Native checks now also require opaque title backgrounds with light/dark foreground contrast.

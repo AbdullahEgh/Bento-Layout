@@ -7,6 +7,10 @@ struct ReleaseNotes: Identifiable {
 
     // Keep newest first; ship the log with the app so it also works offline.
     static let history: [ReleaseNotes] = [
+        .init(version: "0.2.23", points: [
+            "Native Dock and menu-bar hiding updates usable space live.",
+            "Safer size-limit handling keeps recent apps in the largest slot.",
+        ]),
         .init(version: "0.2.22", points: [
             "Dock and menu-bar changes reclaim desktop space automatically.",
             "Recent apps get priority and a larger starting slot; idle apps make room.",

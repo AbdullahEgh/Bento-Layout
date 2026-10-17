@@ -120,6 +120,44 @@ private final class FixturePreferences: PreferenceBackend {
         let initial = system.records.map { DesktopCoordinates.engine($0.1.frame) }
         defer { system.records.forEach { $0.1.close() } }
         do {
+            // Real apps can clamp height first and hide a minimum width that was
+            // not exercised by the initial target. Reproduce that without probing
+            // any third-party windows or increasing the correction budget.
+            let constraintArea = model.displayAreas()[0].bounds
+            let constraintPrimary = system.records[0].0, constraintSecondary = system.records[1].0, constraintOldest = system.records[2].0
+            system.nativeMinimum[constraintPrimary.id] = Size(Int(Double(constraintArea.width) * 0.39), 120)
+            system.nativeMinimum[constraintSecondary.id] = Size(Int(Double(constraintArea.width) * 0.38), Int(Double(constraintArea.height) * 0.87))
+            system.nativeMinimum[constraintOldest.id] = Size(Int(Double(constraintArea.width) * 0.26), Int(Double(constraintArea.height) * 0.35))
+            // A real app's starting frame already satisfies its own limits.
+            for (record, _) in system.records {
+                let minimum = system.nativeMinimum[record.id]!
+                var frame = system.frame(of: record.element)!
+                frame.width = max(frame.width, minimum.width); frame.height = max(frame.height, minimum.height)
+                frame.x = max(constraintArea.x, min(frame.x, constraintArea.right - frame.width))
+                frame.y = max(constraintArea.y, min(frame.y, constraintArea.bottom - frame.height))
+                try system.write(record, frame: frame)
+            }
+            system.writes.removeAll()
+            model.settings.minimizeOverflow = true
+            await model.arrange()
+            if !model.active || model.history.current.windows.count != 2 || !system.isMinimized(constraintOldest) {
+                print("Constraint regression: active=\(model.active), windows=\(model.history.current.windows.count), message=\(model.message ?? "none")")
+                print(modelTrace.suffix(12).joined(separator: "\n"))
+            }
+            try check(try model.active && matchingGeometry() && model.history.current.windows.count == 2 && system.isMinimized(constraintOldest), "A hidden native minimum on the other axis resolves in one correction with oldest-first overflow")
+            try check(modelTrace.contains(where: { $0.contains("arrangement committed attempt=2") }), "Unknown two-axis size limits never require a third placement attempt")
+            let correctedRegions = try regions().1.regions
+            let correctedPrimary = correctedRegions.first { $0.window.windowID == constraintPrimary.id }!
+            try check(correctedRegions.allSatisfy { $0.bounds.width * $0.bounds.height <= correctedPrimary.bounds.width * correctedPrimary.bounds.height }, "Constraint correction keeps the recent app in the largest slot")
+            let stableActivation = model.history.current
+            await model.arrange(preserving: true)
+            try check(model.history.current == stableActivation && system.isMinimized(constraintOldest), "A geometry repair does not readmit quiet overflow or shrink the recent app")
+            await model.restore()
+            system.nativeMinimum.removeAll(); system.writes.removeAll()
+            system.records.forEach { $0.0.minimum = Size(160, 120) }
+            for (index, record) in system.records.enumerated() { try system.write(record.0, frame: initial[index]) }
+            system.writes.removeAll()
+            model.settings.minimizeOverflow = false
             await model.arrange(); interactions.synchronize()
             try check(model.active && matchingGeometry(), "Three disposable native windows arranged")
             let activationRegions = try regions().1.regions
@@ -340,7 +378,9 @@ private final class FixturePreferences: PreferenceBackend {
             input.point = Point(input.point.x - 100, input.point.y - 100); interactions.moveGrip()
             await interactions.finish(cancel: false)
             try check(try model.history.current.roots[display]?.id == constrainedLayout.dividers[0].id && matchingGeometry(), "A newly discovered native minimum clamps the existing divider instead of rolling back or rearranging the tree")
-            try check(model.history.current.windows.first { $0.windowID == limited.id }?.minimum == nativeLimit, "Native size constraints persist in the committed split for subsequent gestures")
+            let learnedLimit = model.history.current.windows.first { $0.windowID == limited.id }!.minimum
+            let refusedAxisMatches = constrainedDivider.axis == .horizontal ? learnedLimit.width == nativeLimit.width : learnedLimit.height == nativeLimit.height
+            try check(refusedAxisMatches && learnedLimit == limited.minimum && learnedLimit.width >= nativeLimit.width && learnedLimit.height >= nativeLimit.height, "Verified native size limits persist in the committed split for subsequent gestures")
             system.nativeMinimum.removeAll()
             limited.minimum = Size(160, 120)
             try await model.finishInteraction(model.history.current, commit: true, animate: false)
@@ -506,11 +546,16 @@ private final class FixturePreferences: PreferenceBackend {
             model.tick()
             try check(system.writes == beforeGrowthWrites, "A single native size drift sample does not move other windows")
             model.tick(); await Task.yield()
+            func learnedGrowth() -> Bool {
+                let learned = growthRecord.minimum
+                let refusedAxisMatches = grown.width != growthSource.bounds.width ? learned.width == newLimit.width : learned.height == newLimit.height
+                return refusedAxisMatches && learned.width >= newLimit.width && learned.height >= newLimit.height
+            }
             for _ in 0..<200 {
-                if !model.activating && !model.busy && growthRecord.minimum == newLimit { break }
+                if !model.activating && !model.busy && learnedGrowth() { break }
                 try? await Task.sleep(for: .milliseconds(20))
             }
-            try check(try model.history.current.windows.contains { $0.windowID == growthRecord.id } && growthRecord.minimum == newLimit && matchingGeometry(), "A persistent app size change learns its constraint and adapts the layout automatically")
+            try check(try model.history.current.windows.contains { $0.windowID == growthRecord.id } && learnedGrowth() && matchingGeometry(), "A persistent app size change learns its safe constraint pair and adapts the layout automatically")
             let correctedWrites = system.writes
             model.tick(); await Task.yield(); model.tick(); await Task.yield()
             try check(system.writes == correctedWrites, "A corrected native size does not cause repeated background reflows")

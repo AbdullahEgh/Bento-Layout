@@ -120,6 +120,9 @@ public enum DesktopWorkArea {
               dock.right > frame.x, dock.x < frame.right, dock.bottom > frame.y, dock.y < frame.bottom else { return visible }
         var left = frame.x, right = frame.right, bottom = frame.bottom
         if dock.width >= dock.height, abs(frame.bottom - dock.bottom) <= 32, dock.height < frame.height / 3 {
+            // AX includes a small visual fringe on some releases. Keep an
+            // already matching AppKit reservation instead of shrinking by it.
+            if frame.bottom - visible.bottom >= 8, abs(visible.bottom - dock.y) <= 8 { return visible }
             bottom = max(visible.y, dock.y)
         } else if dock.height > dock.width, abs(dock.x - frame.x) <= 32, dock.width < frame.width / 3 {
             left = dock.right

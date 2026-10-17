@@ -50,6 +50,16 @@ final class LayoutTests: XCTestCase {
         XCTAssertEqual(DesktopWorkArea.correctingDock(frame: frame, visible: stale, dock: Rect(-500, 0, 40, 500)), stale)
         XCTAssertEqual(DesktopWorkArea.correctingDock(frame: frame, visible: stale, dock: nil), stale)
     }
+    func testActivationDoesNotMakeTheRecentAppSmallToRescueOlderApps() throws {
+        let recent = [window(160, 120), window(500, 600), window(336, 339)]
+        let bounds = Rect(8, 38, 1264, 691)
+        let result = try LayoutEngine.calculate(AutoLayout.activating(recent, in: bounds, gap: 14), in: bounds, gap: 14)
+        assertValid(result, in: bounds, count: 2)
+        XCTAssertEqual(Set(result.regions.map(\.window.windowID)), Set(recent.prefix(2).map(\.windowID)))
+        let primary = result.regions.first { $0.window.windowID == recent[0].windowID }!
+        XCTAssertTrue(result.regions.allSatisfy { $0.bounds.width * $0.bounds.height <= primary.bounds.width * primary.bounds.height })
+        XCTAssertEqual(DesktopWorkArea.correctingDock(frame: Rect(0, 0, 1280, 800), visible: Rect(0, 30, 1280, 707), dock: Rect(300, 733, 680, 67)), Rect(0, 30, 1280, 707))
+    }
     func testSharedWindowsGeometryFixtures() throws {
         struct Pack: Decodable { let version: Int; let cases: [Fixture] }
         struct Fixture: Decodable {
