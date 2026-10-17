@@ -4,29 +4,26 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.15</title>
-            <pubDate>Fri, 16 Oct 2026 20:35:01 +0000</pubDate>
-            <sparkle:version>118</sparkle:version>
-            <sparkle:shortVersionString>0.2.15</sparkle:shortVersionString>
+            <title>0.2.16</title>
+            <pubDate>Sat, 17 Oct 2026 00:01:10 +0000</pubDate>
+            <sparkle:version>119</sparkle:version>
+            <sparkle:shortVersionString>0.2.16</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.15
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.16
 
 What’s new
 
-- Fix Install and Relaunch stalling when the updater requests permission again after windows have been restored.
-
-- Turn Bento off and on without rebuilding your edited slots, display assignments, or floating-window choices.
-- Restore overflow windows to the Dock when resuming the same layout.
-- Drag floating windows into a slot to split it without ejecting another window, using Bento’s shared placement rules.
-- Move windows onto an empty display through the same validated drop calculation.
-- Clamp divider moves to newly discovered app size limits within the existing split tree, with one bounded correction.
-- Show clear swap, hold-to-split, and directional split feedback; ignore stationary clicks on drifted windows.
-- Restore newly admitted windows to their pre-drag positions when Bento is turned off.
+- Change Dock hiding, menu-bar hiding, and native snapping while Bento is running. Turning an option off restores its previous macOS setting immediately.
+- Adjust window gaps and desktop margins live, with matching grabber positions. Rapid edits are combined, and updates wait until a window drag ends.
+- Preserve edited slots when available desktop space changes.
+- Calculate a fitting arrangement for a new app before minimizing another app when an edited layout is too restrictive.
+- Adapt to persistent app size changes, protect the focused or newly opened app, and stop repeating unchanged failed arrangements.
+- Prevent Bento settings clicks and slider drags from grabbing windows underneath the settings panel.
 ]]></description>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.15/Bento-macos-universal.zip" length="3060090" type="application/octet-stream" sparkle:edSignature="aylrPkKbn8b2ELCnfdllmmYMwhEk6sCcfNajTwt5J7GhK5ufWjNDw1FpvBcuQ/YscGARsxbKu8G5UzJY6wB+Cw=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.16/Bento-macos-universal.zip" length="3194216" type="application/octet-stream" sparkle:edSignature="0lnBMm6+32oXqaa/EzYyclem2pNfHYHZqzRD12FN6pTjD1Oww0WDH8M6oDOHB0fgLZqIxi9LC8wj4CuUpCITBA=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: WfLhWXKsBJMToLcMKJtnfJYVMVfaqAYOzsxGj/Dd0o3OXPHjHT9A18amrMIvNhrkrwF7RoiEwWAUfC+T92H2Dw==
-length: 1994
+edSignature: ogHWH+qZwVrxezYGJ/5wsvgx6IE4SICmFV0DRCFxnOALi7q/TxsZIQnzOGXCzaDv7GVofgs6qcsQsfKurR/KAw==
+length: 1897
 -->
