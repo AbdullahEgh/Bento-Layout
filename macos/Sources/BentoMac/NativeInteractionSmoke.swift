@@ -805,8 +805,17 @@ private final class FixturePreferences: PreferenceBackend {
             try check(softPanel.alphaValue == 0 && softPanel.ignoresMouseEvents, "Soft preview starts transparent and never intercepts app input")
             let retarget = Rect(120, 80, 520, 360)
             softPreview.presentConflict(retarget)
-            try? await Task.sleep(for: .milliseconds(200))
-            try check(softPanel.frame == DesktopCoordinates.appKit(retarget) && softPanel.alphaValue == 1, "Preview retargeting reaches the latest destination without an old animation snapping back")
+            // Timer delivery can be delayed on a shared CI desktop. Wait for the
+            // actual destination with a bound, then observe it again after an old
+            // transition would have completed. This tests retargeting, not host load.
+            let previewDeadline = ProcessInfo.processInfo.systemUptime + 1
+            while (softPanel.frame != DesktopCoordinates.appKit(retarget) || softPanel.alphaValue != 1),
+                  ProcessInfo.processInfo.systemUptime < previewDeadline {
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+            let reachedDestination = softPanel.frame == DesktopCoordinates.appKit(retarget) && softPanel.alphaValue == 1
+            try? await Task.sleep(for: .milliseconds(150))
+            try check(reachedDestination && softPanel.frame == DesktopCoordinates.appKit(retarget) && softPanel.alphaValue == 1, "Preview retargeting reaches the latest destination without an old animation snapping back")
             softPreview.orderOut(nil)
             for _ in 0..<12 { try? await Task.sleep(for: .milliseconds(20)); softPreview.orderOut(nil) }
             try check(!softPanel.isVisible, "Repeated hide requests finish one fade and remove the overlay instead of restarting it")
