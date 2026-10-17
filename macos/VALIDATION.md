@@ -1,3 +1,7 @@
+# Installed black backdrop — 0.2.25, 2026-10-17
+
+Desktop dimming now uses black with the configured opacity. [macOS 15/26 compatibility run 39030464814](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/39030464814) and [signed release run 39030464379](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/39030464379) passed at `cef3c30`. Published [0.2.25](https://github.com/AbdullahEgh/Bento-Layout/releases/tag/macos-v0.2.25), build 137, verified its archive/feed and code signatures, and installed through Sparkle's Install Update and Install and Relaunch controls. The installed executable matched the verified archive. The relaunched UI retained Accessibility, 85% darkness, 4-point gaps and zero margin. Bento was off before installation and remains off; session-only hiding options reset on restart as designed.
+
 # Installed 0.2.24 selection update — 2026-10-17
 
 [Compatibility run 39027956308](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/39027956308) passed macOS 15 and 26 at `53b4e7e`; [release run 39027956289](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/39027956289) published [0.2.24](https://github.com/AbdullahEgh/Bento-Layout/releases/tag/macos-v0.2.24), build 136. Local verification passed 59 core tests and 162 native checks. The archive/feed signature, code signature and installed executable hash matched. Installation completed through the actual Install Update and Install and Relaunch controls with Accessibility retained.
