@@ -172,7 +172,7 @@ struct SettingsView: View {
                     Text("Choose a letter or number with at least one modifier. Click the menu-bar icon to toggle Bento; right-click for its menu.").font(.system(size: 12)).foregroundStyle(BentoStyle.secondary)
                     Divider()
                     HStack { settingLabel("Hold to split", symbol: "Gestures"); Spacer(); Stepper("\(model.settings.splitHold) ms", value: $model.settings.splitHold, in: 0...2000, step: 100).frame(width: 125) }
-                    Text("Drag a real window onto another region to swap. Hold at its edge until the frosted slot divides, then release to split. Drag a gap grip to resize neighbors. Escape cancels and restores the committed layout.").font(.system(size: 12)).lineSpacing(4).foregroundStyle(BentoStyle.secondary)
+                    Text("Drag a real window onto another region to swap. Drag to the outer screen edge to move its whole section, keeping stacked windows together. Hold at a slot edge to split. Drag a gap grip to resize neighbors. Escape cancels and restores the committed layout.").font(.system(size: 12)).lineSpacing(4).foregroundStyle(BentoStyle.secondary)
                 }
             }
         }
@@ -191,7 +191,7 @@ struct SettingsView: View {
             Text("Bento for macOS \(updater.version)").font(.system(size: 18, weight: .semibold))
             BentoCard {
                 VStack(alignment: .leading, spacing: 14) {
-                    ForEach(["Grabbers stay hidden until hovered or held, below your windows and above the dark background.", "Smooth window transitions animate activation, restoration and layout changes, respecting Reduce Motion.", "Extra windows minimize to the Dock. Reopen one to give it priority in the split layout; Bento brings back the windows it minimized when you turn it off.", "Swap, split and conflict previews use symbols instead of text and match the final slot geometry.", "Settings and layouts save automatically. Updates keep the permanent app identity introduced in 0.2.5."], id: \.self) { Text($0).font(.system(size: 12)).lineSpacing(4) }
+                    ForEach(["The menu-bar icon is a dim outline while off and filled white while active.", "Closing a window smoothly expands the remaining slots.", "Drag to the outer screen edge to swap whole sections without squeezing a large window into a small slot.", "Live gaps and desktop hide options adapt the existing layout while Bento is on.", "Grabbers stay hidden until hovered or held, below your windows and above the dark background.", "Smooth window transitions animate activation, restoration and layout changes, respecting Reduce Motion.", "Extra windows minimize to the Dock. Reopen one to give it priority in the split layout; Bento brings back the windows it minimized when you turn it off.", "Previews identify swaps, splits, section moves and size conflicts, and match the final slot geometry.", "Settings and layouts save automatically. Updates keep the permanent app identity introduced in 0.2.5."], id: \.self) { Text($0).font(.system(size: 12)).lineSpacing(4) }
                 }
             }
             DisclosureGroup("Update Log") {

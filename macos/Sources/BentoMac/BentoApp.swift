@@ -83,15 +83,6 @@ import Carbon.HIToolbox
         NSApp.mainMenu = menuBar
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
-            let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
-                NSColor.black.setStroke()
-                let path = NSBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 2), xRadius: 2, yRadius: 2)
-                path.lineWidth = 1.4; path.stroke()
-                let lines = NSBezierPath(); lines.lineWidth = 1.4
-                lines.move(to: NSPoint(x: 7, y: 2)); lines.line(to: NSPoint(x: 7, y: 16))
-                lines.move(to: NSPoint(x: 7, y: 9)); lines.line(to: NSPoint(x: 17, y: 9)); lines.stroke(); return true
-            }
-            image.isTemplate = true; button.image = image
             button.target = self; button.action = #selector(statusClicked)
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.setAccessibilityLabel("Bento — toggle layout; right-click for menu")
@@ -121,7 +112,8 @@ import Carbon.HIToolbox
         statusMenu = menu
         statusItem.button?.isEnabled = true
         statusItem.button?.appearsDisabled = false
-        statusItem.button?.alphaValue = model.active ? 1 : 0.75
+        statusItem.button?.image = BentoStatusIcon.image(active: model.active)
+        statusItem.button?.alphaValue = model.active ? 1 : 0.45
         statusItem.button?.toolTip = !model.permission ? "Bento needs Accessibility access — click to enable" : model.active ? "Bento is on — click to restore windows; right-click for menu" : "Bento is off — click to arrange windows; right-click for menu"
         if let message = model.message { statusItem.button?.toolTip? += "\n" + message }
     }

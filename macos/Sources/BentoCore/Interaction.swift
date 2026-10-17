@@ -1,6 +1,31 @@
 import Foundation
 
 public enum InteractionGeometry {
+    /// Move the outermost eligible section, carrying its complete subtree with it.
+    /// Mirroring the measured split keeps each section's size even when minima
+    /// clamped the saved ratio; no app is squeezed into a different leaf slot.
+    public static func moveSection(_ workspace: Workspace, source: UUID, display: String, toward edge: Placement, area: Rect, gap: Int) throws -> Workspace? {
+        guard edge != .center, let root = workspace.roots[display], root.windows.contains(where: { $0.windowID == source }) else { return nil }
+        let layout = try LayoutEngine.calculate(root, in: area, gap: gap)
+        let axis: Axis = edge == .left || edge == .right ? .horizontal : .vertical
+        let wantsFirst = edge == .left || edge == .top
+        func moved(_ node: LayoutNode) -> LayoutNode? {
+            guard case let .split(id, direction, ratio, first, second) = node else { return nil }
+            let inFirst = first.windows.contains { $0.windowID == source }
+            if direction == axis && inFirst != wantsFirst,
+               let divider = layout.dividers.first(where: { $0.id == id }) {
+                let length = (axis == .horizontal ? divider.parent.width : divider.parent.height) - gap
+                let offset = axis == .horizontal ? divider.bounds.x - divider.parent.x : divider.bounds.y - divider.parent.y
+                return .split(id: id, axis: direction, ratio: Double(length - offset) / Double(length), first: second, second: first)
+            }
+            guard let child = moved(inFirst ? first : second) else { return nil }
+            return .split(id: id, axis: direction, ratio: ratio, first: inFirst ? child : first, second: inFirst ? second : child)
+        }
+        guard let replacement = moved(root) else { return nil }
+        _ = try LayoutEngine.calculate(replacement, in: area, gap: gap)
+        var next = workspace; next.roots[display] = replacement; return next
+    }
+
     public static func resize(_ workspace: Workspace, display: String, divider: Divider, pointer: Point, area: Rect, gap: Int, grabbedAt: Point? = nil) throws -> Workspace {
         guard let root = workspace.roots[display], (try LayoutEngine.calculate(root, in: area, gap: gap)).dividers.contains(where: { $0.id == divider.id }) else { throw LayoutError.missingTarget }
         let horizontal = divider.axis == .horizontal
@@ -49,13 +74,14 @@ public struct DropProposal: Equatable {
     public let neighbors: [Rect]
     public let progress: Double
     public let waitingForSplit: Bool
+    public var swapsSections = false
 }
 public struct DropSession {
     public let original: Workspace
     public let source: WindowLeaf
     public private(set) var conflictBounds: Rect?
     private var intent = DragIntent()
-    private struct GeometryKey: Equatable { let display: String; let target: UUID?; let placement: Placement }
+    private struct GeometryKey: Equatable { let display: String; let target: UUID?; let placement: Placement; var section = false }
     private struct Geometry { let workspace: Workspace; let bounds: Rect; let neighbors: [Rect] }
     private var cachedAreas: [String: Rect] = [:]
     private var cachedGap: Int?
@@ -65,7 +91,7 @@ public struct DropSession {
     private var cachedConflict: Rect?
     private(set) var geometryBuildCount = 0
     public init(workspace: Workspace, source: WindowLeaf) { original = workspace; self.source = source }
-    public mutating func propose(pointer: Point, areas: [String: Rect], gap: Int, hold: Int, now: Double) throws -> DropProposal? {
+    public mutating func propose(pointer: Point, areas: [String: Rect], gap: Int, hold: Int, now: Double, screenBounds: [String: Rect] = [:]) throws -> DropProposal? {
         conflictBounds = nil
         if cachedAreas != areas || cachedGap != gap {
             intent.reset()
@@ -75,10 +101,36 @@ public struct DropSession {
                 layouts[id] = try LayoutEngine.calculate(node, in: area, gap: gap)
             }
         }
-        guard let display = areas.keys.sorted().first(where: { areas[$0]!.contains(pointer) }) else { intent.reset(); return nil }
+        guard let display = areas.keys.sorted().first(where: { areas[$0]!.contains(pointer) || screenBounds[$0]?.contains(pointer) == true }) else { intent.reset(); return nil }
+        // Only the thin physical screen edge activates section movement. The
+        // normal slot interior keeps its quick swap / hold-to-split behavior.
+        if let screen = screenBounds[display], screen.contains(pointer),
+           original.roots[display]?.windows.contains(where: { $0.windowID == source.windowID }) == true {
+            let distances: [(Placement, Int)] = [(.left, pointer.x - screen.x), (.right, screen.right - 1 - pointer.x),
+                                                (.top, pointer.y - screen.y), (.bottom, screen.bottom - 1 - pointer.y)]
+            if let (edge, distance) = distances.min(by: { $0.1 < $1.1 }), distance < 20 {
+                intent.reset()
+                let key = GeometryKey(display: display, target: nil, placement: edge, section: true)
+                if geometryKey != key {
+                    geometryKey = key; geometry = nil; cachedConflict = nil; geometryBuildCount += 1
+                    if let next = try InteractionGeometry.moveSection(original, source: source.windowID, display: display, toward: edge, area: areas[display]!, gap: gap) {
+                        let regions = try LayoutEngine.calculate(next.roots[display], in: areas[display]!, gap: gap).regions
+                        let before = Dictionary(uniqueKeysWithValues: (layouts[display]?.regions ?? []).map { ($0.window.windowID, $0.bounds) })
+                        if let destination = regions.first(where: { $0.window.windowID == source.windowID }) {
+                            geometry = Geometry(workspace: next, bounds: destination.bounds,
+                                neighbors: regions.filter { $0.window.windowID != source.windowID && before[$0.window.windowID] != $0.bounds }.map(\.bounds))
+                        }
+                    }
+                }
+                guard let geometry else { return nil }
+                return DropProposal(workspace: geometry.workspace, bounds: geometry.bounds, placement: edge, neighbors: geometry.neighbors,
+                                    progress: 0, waitingForSplit: false, swapsSections: true)
+            }
+        }
         let target = layouts[display]?.regions.first(where: { $0.bounds.contains(pointer) })
         guard target?.window.windowID != source.windowID,
               target != nil || original.roots[display] == nil else { intent.reset(); return nil }
+        guard areas[display]!.contains(pointer) else { intent.reset(); return nil }
         let targetBounds = target?.bounds ?? areas[display]!
         let gesture: (placement: Placement, progress: Double, waitingForSplit: Bool)
         if let target {

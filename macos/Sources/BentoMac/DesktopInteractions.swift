@@ -32,6 +32,7 @@ struct DesktopInput {
     private var session: DropSession?
     private var snapshot: Workspace?
     private var candidate: Workspace?
+    private var swapsSections = false
     private var nativeResize = false
     private var grip: (display: String, divider: Divider)?
     private var gripStart = Point(0, 0)
@@ -39,6 +40,7 @@ struct DesktopInput {
     private var liveTask: Task<Void, Never>?
     private var liveFailure = false
     private var gestureAreas: [String: Rect]?
+    private var gestureScreens: [String: Rect] = [:]
     private var lastSamplePoint: Point?
     private var escapeMonitor: Any?
     private var escapeRequested = false
@@ -125,6 +127,7 @@ struct DesktopInput {
             // settings click or slider drag to a window underneath our own UI.
             guard model.system.tracksDesktopPointer else { return }
             gestureAreas = nil; gestureAreas = areas()
+            gestureScreens = Dictionary(uniqueKeysWithValues: DisplayArea.all(margin: 0, fullScreen: true).map { ($0.id, $0.bounds) })
             pressedWindow = model.system.window(at: pressPoint, in: model.windows)
             if pressedWindow == nil {
                 for (display, root) in model.history.current.roots {
@@ -189,9 +192,9 @@ struct DesktopInput {
     }
     private func updateDrop(state: DesktopInput) {
         do {
-            if let proposal = try session?.propose(pointer: state.point, areas: areas(), gap: model.layoutGap, hold: model.settings.splitHold, now: state.time) {
+            if let proposal = try session?.propose(pointer: state.point, areas: areas(), gap: model.layoutGap, hold: model.settings.splitHold, now: state.time, screenBounds: gestureScreens) {
                 if candidate != proposal.workspace { trace?("drop proposal=\(proposal.placement.rawValue) bounds=\(proposal.bounds)") }
-                candidate = proposal.workspace; preview.present(proposal)
+                candidate = proposal.workspace; swapsSections = proposal.swapsSections; preview.present(proposal)
             } else {
                 candidate = nil
                 if let bounds = session?.conflictBounds { preview.presentConflict(bounds) } else { preview.orderOut(nil) }
@@ -260,7 +263,7 @@ struct DesktopInput {
            !original.windows.contains(where: { $0.windowID == window.id }) {
             model.rememberOriginal(window, frame: frame)
         }
-        do { try await model.finishInteraction(next, commit: !disappeared.isEmpty || !cancel && !liveFailure && candidate != nil, animate: cancel || liveFailure) }
+        do { try await model.finishInteraction(next, commit: !disappeared.isEmpty || !cancel && !liveFailure && candidate != nil, animate: cancel || liveFailure || !disappeared.isEmpty || swapsSections) }
         catch {
             trace?("gesture commit rejected; rolling back")
             let failure = error.localizedDescription
@@ -269,8 +272,8 @@ struct DesktopInput {
         }
         trace?("gesture settled elapsedMS=\(Int((ProcessInfo.processInfo.systemUptime - started) * 1000)) committed=\(!cancel && !liveFailure && model.message == nil && model.history.current != original)")
         preview.orderOut(nil)
-        gestureAreas = nil; escapeRequested = false; releasePending = false
-        snapshot = nil; candidate = nil; session = nil; grip = nil; pressedWindow = nil; pressedFrame = nil
+        gestureAreas = nil; gestureScreens = [:]; escapeRequested = false; releasePending = false
+        snapshot = nil; candidate = nil; swapsSections = false; session = nil; grip = nil; pressedWindow = nil; pressedFrame = nil
         liveTask = nil; liveFailure = false; nativeResize = false; model.interacting = false; finishing = false
         model.onStateChange?()
         synchronize()
@@ -303,11 +306,12 @@ struct DesktopInput {
             guard index < rectangles.count else { panel.orderOut(nil); continue }
             let primary = index == 0
             let progress = primary && proposal.waitingForSplit ? proposal.progress : nil
-            let changed = panel.slotView.primary != primary || panel.slotView.progress != progress || panel.slotView.conflict || panel.slotView.placement != proposal.placement
+            let changed = panel.slotView.primary != primary || panel.slotView.progress != progress || panel.slotView.conflict || panel.slotView.placement != proposal.placement || panel.slotView.swapsSections != proposal.swapsSections
             panel.slotView.primary = primary
             panel.slotView.progress = progress
             panel.slotView.conflict = false
             panel.slotView.placement = proposal.placement
+            panel.slotView.swapsSections = proposal.swapsSections
             let frame = DesktopCoordinates.appKit(rectangles[index])
             if panel.frame != frame { panel.setFrame(frame, display: true) }
             if changed { panel.slotView.needsDisplay = true }
@@ -331,6 +335,7 @@ struct DesktopInput {
 
 @MainActor final class PreviewSlotView: NSView {
     var primary = true, conflict = false
+    var swapsSections = false
     var placement = Placement.center
     var progress: Double?
     override func draw(_ dirtyRect: NSRect) {
@@ -348,12 +353,12 @@ struct DesktopInput {
         let chip = NSRect(x: bounds.midX - size / 2, y: bounds.midY - size / 2, width: size, height: size)
         NSColor(calibratedWhite: 0.09, alpha: 0.9).setFill()
         NSBezierPath(roundedRect: chip, xRadius: 16, yRadius: 16).fill()
-        let name = conflict ? "exclamationmark.triangle" : (placement == .center && progress == nil ? "arrow.left.arrow.right" : (placement == .top || placement == .bottom ? "rectangle.split.1x2" : "rectangle.split.2x1"))
+        let name = conflict ? "exclamationmark.triangle" : swapsSections ? "arrow.left.arrow.right" : (placement == .center && progress == nil ? "arrow.left.arrow.right" : (placement == .top || placement == .bottom ? "rectangle.split.1x2" : "rectangle.split.2x1"))
         if let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(.init(pointSize: 21, weight: .medium).applying(.init(paletteColors: [accent]))) {
             let icon = NSRect(x: chip.midX - 12, y: chip.midY - 12, width: 24, height: 24)
             symbol.draw(in: icon)
         }
-        let label = conflict ? "Cannot fit here" : progress != nil ? "Hold to split" : placement == .center ? "Swap windows" : "Split \(placement.rawValue)"
+        let label = conflict ? "Cannot fit here" : swapsSections ? "Move section" : progress != nil ? "Hold to split" : placement == .center ? "Swap windows" : "Split \(placement.rawValue)"
         let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11, weight: .semibold), .foregroundColor: NSColor.white]
         let textSize = label.size(withAttributes: attributes)
         let caption = NSRect(x: chip.midX - textSize.width / 2 - 7, y: chip.minY - 24, width: textSize.width + 14, height: 20)
@@ -375,7 +380,9 @@ struct DesktopInput {
         gripView = GripView(axis: axis)
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isReleasedWhenClosed = false; isOpaque = false; backgroundColor = .clear
-        hasShadow = false; level = .floating; hidesOnDeactivate = false
+        // Above the dimming panel (-2), below ordinary app windows (0).
+        // App content and shadows cover both the input surface and the grip ink.
+        hasShadow = false; level = NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue - 1); hidesOnDeactivate = false
         ignoresMouseEvents = false; acceptsMouseMovedEvents = true
         collectionBehavior = [.stationary, .ignoresCycle]; contentView = gripView
         setAccessibilityLabel("Bento resize divider")

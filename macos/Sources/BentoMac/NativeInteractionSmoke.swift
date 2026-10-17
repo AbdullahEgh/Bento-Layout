@@ -207,7 +207,7 @@ private final class FixturePreferences: PreferenceBackend {
                 "Membership refresh after relocation preserves the committed destination without extra native writes")
             await model.undo(); system.pointed = nil
             let layout = try regions().1, splitTarget = layout.regions.first { $0.window.windowID != source.window.windowID }!.bounds
-            try startDrag(source: sourceAfterSwap, target: Point(splitTarget.x + 3, splitTarget.y + splitTarget.height / 2), time: 3)
+            try startDrag(source: sourceAfterSwap, target: Point(splitTarget.x + 24, splitTarget.y + splitTarget.height / 2), time: 3)
             let readsBeforeHold = system.frameReads
             for _ in 0..<200 { input.time += 0.001; interactions.sample() }
             try check(system.frameReads == readsBeforeHold, "Stationary split hold advances feedback without repeated native frame reads")
@@ -515,6 +515,40 @@ private final class FixturePreferences: PreferenceBackend {
             system.writes.removeAll()
             await model.arrange()
             try check(try matchingGeometry() && system.writes.values.allSatisfy { $0 > 1 }, "Animated activation sends intermediate frames and reaches exact final geometry")
+            let sectionDisplay = try regions().0
+            let sectionArea = DisplayArea.all(margin: model.layoutMargin).first { $0.id == sectionDisplay }!.bounds
+            let group = LayoutNode.split(id: UUID(), axis: .vertical, ratio: 0.45, first: .window(system.records[0].0.leaf), second: .window(system.records[1].0.leaf))
+            let sectionTree = Workspace(roots: [sectionDisplay: .split(id: UUID(), axis: .horizontal, ratio: 0.4, first: group, second: .window(system.records[2].0.leaf))])
+            try await model.finishInteraction(sectionTree, commit: true, animate: false)
+            interactions.synchronize()
+            let bigSection = try regions().1.regions.first { $0.window.windowID == system.records[2].0.id }!
+            let screen = DisplayArea.all(margin: 0, fullScreen: true).first { $0.id == sectionDisplay }!.bounds
+            let expectedSectionMove = try InteractionGeometry.moveSection(sectionTree, source: bigSection.window.windowID, display: sectionDisplay, toward: .left, area: sectionArea, gap: model.layoutGap)
+            try startDrag(source: bigSection, target: Point(screen.x, screen.y + screen.height / 2), time: 40)
+            try check(NSApp.windows.contains { $0.isVisible && ($0.contentView as? PreviewSlotView)?.swapsSections == true },
+                "Physical screen edge previews section movement instead of a leaf split")
+            system.writes.removeAll()
+            input.pressed = false; interactions.sample(); await settle()
+            try check(try model.history.current == expectedSectionMove && matchingGeometry() && system.writes.values.contains { $0 > 1 },
+                "Screen-edge drag animates the big section left and carries the stacked section right")
+            await model.undo()
+            try check(try model.history.current == sectionTree && matchingGeometry(), "Section movement undo restores the original grouping and ratios")
+            let beforeClose = model.history.current
+            let closingID = try regions().1.regions[0].window.windowID
+            system.deadWindows = [closingID]; system.writes.removeAll()
+            model.tick()
+            for _ in 0..<100 {
+                await Task.yield()
+                if !model.activating && !model.busy && model.history.current.windows.count == 2 { break }
+                try? await Task.sleep(for: .milliseconds(30))
+            }
+            try check(try model.history.current == beforeClose.removing(closingID) && matchingGeometry() && system.writes.values.contains { $0 > 1 },
+                "Closing a window animates the collapsed slots to their exact final frames")
+            try check(system.writes[closingID] == nil, "Closing-window reflow never writes the deleted window")
+            let closedTree = model.history.current, settledWrites = system.writes
+            model.tick(); await Task.yield(); model.tick(); await Task.yield()
+            try check(model.history.current == closedTree && system.writes == settledWrites, "Closed-window animation settles once without a second reflow")
+            system.deadWindows.removeAll(); await model.arrange(preserving: true)
             await model.restore()
             try check(system.records.map { DesktopCoordinates.engine($0.1.frame) } == initial, "Animated deactivation restores exact starting geometry")
             system.deferWrites = true; system.writeDelay = 0.25
@@ -530,7 +564,7 @@ private final class FixturePreferences: PreferenceBackend {
             let gripView = GripView(axis: .horizontal); gripView.animate = false
             try check(gripView.visibleInk == 0, "Idle grip is fully hidden")
             let gapPanel = GapPanel(axis: .horizontal)
-            try check(gapPanel.level == .floating, "Gap-only grabbers stay visible above native window shadows")
+            try check(gapPanel.level.rawValue == NSWindow.Level.normal.rawValue - 1, "Grabbers stay below app windows and above the dark backdrop")
             gapPanel.setFrame(NSRect(x: 0, y: 0, width: 8, height: 150), display: true)
             gapPanel.gripView.animate = false
             gapPanel.gripView.layoutSubtreeIfNeeded()

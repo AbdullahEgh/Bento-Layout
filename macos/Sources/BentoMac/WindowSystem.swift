@@ -27,11 +27,11 @@ enum DesktopCoordinates {
 
 struct DisplayArea: Equatable {
     let id: String; let name: String; let bounds: Rect
-    static func all(margin: Int) -> [DisplayArea] {
+    static func all(margin: Int, fullScreen: Bool = false) -> [DisplayArea] {
         NSScreen.screens.map { screen in
             let number = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
             let uuid = CGDisplayCreateUUIDFromDisplayID(number).takeRetainedValue()
-            return DisplayArea(id: CFUUIDCreateString(nil, uuid) as String, name: screen.localizedName, bounds: DesktopCoordinates.engine(screen.visibleFrame).inset(margin))
+            return DisplayArea(id: CFUUIDCreateString(nil, uuid) as String, name: screen.localizedName, bounds: DesktopCoordinates.engine(fullScreen ? screen.frame : screen.visibleFrame).inset(margin))
         }
     }
 }

@@ -389,7 +389,10 @@ struct SavedWorkspace: Codable {
                     windows = previousWindows; trace?("automatic arrangement deferred: pointer pressed during discovery")
                     return false
                 }
-                do { try await apply(next, displays: displays, allowSkipping: true, animate: attempt == 0 && !wasActive) }
+                // Closing a window collapses its branch smoothly. New-window admission
+                // retains the bounded final-frame path to validate native minima first.
+                let closed = preserving && previousWindows.contains { window in !system.isAlive(window) && previous.windows.contains(where: { $0.windowID == window.id }) }
+                do { try await apply(next, displays: displays, allowSkipping: true, animate: attempt == 0 && (!wasActive || closed)) }
                 catch ArrangementFailure.window(let id) where attempt < attemptLimit && skipRefusingWindows {
                     excluded.insert(id); continue
                 }

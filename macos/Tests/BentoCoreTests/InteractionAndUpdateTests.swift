@@ -3,6 +3,72 @@ import CryptoKit
 @testable import BentoCore
 
 final class InteractionAndUpdateTests: XCTestCase {
+    func testPhysicalEdgeMovesWholeSectionWhenLeafSwapCannotFit() throws {
+        for direction in [Placement.left, .right, .top, .bottom] {
+            let horizontal = direction == .left || direction == .right
+            let firstEdge = direction == .left || direction == .top
+            let big = leaf(horizontal ? 650 : 1400, horizontal ? 1400 : 650), a = leaf(), b = leaf()
+            let stack = LayoutNode.split(id: UUID(), axis: horizontal ? .vertical : .horizontal, ratio: 0.4, first: .window(a), second: .window(b))
+            let screen = Rect(-1800, -300, 1600, 1600), area = screen.inset(40)
+            let root = LayoutNode.split(id: UUID(), axis: horizontal ? .horizontal : .vertical, ratio: firstEdge ? 0.3 : 0.7,
+                first: firstEdge ? stack : .window(big), second: firstEdge ? .window(big) : stack)
+            let state = Workspace(roots: ["A": root]), before = try LayoutEngine.calculate(root, in: area)
+            let target = before.regions.first { $0.window.windowID == a.windowID }!.bounds
+            var leafSwap = DropSession(workspace: state, source: big)
+            XCTAssertNil(try leafSwap.propose(pointer: Point(target.x + target.width / 2, target.y + target.height / 2), areas: ["A": area], gap: 8, hold: 900, now: 0))
+            let point: Point
+            switch direction {
+            case .left: point = Point(screen.x, screen.y + 800)
+            case .right: point = Point(screen.right - 1, screen.y + 800)
+            case .top: point = Point(screen.x + 800, screen.y)
+            default: point = Point(screen.x + 800, screen.bottom - 1)
+            }
+            var session = DropSession(workspace: state, source: big)
+            let proposal = try XCTUnwrap(session.propose(pointer: point, areas: ["A": area], gap: 8, hold: 900, now: 0, screenBounds: ["A": screen]))
+            XCTAssertTrue(proposal.swapsSections); XCTAssertFalse(proposal.waitingForSplit)
+            let after = try LayoutEngine.calculate(proposal.workspace.roots["A"], in: area)
+            XCTAssertEqual(proposal.neighbors.count, 2)
+            for region in before.regions {
+                let moved = try XCTUnwrap(after.regions.first { $0.window == region.window })
+                XCTAssertEqual(moved.bounds.width, region.bounds.width)
+                XCTAssertEqual(moved.bounds.height, region.bounds.height)
+            }
+            XCTAssertEqual(proposal.workspace.roots["A"]?.id, root.id)
+            XCTAssertEqual(proposal.workspace.roots["A"]?.windows.count, 3)
+            for time in 1...200 {
+                XCTAssertEqual(try session.propose(pointer: point, areas: ["A": area], gap: 8, hold: 900, now: Double(time), screenBounds: ["A": screen]), proposal)
+            }
+            XCTAssertEqual(session.geometryBuildCount, 1)
+            // Leaving the physical edge clears section intent, even in the margin.
+            XCTAssertNil(try session.propose(pointer: Point(screen.x + 25, screen.y + 25), areas: ["A": area], gap: 8, hold: 900, now: 201, screenBounds: ["A": screen]))
+        }
+    }
+    func testSectionMovePreservesClampedWidthsAndSkipsAlreadyOutermostSection() throws {
+        let large = leaf(1000, 150), a = leaf(), b = leaf()
+        let stack = LayoutNode.split(id: UUID(), axis: .vertical, ratio: 0.4, first: .window(a), second: .window(b))
+        let root = LayoutNode.split(id: UUID(), axis: .horizontal, ratio: 0.9, first: stack, second: .window(large))
+        let state = Workspace(roots: ["A": root])
+        let moved = try XCTUnwrap(InteractionGeometry.moveSection(state, source: large.windowID, display: "A", toward: .left, area: area, gap: 8))
+        let before = try LayoutEngine.calculate(root, in: area), after = try LayoutEngine.calculate(moved.roots["A"], in: area)
+        XCTAssertEqual(before.regions.first { $0.window == large }?.bounds.width, after.regions.first { $0.window == large }?.bounds.width)
+        XCTAssertNil(try InteractionGeometry.moveSection(moved, source: large.windowID, display: "A", toward: .left, area: area, gap: 8))
+        XCTAssertNil(try InteractionGeometry.moveSection(state, source: leaf().windowID, display: "A", toward: .left, area: area, gap: 8))
+        let restored = try XCTUnwrap(InteractionGeometry.moveSection(moved, source: large.windowID, display: "A", toward: .right, area: area, gap: 8))
+        XCTAssertEqual(try LayoutEngine.calculate(restored.roots["A"], in: area).regions, before.regions)
+    }
+    func testSectionMovementCarriesSourceGroupAndDoesNotActivateOnAnotherDisplay() throws {
+        let a = leaf(), b = leaf(), c = leaf(), d = leaf()
+        let group = LayoutNode.split(id: UUID(), axis: .vertical, ratio: 0.3, first: .window(a), second: .window(b))
+        let root = LayoutNode.split(id: UUID(), axis: .horizontal, ratio: 0.4, first: .window(c), second: group)
+        let state = Workspace(roots: ["A": root, "B": .window(d)])
+        let moved = try XCTUnwrap(InteractionGeometry.moveSection(state, source: a.windowID, display: "A", toward: .left, area: area, gap: 8))
+        guard case .split(_, _, _, let first, _) = moved.roots["A"] else { return XCTFail("Expected split") }
+        XCTAssertEqual(first, group); XCTAssertEqual(moved.roots["B"], .window(d))
+        var session = DropSession(workspace: state, source: a)
+        let proposal = try session.propose(pointer: Point(1600, 500), areas: ["A": area, "B": Rect(1600, 0, 1600, 1000)], gap: 8, hold: 900, now: 0,
+                                           screenBounds: ["A": area, "B": Rect(1600, 0, 1600, 1000)])
+        XCTAssertFalse(proposal?.swapsSections ?? false)
+    }
     func testResumeRetainsDisplaySlotIdentityAndRatioWithoutAdmittingFloatingWindows() throws {
         let a = leaf(), b = leaf(), c = leaf(), floating = leaf()
         let branch = UUID()
