@@ -34,17 +34,18 @@ Light and dark appearance follow the system or the selected setting. Onboarding 
 
 ## Implemented in this milestone
 
-- Menu-bar left-click toggle, right-click menu, native settings and configurable (or disableable) Control–Option–B toggle; shortcut registration failure leaves the menu-bar controls available.
+- Menu-bar left-click toggle, hold to toggle Dock/menu hiding while active, an icon-based right-click menu, native settings and configurable (or disableable) Control–Option–B toggle; shortcut registration failure leaves the menu-bar controls available.
 - Accessibility permission checks and public AX window discovery. The app excludes its own windows, hidden apps, minimized/fullscreen/fixed-size windows, and windows without matching public on-screen metadata.
 - Automatic constraint-aware recursive arrangement on each window's current display; display work areas exclude the Dock and menu bar.
 - Swift port of Windows automatic layout, insertion/removal, four-direction placement, center swapping, ratio resizing, bounded undo/redo and hold-to-split intent policy, connected to the native interaction controller.
 - Native geometry validation before writes, pre-activation snapshots, post-write bounds verification, best-effort rollback, original-position restoration on toggle-off and normal quit.
 - One-second membership and display checks while active. Membership changes preserve existing ratios where feasible. Display changes rebuild against current visible areas. Permission revocation pauses management.
-- Explicit session-only layout saves, retaining window identities and split trees until Bento quits.
+- Automatic session-only layout memory per desktop: off restores original positions, and on prefers the last valid split tree. Explicit Save for This Session instead keeps placed windows in position on stop. New desktops start off; desktop layouts and Pin states stay separate.
+- Pin Bento keeps current membership unchanged while new windows float above it; unpinning resumes normal admission.
 - Separate GitHub Actions checks for Mac builds/tests and Windows shared geometry contracts.
-- Native pointer/AX tracking connects quick center/edge swaps and timed edge splits to click-through previews of the final destination and changed neighboring slots, with hold progress and text-free swap/split symbols. Infeasible targets display an orange conflict symbol; releasing outside a valid slot restores the committed layout.
-- Gap-only nonactivating resize panels, hidden idle grips that appear on hover and extend to 104 points while held, above native window shadows and the dimmer, coalesced live native resizing, one undo step per gesture, cancellation rollback, and native inner-border resize tracking.
-- Optional auto-hide Dock/menu bar and native screen-edge snapping policy while Bento is active. Defaults preserve system behavior. Exact preference values (including absent keys) are journaled before changes, restored on deactivation/quit, and recovered next launch after an interrupted session. A manual preference change made during a session takes precedence on restore. Dock/tiling changes restart the Dock briefly.
+- Native pointer/AX tracking connects quick center/edge swaps and timed edge splits to click-through previews of the final destination and changed neighboring slots, with gentle outlines and stronger split feedback. Infeasible targets use an amber tint; releasing outside a valid slot restores the committed layout.
+- Gap-only nonactivating resize panels, hidden idle grips that appear on hover and extend to 104 points while held, below application windows and above the fading black dimmer, coalesced live native resizing, one undo step per gesture, cancellation rollback, and native inner-border resize tracking.
+- Optional auto-hide Dock/menu bar and native screen-edge snapping policy while Bento is active. Defaults preserve system behavior. Exact preference values (including absent keys) are journaled before changes, restored on deactivation/quit, and recovered next launch after an interrupted session. A manual preference change made during a session takes precedence on restore. Native visibility changes wait for stable usable geometry before reflow; unsupported systems retain the host-refresh fallback. These hiding options reset next launch.
 - Sparkle checks, opt-in automatic checks/downloads, signature verification before extraction, update UI/menu entry and restoration before restart. Local previews without an embedded publisher key explain why OTA is unavailable. Publishing does not require an Apple Developer ID.
 
 ## Architecture and parity decisions
