@@ -50,15 +50,51 @@ final class LayoutTests: XCTestCase {
         XCTAssertEqual(DesktopWorkArea.correctingDock(frame: frame, visible: stale, dock: Rect(-500, 0, 40, 500)), stale)
         XCTAssertEqual(DesktopWorkArea.correctingDock(frame: frame, visible: stale, dock: nil), stale)
     }
-    func testActivationDoesNotMakeTheRecentAppSmallToRescueOlderApps() throws {
+    func testActivationDoesNotHideFittingAppsToEnlargeThePrimary() throws {
         let recent = [window(160, 120), window(500, 600), window(336, 339)]
         let bounds = Rect(8, 38, 1264, 691)
         let result = try LayoutEngine.calculate(AutoLayout.activating(recent, in: bounds, gap: 14), in: bounds, gap: 14)
+        assertValid(result, in: bounds, count: 3)
+        XCTAssertEqual(Set(result.regions.map(\.window.windowID)), Set(recent.map(\.windowID)))
+    }
+    func testOrderIndependentConstraintGrouping() throws {
+        let apps = [window(600, 200), window(200, 600), window(600, 200), window(200, 600)]
+        let bounds = Rect(0, 0, 1020, 620)
+        let root = try AutoLayout.arrange(apps, in: bounds, gap: 10)
+        assertValid(try LayoutEngine.calculate(root, in: bounds, gap: 10), in: bounds, count: 4)
+    }
+    func testRealBrowserAndChatLimitsKeepAllFourAppsUsable() throws {
+        let apps = [window(500, 400), window(480, 600), window(336, 242), window(336, 242)]
+        let bounds = Rect(8, 38, 1264, 687)
+        let root = try AutoLayout.activating(apps, in: bounds, gap: 14)
+        assertValid(try LayoutEngine.calculate(root, in: bounds, gap: 14), in: bounds, count: 4)
+        let again = try AutoLayout.activating(apps, in: bounds, gap: 14)
+        XCTAssertEqual(try LayoutEngine.calculate(root, in: bounds, gap: 14).regions.map(\.bounds), try LayoutEngine.calculate(again, in: bounds, gap: 14).regions.map(\.bounds))
+    }
+    func testSelectionKeepsMoreUsableAppsWithRecentUseAsTieBreaker() throws {
+        let apps = [window(200, 200), window(900, 600), window(400, 300), window(400, 300)]
+        let bounds = Rect(0, 0, 1000, 650)
+        let result = try LayoutEngine.calculate(AutoLayout.activating(apps, in: bounds, gap: 10), in: bounds, gap: 10)
+        assertValid(result, in: bounds, count: 3)
+        XCTAssertEqual(Set(result.regions.map(\.window.windowID)), Set([apps[0].windowID, apps[2].windowID, apps[3].windowID]))
+    }
+    func testSelectionUsesRecencyWhenEqualCountsFit() throws {
+        let apps = [window(400, 400), window(400, 400), window(400, 400)]
+        let bounds = Rect(0, 0, 820, 420)
+        let result = try LayoutEngine.calculate(AutoLayout.activating(apps, in: bounds, gap: 10), in: bounds, gap: 10)
         assertValid(result, in: bounds, count: 2)
-        XCTAssertEqual(Set(result.regions.map(\.window.windowID)), Set(recent.prefix(2).map(\.windowID)))
-        let primary = result.regions.first { $0.window.windowID == recent[0].windowID }!
-        XCTAssertTrue(result.regions.allSatisfy { $0.bounds.width * $0.bounds.height <= primary.bounds.width * primary.bounds.height })
-        XCTAssertEqual(DesktopWorkArea.correctingDock(frame: Rect(0, 0, 1280, 800), visible: Rect(0, 30, 1280, 707), dock: Rect(300, 733, 680, 67)), Rect(0, 30, 1280, 707))
+        XCTAssertEqual(Set(result.regions.map(\.window.windowID)), Set(apps.prefix(2).map(\.windowID)))
+    }
+    func testEightAppCapacitySearchHasStableGeometry() throws {
+        let apps = [window(500, 190), window(230, 540), window(360, 280), window(250, 400), window(460, 210), window(240, 420), window(330, 270), window(270, 350)]
+        let bounds = Rect(-1200, 30, 1800, 1000)
+        let start = Date()
+        let first = CapacityPlanner.plan(apps, in: bounds, gap: 12, all: false)
+        let second = CapacityPlanner.plan(apps, in: bounds, gap: 12, all: false)
+        let result = try LayoutEngine.calculate(first, in: bounds, gap: 12)
+        assertValid(result, in: bounds, count: 8)
+        XCTAssertEqual(result.regions.map(\.bounds), try LayoutEngine.calculate(second, in: bounds, gap: 12).regions.map(\.bounds))
+        XCTAssertLessThan(Date().timeIntervalSince(start), 2, "Two bounded searches should not stall desktop interaction")
     }
     func testSharedWindowsGeometryFixtures() throws {
         struct Pack: Decodable { let version: Int; let cases: [Fixture] }

@@ -68,6 +68,7 @@ struct MacSettings: Codable {
     private var originals: [UUID: (ManagedWindow, Rect)] = [:]
     private(set) var minimizedByBento: [UUID: ManagedWindow] = [:]
     private var reopenedWindows = Set<UUID>()
+    private var floatingForSize = Set<UUID>()
     private var interactionSequence = 0
     private var lastInteraction: [UUID: Int] = [:]
     private var lastFocusedWindow: UUID?
@@ -327,7 +328,7 @@ struct MacSettings: Codable {
     }
     private func minimizeOverflow(included: Set<UUID>, current: [ManagedWindow]) {
         guard settings.minimizeOverflow else { return }
-        for window in current where !included.contains(window.id) && minimizedByBento[window.id] == nil {
+        for window in current where !included.contains(window.id) && minimizedByBento[window.id] == nil && !floatingForSize.contains(window.id) {
             // Only own minimizations made by Bento, never those made before activation.
             guard !system.isMinimized(window) else { continue }
             do { try system.setMinimized(window, true); minimizedByBento[window.id] = window }
@@ -383,7 +384,7 @@ struct MacSettings: Codable {
         let generation = activationGeneration
         let wasActive = active
         var attemptedInput: ArrangementInput?
-        var primaryFloors: [UUID: Size] = [:]
+        var safeCorrection = false
         trace?("arrangement start preserving=\(preserving) resuming=\(resuming) active=\(wasActive)")
         do {
             if !preserving { released = resuming ? lastReleased : [] }
@@ -427,9 +428,9 @@ struct MacSettings: Codable {
                     }
                 }
             }
-            // Plan with known constraints first. An unknown native minimum gets one
-            // correction, never a per-window series of visible layout attempts.
-            let attemptLimit = 1
+            // Two plans may learn independent native axis limits. The last plan
+            // uses verified sizes only; never probe each app in a visible loop.
+            let attemptLimit = 2
             var excluded = Set<UUID>()
             for attempt in 0...attemptLimit {
                 guard generation == activationGeneration else { return false }
@@ -457,20 +458,21 @@ struct MacSettings: Codable {
                     let primary = focused ?? recentFocus ?? members.first
                     var priority = reopenedWindows
                     if priority.isEmpty, let primary { priority.insert(primary.id) }
+                    func planningLeaf(_ window: ManagedWindow) -> WindowLeaf {
+                        var leaf = window.leaf
+                        if safeCorrection, let floor = window.verifiedSize {
+                            leaf.minimum.width = max(leaf.minimum.width, floor.width)
+                            leaf.minimum.height = max(leaf.minimum.height, floor.height)
+                        }
+                        return leaf
+                    }
                     if previous.roots[area.id] == nil {
                         let rank = Dictionary(uniqueKeysWithValues: oldestFirst.enumerated().map { ($0.element, $0.offset) })
                         let recent = members.sorted { (rank[$0.id] ?? 0) > (rank[$1.id] ?? 0) }
-                        let leaves = recent.map { window -> WindowLeaf in
-                            var leaf = window.leaf
-                            if let floor = primaryFloors[window.id] {
-                                leaf.minimum.width = max(leaf.minimum.width, floor.width)
-                                leaf.minimum.height = max(leaf.minimum.height, floor.height)
-                            }
-                            return leaf
-                        }
+                        let leaves = recent.map(planningLeaf)
                         next.roots[area.id] = try AutoLayout.activating(leaves, in: area.bounds, gap: layoutGap)
                     } else {
-                        next.roots[area.id] = try AutoLayout.fitting(members.map(\.leaf), in: area.bounds, gap: layoutGap, preserving: previous.roots[area.id], prioritizing: priority, leastRecentlyUsed: oldestFirst)
+                        next.roots[area.id] = try AutoLayout.fitting(members.map(planningLeaf), in: area.bounds, gap: layoutGap, preserving: previous.roots[area.id], prioritizing: priority, leastRecentlyUsed: oldestFirst)
                     }
                 }
                 if automatic && system.pointerPressed {
@@ -481,18 +483,15 @@ struct MacSettings: Codable {
                 // One coordinated transition for normal actions; corrections are
                 // bounded final-frame transactions, never repeated visible probing.
                 do { try await apply(next, displays: displays, allowSkipping: true, animate: attempt == 0) }
-                catch ArrangementFailure.window(let id) where attempt < attemptLimit && skipRefusingWindows {
+                catch ArrangementFailure.window(let id) where attempt == 0 && skipRefusingWindows {
                     excluded.insert(id); continue
                 }
                 catch WindowFailure.minimumSize where attempt < attemptLimit {
-                    // Keep the already accepted primary pane during the single
-                    // correction. Do not expose a second unknown constraint by
-                    // shrinking it along a different axis to rescue an older app.
-                    for area in displays where previous.roots[area.id] == nil {
-                        guard let root = next.roots[area.id], let primary = root.windows.first,
-                              let region = try LayoutEngine.calculate(root, in: area.bounds, gap: layoutGap).regions.first(where: { $0.window.windowID == primary.windowID }) else { continue }
-                        primaryFloors[primary.windowID] = Size(region.bounds.width, region.bounds.height)
-                    }
+                    // Learn only refused dimensions. If both exploratory plans
+                    // encounter different limits, finish with verified native sizes
+                    // once; do not repeat uncertain probes or inflate saved minima.
+                    safeCorrection = attempt == 1
+                    if safeCorrection { trace?("using verified sizes for final bounded correction") }
                     continue
                 }
                 guard generation == activationGeneration else { return false }
@@ -500,17 +499,24 @@ struct MacSettings: Codable {
                 // Keep originals for overflow minimized in place. Floating exclusions
                 // are forgotten so restoration cannot undo later user movement.
                 let currentIDs = Set(current.map(\.id))
-                originals = originals.filter { included.contains($0.key) || !currentIDs.contains($0.key) || settings.minimizeOverflow }
+                floatingForSize = floatingForSize.intersection(currentIDs).subtracting(included)
+                for window in current where reopenedWindows.contains(window.id) && !included.contains(window.id) {
+                    if let area = display(for: window, displays: displays),
+                       window.minimum.width > area.bounds.width || window.minimum.height > area.bounds.height || excluded.contains(window.id) {
+                        floatingForSize.insert(window.id)
+                    }
+                }
+                originals = originals.filter { !floatingForSize.contains($0.key) && (included.contains($0.key) || !currentIDs.contains($0.key) || settings.minimizeOverflow) }
                 minimizeOverflow(included: included, current: current.filter { !released.contains($0.id) })
                 trace?("arrangement committed attempt=\(attempt + 1) tiled=\(included.count) overflow=\(current.count - included.count)")
                 reopenedWindows.removeAll(); failedAutomaticInput = nil
                 if !preserving && !resuming { editedLayout = false }
-                // Activation plans store exact cut ratios, so relaxing temporary
-                // primary floors preserves the verified frames for future gestures.
-                let committed = primaryFloors.isEmpty ? next : next.reconciled(with: current.map(\.leaf))
+                // Verified-size fallback is temporary. Keep genuine axis limits
+                // for future gestures instead of turning a large frame into a minimum.
+                let committed = safeCorrection ? next.reconciled(with: current.map(\.leaf)) : next
                 lastDisplays = displays; history.commit(committed); active = !included.isEmpty || !minimizedByBento.isEmpty
                 if !active { try desktopPreferences.restore() }
-                message = active ? nil : "No windows fit on this display. Your windows were left in their original positions."
+                message = active ? (floatingForSize.isEmpty ? nil : "A restored app stays outside Bento because it cannot use a slot on this display.") : "No windows fit on this display. Your windows were left in their original positions."
                 scheduleSettledValidation(); onStateChange?(); return active
             }
         } catch {
@@ -604,22 +610,29 @@ struct MacSettings: Codable {
         }
     }
     private func validate(_ plan: [(ManagedWindow, Rect)], allowSkipping: Bool) throws {
-        let rejected = plan.filter { !system.accepted($0.0, $0.1) }
-        if CommandLine.arguments.contains("--fixture-pid") {
-            for (window, wanted) in rejected { print("Rejected fixture bounds: \(window.title), wanted=\(wanted), actual=\(String(describing: system.frame(of: window.element)))") }
+        // Use one settled snapshot per window for acceptance, diagnostics and
+        // size learning. Repeated AX reads can disagree and are slow on busy apps.
+        var frames: [UUID: Rect] = [:]
+        let rejected = plan.filter { window, wanted in
+            guard let actual = system.frame(of: window.element) else { return true }
+            frames[window.id] = actual
+            window.verifiedSize = Size(actual.width, actual.height)
+            return abs(actual.x - wanted.x) > 2 || abs(actual.y - wanted.y) > 2 || abs(actual.width - wanted.width) > 2 || abs(actual.height - wanted.height) > 2
         }
-        for (window, wanted) in rejected { trace?("native frame rejected window=\(window.id) wanted=\(wanted) actual=\(String(describing: system.frame(of: window.element)))") }
+        if CommandLine.arguments.contains("--fixture-pid") {
+            for (window, wanted) in rejected { print("Rejected fixture bounds: \(window.title), wanted=\(wanted), actual=\(String(describing: frames[window.id]))") }
+        }
+        for (window, wanted) in rejected { trace?("native frame rejected window=\(window.id) wanted=\(wanted) actual=\(String(describing: frames[window.id]))") }
         var constrained = Set<String>()
         for (window, wanted) in rejected {
-            guard let actual = system.frame(of: window.element) else { continue }
+            guard let actual = frames[window.id] else { continue }
             let widthClamped = actual.width > wanted.width + 2
             let heightClamped = abs(actual.y - wanted.y) <= 2 && actual.height > wanted.height + 2
             if widthClamped || heightClamped {
-                // Both dimensions are now a verified usable pair. Learning only
-                // the refused axis can ask for an untested smaller other axis in
-                // the correction and exhaust the retry budget on the same app.
-                window.minimum.width = max(window.minimum.width, actual.width)
-                window.minimum.height = max(window.minimum.height, actual.height)
+                // A clamp proves a minimum only on that axis. The accepted
+                // other dimension is a safe fallback size, not a permanent limit.
+                if widthClamped { window.minimum.width = max(window.minimum.width, actual.width) }
+                if heightClamped { window.minimum.height = max(window.minimum.height, actual.height) }
                 constrained.insert(window.application)
             }
         }
@@ -701,7 +714,7 @@ struct MacSettings: Codable {
             for (id, entry) in pending where system.isAlive(entry.0) && !system.accepted(entry.0, entry.1) { remaining[id] = entry }
         }
         let minimizedFailures = await restoreMinimized()
-        originals = remaining; appliedDesktopOptions = [:]; released.removeAll(); reopenedWindows.removeAll(); active = false; history = LayoutHistory()
+        originals = remaining; appliedDesktopOptions = [:]; released.removeAll(); reopenedWindows.removeAll(); floatingForSize.removeAll(); active = false; history = LayoutHistory()
         let failures = (restorePositions ? remaining.count : 0) + minimizedFailures
         message = failures == 0 ? nil : system.trusted
             ? "\(failures) window(s) could not return to their original size or position. Try Restore again after checking the app and display."

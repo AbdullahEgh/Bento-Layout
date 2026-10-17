@@ -35,9 +35,10 @@ public enum AutoLayout {
                     }
                 }
             }
-            // Try the full constraint solver before evicting an older app.
-            if let root = try? arrange(candidates, in: area, gap: gap),
-               try primaryIsLargest(root, id: primary.windowID) { return root }
+            // A prominent primary is a preference, never a reason to hide an
+            // otherwise usable app. Search membership and grouping together.
+            if let root = CapacityPlanner.plan(candidates, in: area, gap: gap, all: false) { return root }
+            if let root = try? arrange(candidates, in: area, gap: gap) { return root }
             candidates.removeLast()
         }
         return nil
@@ -86,6 +87,15 @@ public enum AutoLayout {
                 // before sacrificing another window.
                 do { return try arrange(candidates, in: area, gap: gap) }
                 catch LayoutError.cannotFit { }
+                if feasiblePriority.count == 1 {
+                    let ordered = candidates.enumerated().sorted {
+                        let a = $0.element.windowID, b = $1.element.windowID
+                        if feasiblePriority.contains(a) != feasiblePriority.contains(b) { return feasiblePriority.contains(a) }
+                        let x = rank[a] ?? -1, y = rank[b] ?? -1
+                        return x == y ? $0.offset < $1.offset : x > y
+                    }.map(\.element)
+                    if let selected = CapacityPlanner.plan(ordered, in: area, gap: gap, all: false) { return selected }
+                }
                 if index < evictionOrder.count { candidates.removeAll { $0.windowID == evictionOrder[index] } }
             }
             // Simultaneously reopened windows may not all fit together.
@@ -143,6 +153,17 @@ public enum AutoLayout {
                 if let slot = try LayoutEngine.calculate(root, in: area, gap: gap).regions.first(where: { $0.window.windowID == victim.windowID }),
                    slot.bounds.width >= window.minimum.width, slot.bounds.height >= window.minimum.height {
                     root = replacement; displaced.insert(victim.windowID); break
+                }
+                // Exact replacement was unavailable. Select the best fitting
+                // membership together instead of dropping victims one by one.
+                let existing = root!.windows.enumerated().sorted {
+                    let x = rank[$0.element.windowID] ?? -1, y = rank[$1.element.windowID] ?? -1
+                    return x == y ? $0.offset < $1.offset : x > y
+                }.map(\.element)
+                if let selected = CapacityPlanner.plan([window] + existing, in: area, gap: gap, all: false) {
+                    let kept = Set(selected.windows.map(\.windowID))
+                    displaced.formUnion(existing.filter { !kept.contains($0.windowID) }.map(\.windowID))
+                    root = selected; break
                 }
                 root = root?.removing(victim.windowID); displaced.insert(victim.windowID)
                 if let inserted = try insertLocally(window, into: root, in: area, gap: gap) { root = inserted; break }
@@ -216,7 +237,8 @@ public enum AutoLayout {
             }
             failed.insert(key); return nil
         }
-        guard let root = build(0, windows.count, area.width, area.height) else { throw LayoutError.cannotFit }
+        guard let root = build(0, windows.count, area.width, area.height)
+            ?? CapacityPlanner.plan(windows, in: area, gap: gap, all: true) else { throw LayoutError.cannotFit }
         _ = try LayoutEngine.calculate(root, in: area, gap: gap)
         return root
     }
