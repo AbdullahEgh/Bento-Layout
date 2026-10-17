@@ -7,6 +7,9 @@ struct ReleaseNotes: Identifiable {
 
     // Keep newest first; ship the log with the app so it also works offline.
     static let history: [ReleaseNotes] = [
+        .init(version: "0.2.25", points: [
+            "Black background dimming follows your darkness setting.",
+        ]),
         .init(version: "0.2.24", points: [
             "Smarter app selection keeps more windows usable at their real size limits.",
             "Flexible splits prioritize recent apps without wasting space.",

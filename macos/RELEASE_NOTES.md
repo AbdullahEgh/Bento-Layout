@@ -1,5 +1,3 @@
-Bento for macOS 0.2.24
+Bento for macOS 0.2.25
 
-- Smarter app selection keeps more windows usable at their real size limits.
-- Flexible splits prioritize recent apps without wasting space.
-- Restored apps stay usable when no slot can fit them.
+- Black background dimming follows your darkness setting.
