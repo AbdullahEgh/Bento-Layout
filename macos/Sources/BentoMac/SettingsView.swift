@@ -98,26 +98,16 @@ struct SettingsView: View {
                     }
                 }
             }
+            layoutOptions
             activationOptions
+            appearanceOptions
             BentoCard {
-                VStack(alignment: .leading, spacing: 12) {
-                    Toggle(isOn: Binding(get: { loginStartup.enabled }, set: { loginStartup.setEnabled($0) })) { settingLabel("Start at login", symbol: "Startup") }.toggleStyle(.switch)
-                    Text("Open Bento in the menu bar when you sign in to this Mac.").font(.system(size: 11)).foregroundStyle(BentoStyle.secondary)
+                VStack(alignment: .leading, spacing: 14) {
+                    cardHeading("General")
+                    switchSetting("Start at login", symbol: "Startup", detail: "Open Bento in the menu bar when you sign in.", isOn: Binding(get: { loginStartup.enabled }, set: { loginStartup.setEnabled($0) }))
                     if loginStartup.needsApproval { Button("Approve in Login Items") { loginStartup.openSettings() } }
                     if let message = loginStartup.message { Text(message).font(.system(size: 11)).foregroundStyle(BentoStyle.secondary) }
-                }.font(.system(size: 12))
-            }
-            BentoCard {
-                VStack(spacing: 20) {
-                    setting("Space between windows", symbol: "Gap", value: $model.settings.gap, range: 4...32)
-                    setting("Desktop margin", symbol: "Margin", value: $model.settings.margin, range: 0...64)
-                    rowLayout { settingLabel("Background darkness", symbol: "Darkness"); Slider(value: Binding(get: { Double(model.settings.backgroundDarkness) }, set: { model.settings.backgroundDarkness = Int($0) }), in: 0...100, step: 5); Text("\(model.settings.backgroundDarkness)%").monospacedDigit().frame(width: 36) }
-                    Toggle(isOn: $model.settings.animate) { settingLabel("Smooth window transitions", symbol: "Animation") }.toggleStyle(.switch)
-                    if model.settings.animate { rowLayout { settingLabel("Animation duration", symbol: "Duration"); Spacer(); Stepper("\(model.settings.animationMS) ms", value: $model.settings.animationMS, in: 80...400, step: 20).frame(width: 120) } }
-                    Text("Motion follows macOS Reduce Motion. Background darkness applies while Bento is on.").font(.system(size: 11)).foregroundStyle(BentoStyle.secondary)
-                    rowLayout { settingLabel("Appearance", symbol: "Appearance"); Spacer(); Picker("Appearance", selection: $model.settings.theme) { Text("System").tag("System"); Text("Light").tag("Light"); Text("Dark").tag("Dark") }.labelsHidden().frame(width: 130) }
-                    Text("Spacing updates live while Bento is on.").font(.system(size: 11)).foregroundStyle(BentoStyle.secondary).frame(maxWidth: .infinity, alignment: .leading)
-                }.font(.system(size: 12))
+                }
             }
             rowLayout {
                 Button("Restore saved layout") { Task { await model.loadLayout() } }.disabled(!model.permission || model.busy)
@@ -126,22 +116,67 @@ struct SettingsView: View {
             }
         }
     }
+    private var layoutOptions: some View {
+        BentoCard {
+            VStack(alignment: .leading, spacing: 18) {
+                cardHeading("Layout & spacing", detail: "Keep windows usable as your workspace changes.")
+                switchSetting("Minimize windows that do not fit", symbol: "Restore", detail: "Make room by minimizing the least recently used windows.", isOn: $model.settings.minimizeOverflow)
+                Divider()
+                setting("Space between windows", symbol: "Gap", value: $model.settings.gap, range: 4...32)
+                setting("Desktop margin", symbol: "Margin", value: $model.settings.margin, range: 0...64)
+                Text("Spacing updates live while Bento is on.").font(.system(size: 11)).foregroundStyle(BentoStyle.secondary)
+            }
+        }
+    }
     private var activationOptions: some View {
         BentoCard {
-                VStack(alignment: .leading, spacing: 18) {
-                    Text("Desktop behavior").font(.system(size: 14, weight: .semibold))
-                    Toggle(isOn: $model.settings.minimizeOverflow) { settingLabel("Minimize windows that do not fit", symbol: "Restore") }.toggleStyle(.switch)
-                    Toggle(isOn: $model.settings.hideDock) { settingLabel("Automatically hide the Dock", symbol: "Dock") }.toggleStyle(.switch)
-                    Toggle(isOn: $model.settings.hideMenuBar) { settingLabel("Automatically hide the menu bar", symbol: "MenuBar") }.toggleStyle(.switch)
-                    rowLayout {
-                        settingLabel("macOS screen-edge snapping", symbol: "Snap"); Spacer()
-                        Picker("macOS screen-edge snapping", selection: $model.settings.edgeSnapping) {
-                            Text("Keep current setting").tag("Keep"); Text("On while active").tag("On"); Text("Off while active").tag("Off")
-                        }.labelsHidden().frame(width: 175)
-                    }
-                    Text("Changes apply live while Bento is on. Turning an option off restores your previous macOS setting. Dock and menu-bar changes briefly refresh the desktop.").font(.system(size: 11)).lineSpacing(4).foregroundStyle(BentoStyle.secondary)
-                }.font(.system(size: 12))
+            VStack(alignment: .leading, spacing: 18) {
+                cardHeading("Desktop", detail: "Changes apply live while Bento is on.")
+                switchSetting("Automatically hide the Dock", symbol: "Dock", isOn: $model.settings.hideDock)
+                Divider()
+                switchSetting("Automatically hide the menu bar", symbol: "MenuBar", isOn: $model.settings.hideMenuBar)
+                Divider()
+                rowLayout {
+                    settingLabel("macOS screen-edge snapping", symbol: "Snap"); Spacer()
+                    Picker("macOS screen-edge snapping", selection: $model.settings.edgeSnapping) {
+                        Text("Keep current setting").tag("Keep"); Text("On while active").tag("On"); Text("Off while active").tag("Off")
+                    }.labelsHidden().frame(width: 175)
+                }
+                Text("Turning hiding off restores your previous macOS setting. The desktop briefly refreshes when these options change.").font(.system(size: 11)).lineSpacing(4).foregroundStyle(BentoStyle.secondary)
+            }.font(.system(size: 12))
         }
+    }
+    private var appearanceOptions: some View {
+        BentoCard {
+            VStack(alignment: .leading, spacing: 18) {
+                cardHeading("Appearance & motion")
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack { settingLabel("Background darkness", symbol: "Darkness"); Spacer(); Text("\(model.settings.backgroundDarkness)%").monospacedDigit().foregroundStyle(BentoStyle.secondary) }
+                    Slider(value: Binding(get: { Double(model.settings.backgroundDarkness) }, set: { model.settings.backgroundDarkness = Int($0) }), in: 0...100, step: 5).accessibilityLabel("Background darkness")
+                }
+                Divider()
+                switchSetting("Smooth window transitions", symbol: "Animation", isOn: $model.settings.animate)
+                if model.settings.animate { rowLayout { settingLabel("Animation duration", symbol: "Duration"); Spacer(); Stepper("\(model.settings.animationMS) ms", value: $model.settings.animationMS, in: 80...400, step: 20).frame(width: 120) } }
+                Text("Motion follows macOS Reduce Motion.").font(.system(size: 11)).foregroundStyle(BentoStyle.secondary)
+                Divider()
+                rowLayout { settingLabel("Appearance", symbol: "Appearance"); Spacer(); Picker("Appearance", selection: $model.settings.theme) { Text("System").tag("System"); Text("Light").tag("Light"); Text("Dark").tag("Dark") }.labelsHidden().frame(width: 130) }
+            }.font(.system(size: 12))
+        }
+    }
+    private func cardHeading(_ title: String, detail: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title).font(.system(size: 14, weight: .semibold))
+            if let detail { Text(detail).font(.system(size: 11)).foregroundStyle(BentoStyle.secondary) }
+        }
+    }
+    private func switchSetting(_ title: String, symbol: String, detail: String? = nil, isOn: Binding<Bool>) -> some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 5) {
+                settingLabel(title, symbol: symbol).font(.system(size: 12, weight: .medium))
+                if let detail { Text(detail).font(.system(size: 11)).lineSpacing(3).foregroundStyle(BentoStyle.secondary).padding(.leading, 28) }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            Toggle(title, isOn: isOn).labelsHidden().toggleStyle(.switch).fixedSize()
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
     private func settingLabel(_ title: String, symbol: String) -> some View {
         HStack(spacing: 10) {
@@ -161,7 +196,7 @@ struct SettingsView: View {
             BentoCard {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack { BentoSymbol(name: "Keyboard"); Text("Toggle Bento"); Spacer(); Text(model.settings.shortcut.label).font(.system(.body, design: .monospaced)).foregroundStyle(BentoStyle.accent) }
-                    Toggle(isOn: $model.settings.shortcut.enabled) { settingLabel("Enable keyboard shortcut", symbol: "Keyboard") }.toggleStyle(.switch)
+                    switchSetting("Enable keyboard shortcut", symbol: "Keyboard", isOn: $model.settings.shortcut.enabled)
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 100))], alignment: .leading, spacing: 12) {
                         Toggle("Control", isOn: $model.settings.shortcut.control)
                         Toggle("Option", isOn: $model.settings.shortcut.option)
@@ -191,7 +226,7 @@ struct SettingsView: View {
             Text("Bento for macOS \(updater.version)").font(.system(size: 18, weight: .semibold))
             BentoCard {
                 VStack(alignment: .leading, spacing: 14) {
-                    ForEach(["The menu-bar icon is a dim outline while off and filled white while active.", "Closing a window smoothly expands the remaining slots.", "Drag to the outer screen edge to swap whole sections without squeezing a large window into a small slot.", "Live gaps and desktop hide options adapt the existing layout while Bento is on.", "Grabbers stay hidden until hovered or held, below your windows and above the dark background.", "Smooth window transitions animate activation, restoration and layout changes, respecting Reduce Motion.", "Extra windows minimize to the Dock. Reopen one to give it priority in the split layout; Bento brings back the windows it minimized when you turn it off.", "Previews identify swaps, splits, section moves and size conflicts, and match the final slot geometry.", "Settings and layouts save automatically. Updates keep the permanent app identity introduced in 0.2.5."], id: \.self) { Text($0).font(.system(size: 12)).lineSpacing(4) }
+                    ForEach(["Settings use clear groups and right-aligned switches. The grouped menu-bar menu includes a combined Dock and menu-bar hiding toggle.", "The menu-bar icon is a dim outline while off and filled white while active.", "Closing a window smoothly expands the remaining slots.", "Drag to the outer screen edge to swap whole sections without squeezing a large window into a small slot.", "Live gaps and desktop hide options adapt the existing layout while Bento is on.", "Grabbers stay hidden until hovered or held, below your windows and above the dark background.", "Smooth window transitions animate activation, restoration and layout changes, respecting Reduce Motion.", "Extra windows minimize to the Dock. Reopen one to give it priority in the split layout; Bento brings back the windows it minimized when you turn it off.", "Previews identify swaps, splits, section moves and size conflicts, and match the final slot geometry.", "Settings and layouts save automatically. Updates keep the permanent app identity introduced in 0.2.5."], id: \.self) { Text($0).font(.system(size: 12)).lineSpacing(4) }
                 }
             }
             DisclosureGroup("Update Log") {

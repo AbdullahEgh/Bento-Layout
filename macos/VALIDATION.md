@@ -2,6 +2,8 @@
 
 49 core tests passed, including all four physical screen edges on negative-coordinate displays, a large window that cannot fit an individual stacked slot, preservation of clamped section sizes, repeated-sample caching, whole-group movement, round-trip geometry and separation from cross-display placement. The isolated native harness passed 117 checks, including section preview/animated commit/undo, animated branch collapse after a window closes, no writes to the closed window, no repeated reflow after settling, and grabber level -1 below app windows and above the dimming panel at -2. Existing normal swaps, held splits, live settings and bounded admission checks remain green.
 
+The settings screens were rendered at 820- and 360-point widths in light and dark appearances. Workspace and Gestures renders were inspected for trailing switch alignment, wrapping, card grouping and control visibility. The right-click menu uses native section headers; its combined desktop toggle writes both preferences together and reflects independently selected values with a mixed state.
+
 The production menu icon renderer was inspected in both states: dim white outline for off and solid white sections for active. Icons remain clickable in both states. These are supplied-input native interaction checks, not a claim that every physical title-bar interaction has been manually certified.
 
 # macOS 0.2.10 OTA — 2026-10-16

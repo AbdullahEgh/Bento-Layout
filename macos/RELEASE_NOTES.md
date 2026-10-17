@@ -8,3 +8,5 @@ What’s new
 - Keep gap grabbers below app windows and above the dark backdrop, visible only on hover or while held.
 - Keep normal window swaps and hold-to-split gestures inside the layout.
 - Show a dim outline menu-bar icon while Bento is off and a filled white icon while it is active.
+- Group the menu-bar right-click menu into Layout, Layout history, Desktop and Bento, with a combined Hide Dock & Menu Bar toggle.
+- Organize settings into Layout & spacing, Desktop, Appearance & motion, and General, with switches aligned to the far right.

@@ -110,3 +110,5 @@ A managed window dragged into the outermost 20 points of its own screen moves it
 Closing a tiled window animates the remaining branch collapse on the first arrangement attempt; native refusal recovery retains the bounded final-frame path. Grabber panels occupy level -1, between normal application windows (0) and the dimming backdrop (-2), so app content and shadows cover them.
 
 The menu-bar control remains enabled in both states: off uses a dim white outline at 45% opacity; active uses solid white sections at full opacity. Images are cached and switch when committed activation state changes.
+
+The menu-bar right-click menu groups layout actions, layout history, desktop preferences and app actions with native section headers. Hide Dock & Menu Bar switches both saved hide preferences together; a mixed checkmark represents individually configured options. It uses the same debounced live preference update as Settings. Workspace settings group Layout & spacing, Desktop, Appearance & motion and General; labeled switches stay at the trailing edge, including in compact windows. Keyboard modifier checkboxes retain the standard native layout.

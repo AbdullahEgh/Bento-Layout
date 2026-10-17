@@ -79,7 +79,7 @@ struct PrimaryButtonStyle: ButtonStyle {
 struct BentoCard<Content: View>: View {
     @ViewBuilder let content: Content
     var body: some View {
-        content.padding(20).background(BentoStyle.surface, in: RoundedRectangle(cornerRadius: 14))
+        content.frame(maxWidth: .infinity, alignment: .leading).padding(20).background(BentoStyle.surface, in: RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).stroke(BentoStyle.line, lineWidth: 1))
     }
 }

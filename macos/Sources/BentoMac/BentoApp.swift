@@ -88,7 +88,7 @@ import Carbon.HIToolbox
             button.setAccessibilityLabel("Bento — toggle layout; right-click for menu")
         }
         updateMenu(); model.onStateChange = { [weak self] in self?.updateMenu(); self?.interactions?.synchronize(); self?.writeFixtureState(); if self?.model.active == true { self?.model.saveLayout(quiet: true) } }
-        model.onSettingsChange = { [weak self] in self?.configureShortcut(); self?.interactions?.synchronize() }
+        model.onSettingsChange = { [weak self] in self?.configureShortcut(); self?.interactions?.synchronize(); self?.updateMenu() }
         configureShortcut()
         let launchEvent = NSAppleEventManager.shared().currentAppleEvent
         let launchedAtLogin = launchEvent?.eventID == kAEOpenApplication && launchEvent?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
@@ -99,15 +99,25 @@ import Carbon.HIToolbox
     private func updateMenu() {
         let menu = NSMenu()
         func item(_ title: String, _ action: Selector) { let i = NSMenuItem(title: title, action: action, keyEquivalent: ""); i.target = self; menu.addItem(i) }
+        func section(_ title: String) { if !menu.items.isEmpty { menu.addItem(.separator()) }; menu.addItem(.sectionHeader(title: title)) }
+        section("Layout")
         item(!model.permission ? "Enable Accessibility…" : model.active ? "Turn Bento off" : "Arrange windows", #selector(toggle))
         item("Arrange all windows", #selector(arrangeAll))
         item("Release active window", #selector(releaseActive))
-        item("Restore original positions", #selector(restore))
-        item("Restore saved layout", #selector(loadLayout))
+        section("Layout history")
         item("Undo", #selector(undo)); item("Redo", #selector(redo))
-        menu.addItem(.separator())
-        item("Settings…", #selector(settings)); item("View onboarding…", #selector(onboarding))
+        item("Restore saved layout", #selector(loadLayout))
+        item("Restore original positions", #selector(restore))
+        section("Desktop")
+        let hideDesktop = NSMenuItem(title: "Hide Dock & Menu Bar", action: #selector(toggleDesktopHiding), keyEquivalent: "")
+        hideDesktop.target = self
+        hideDesktop.toolTip = "Applies while Bento is on. Turning this off restores your previous macOS settings."
+        hideDesktop.state = model.settings.hideDock && model.settings.hideMenuBar ? .on : model.settings.hideDock || model.settings.hideMenuBar ? .mixed : .off
+        menu.addItem(hideDesktop)
+        section("Bento")
+        item("Settings…", #selector(settings))
         item("Check for updates…", #selector(checkUpdates))
+        item("View onboarding…", #selector(onboarding))
         menu.addItem(.separator()); item("Quit Bento", #selector(quit))
         statusMenu = menu
         statusItem.button?.isEnabled = true
@@ -116,6 +126,14 @@ import Carbon.HIToolbox
         statusItem.button?.alphaValue = model.active ? 1 : 0.45
         statusItem.button?.toolTip = !model.permission ? "Bento needs Accessibility access — click to enable" : model.active ? "Bento is on — click to restore windows; right-click for menu" : "Bento is off — click to arrange windows; right-click for menu"
         if let message = model.message { statusItem.button?.toolTip? += "\n" + message }
+    }
+    @objc private func toggleDesktopHiding() {
+        var settings = model.settings
+        let enabled = !(settings.hideDock && settings.hideMenuBar)
+        settings.hideDock = enabled; settings.hideMenuBar = enabled
+        model.settings = settings
+        model.saveSettings()
+        updateMenu()
     }
     @objc private func statusClicked() {
         guard let button = statusItem.button else { return }
