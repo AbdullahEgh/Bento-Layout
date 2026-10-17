@@ -662,7 +662,7 @@ struct MacSettings: Codable {
                 // One coordinated transition for normal actions; corrections are
                 // bounded final-frame transactions, never repeated visible probing.
                 do { try await apply(next, displays: displays, allowSkipping: true, animate: attempt == 0, validateIndividually: wasActive) }
-                catch ArrangementFailure.window(let id) where attempt == 0 && skipRefusingWindows {
+                catch ArrangementFailure.window(let id) where attempt == 0 && skipRefusingWindows && !areaChanged {
                     excluded.insert(id); continue
                 }
                 catch WindowFailure.minimumSize where attempt < attemptLimit {
@@ -711,6 +711,7 @@ struct MacSettings: Codable {
     }
     func apply(_ workspace: Workspace, displays: [DisplayArea], allowSkipping: Bool = false, liveResize: Bool = false, animate: Bool = true, validateIndividually: Bool = true, returning: Bool = false) async throws {
         guard !busy, desktopIsCurrent() else { throw LayoutError.invalidInput }; busy = true; defer { busy = false }
+        guard displayAreas() == displays else { throw WindowFailure.workAreaChanged }
         let restoreAXMode = system.beginFrameAdjustment(windows)
         defer { restoreAXMode() }
         func write(_ window: ManagedWindow, frame: Rect) throws {
@@ -764,7 +765,8 @@ struct MacSettings: Codable {
                     // spacing edit still needs a write at its exact target.
                     if system.frame(of: entry.0.element) == entry.1 { continue }
                     try write(entry.0, frame: entry.1)
-                    await settle([entry])
+                    await settle([entry], displays: displays)
+                    guard displayAreas() == displays else { throw WindowFailure.workAreaChanged }
                     try validate([entry], allowSkipping: true)
                 }
             } else { try await move(plan, animated: animate && !liveResize, returning: returning, write: write) }
@@ -774,11 +776,12 @@ struct MacSettings: Codable {
                 await Task.yield()
                 return
             }
-            await settle(plan)
+            await settle(plan, displays: displays)
+            guard displayAreas() == displays else { throw WindowFailure.workAreaChanged }
             try validate(plan, allowSkipping: allowSkipping)
         } catch {
             // Never roll old desktop windows into the newly visible desktop.
-            guard desktopIsCurrent() else { throw error }
+            guard desktopIsCurrent(), displayAreas() == displays else { throw WindowFailure.workAreaChanged }
             let recovery = rollback.filter { system.isAlive($0.0) }
             try? await move(recovery, animated: animate && !liveResize, returning: true) { window, frame in
                 try? self.system.write(window, frame: frame)
@@ -844,6 +847,12 @@ struct MacSettings: Codable {
             for (window, wanted) in rejected { print("Rejected fixture bounds: \(window.title), wanted=\(wanted), actual=\(String(describing: frames[window.id]))") }
         }
         for (window, wanted) in rejected { trace?("native frame rejected window=\(window.id) wanted=\(wanted) actual=\(String(describing: frames[window.id]))") }
+        // A displaced origin indicates positioning/desktop transition failure,
+        // not proof of a minimum size. Do not poison any app limits in this batch.
+        if let misplaced = rejected.first(where: { window, wanted in
+            guard let actual = frames[window.id] else { return false }
+            return abs(actual.x - wanted.x) > 2 || abs(actual.y - wanted.y) > 2
+        }) { throw WindowFailure.rejected(misplaced.0.title) }
         var constrained = Set<String>()
         for (window, wanted) in rejected {
             guard let actual = frames[window.id] else { continue }
@@ -863,7 +872,7 @@ struct MacSettings: Codable {
             throw WindowFailure.rejected(first.0.title)
         }
     }
-    private func settle(_ plan: [(ManagedWindow, Rect)], retry: Bool = true) async {
+    private func settle(_ plan: [(ManagedWindow, Rect)], retry: Bool = true, displays: [DisplayArea]? = nil) async {
         // AX writes may return before a remote app finishes its native animation.
         // Wait for two accepted samples and retry a contained target once after the
         // intermediate writes have drained. Never learn minima from a moving frame.
@@ -871,7 +880,7 @@ struct MacSettings: Codable {
         let started = ProcessInfo.processInfo.systemUptime
         var retried = false
         while !Task.isCancelled {
-            guard desktopIsCurrent() else { return }
+            guard desktopIsCurrent(), displays == nil || displays == displayAreas() else { return }
             let pending = plan.filter { system.isAlive($0.0) && !system.accepted($0.0, $0.1) }
             matchingSamples = pending.isEmpty ? matchingSamples + 1 : 0
             if matchingSamples >= 2 { return }

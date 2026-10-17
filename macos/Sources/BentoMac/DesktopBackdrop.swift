@@ -73,7 +73,7 @@ import AppKit
                 panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
                 panel.isReleasedWhenClosed = false; panel.ignoresMouseEvents = true
                 panel.isOpaque = false; panel.hasShadow = false; panel.hidesOnDeactivate = false
-                panel.backgroundColor = NSColor.black.withAlphaComponent(0.18)
+                panel.backgroundColor = NSColor.black.withAlphaComponent(0.30)
                 panel.level = .normal; panel.collectionBehavior = [.stationary, .ignoresCycle]
                 panels[window.id] = panel
             }

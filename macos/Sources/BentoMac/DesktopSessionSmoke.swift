@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import BentoCore
 
 @MainActor enum DesktopSessionSmoke {
@@ -69,10 +70,51 @@ import BentoCore
         system.areaOverride = nil
         await model.arrange(preserving: true)
         try check(model.history.current == originalTree, "Restoring usable space restores the original split ratios and membership")
+        let limitsBeforeTransition = system.records.map { $0.0.minimum }
+        system.areaOverride = [DisplayArea(id: compactArea.id, name: compactArea.name,
+            bounds: Rect(compactArea.bounds.x, compactArea.bounds.y, compactArea.bounds.width, compactArea.bounds.height - 40))]
+        system.areaChangeOnWrite = [DisplayArea(id: compactArea.id, name: compactArea.name,
+            bounds: Rect(compactArea.bounds.x, compactArea.bounds.y + 30, compactArea.bounds.width, compactArea.bounds.height - 85))]
+        system.nativeMinimum[first.id] = Size(compactArea.bounds.width, compactArea.bounds.height)
+        await model.arrange(preserving: true)
+        try check(model.history.current == originalTree && system.records.map { $0.0.minimum } == limitsBeforeTransition,
+            "A work-area change during native clamping preserves the tree and does not learn false size limits")
+        system.nativeMinimum.removeAll()
+        await model.arrange(preserving: true)
+        try check(model.history.current == originalTree,
+            "The next settled work area reuses the saved split instead of replacing the layout")
+        system.areaOverride = nil
+        await model.arrange(preserving: true)
         system.undiscovered = Set(model.history.current.windows.map(\.windowID))
         await model.arrange(preserving: true)
         try check(model.history.current == originalTree, "Temporary discovery loss preserves live nonminimized layout members")
         system.undiscovered.removeAll()
+        try check(model.canArrangeWindow(incoming.id), "Unpin immediately restores drag admission for floating apps")
+        try system.setMinimized(incoming, false)
+        system.focused = incoming
+        model.applicationActivated(incoming.pid)
+        await model.arrange(preserving: true)
+        try check(model.history.current.windows.contains { $0.windowID == incoming.id }
+            && !system.isMinimized(incoming), "An app restored after Unpin joins the active Bento layout")
+        try check(model.history.current.windows.count == 3 && model.canArrangeWindow(incoming.id),
+            "Restored apps and existing members all remain interactive after Unpin")
+        let newlyOpened = NSWindow(contentRect: NSRect(x: 300, y: 100, width: 420, height: 320),
+            styleMask: [.titled, .resizable, .closable], backing: .buffered, defer: false)
+        newlyOpened.isReleasedWhenClosed = false; newlyOpened.title = "Bento post-unpin fixture"
+        newlyOpened.orderFrontRegardless()
+        let newRecord = ManagedWindow(element: AXUIElementCreateApplication(-1004),
+            pid: ProcessInfo.processInfo.processIdentifier, title: newlyOpened.title,
+            application: "Bento Fixture", bundleID: "com.abdullahegh.bento.fixture",
+            frame: DesktopCoordinates.engine(newlyOpened.frame))
+        system.records.append((newRecord, newlyOpened)); system.focused = newRecord
+        model.applicationActivated(newRecord.pid)
+        await model.arrange(preserving: true)
+        try check(model.history.current.windows.contains { $0.windowID == newRecord.id }
+            && model.canArrangeWindow(newRecord.id) && !system.isMinimized(newRecord),
+            "A newly opened app after Unpin joins Bento without inheriting the old pin restriction")
+        system.records.removeLast(); newlyOpened.close()
+        system.focused = nil
+        await model.arrange(preserving: true)
         system.outsideDesktop = [first.id]; system.undiscovered = [first.id]
         await model.arrange(preserving: true)
         try check(!model.history.current.windows.contains { $0.windowID == first.id },

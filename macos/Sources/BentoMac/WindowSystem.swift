@@ -3,9 +3,10 @@ import ApplicationServices
 import BentoCore
 
 enum WindowFailure: LocalizedError {
-    case permission, unavailable(String), rejected(String), minimumSize(String)
+    case permission, workAreaChanged, unavailable(String), rejected(String), minimumSize(String)
     var errorDescription: String? {
         switch self {
+        case .workAreaChanged: return "The available screen area changed. Bento will fit the existing layout to the new area."
         case .permission: return "Allow Bento in System Settings → Privacy & Security → Accessibility, then return here."
         case .unavailable(let title): return "“\(title)” is no longer available."
         case .rejected(let title): return "“\(title)” did not accept its new size. Bento attempted to restore the previous positions."
@@ -59,12 +60,13 @@ struct DisplayArea: Equatable {
             return (CFPreferencesCopyValue(key as CFString, domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? NSNumber)?.boolValue ?? false
         }
         let hideDock = flag("com.apple.dock" as CFString, "autohide")
-        let hideMenu = flag(kCFPreferencesAnyApplication, "_HIHideMenuBar")
+        // Preferences describe intent, not the space WindowServer currently accepts.
+        // Reclaim hidden areas only when native visible geometry has expanded.
         let dock = hideDock ? nil : DockGeometry.current()
         return NSScreen.screens.map { screen in
             let number = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
             let uuid = CGDisplayCreateUUIDFromDisplayID(number).takeRetainedValue()
-            return DisplayArea(id: CFUUIDCreateString(nil, uuid) as String, name: screen.localizedName, bounds: fullScreen ? DesktopCoordinates.engine(screen.frame).inset(margin) : DesktopWorkArea.calculate(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopWorkArea.correctingDock(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopCoordinates.engine(screen.visibleFrame), dock: dock), hideMenuBar: hideMenu, hideDock: hideDock, safeTop: Int(screen.safeAreaInsets.top.rounded(.up)), margin: margin))
+            return DisplayArea(id: CFUUIDCreateString(nil, uuid) as String, name: screen.localizedName, bounds: fullScreen ? DesktopCoordinates.engine(screen.frame).inset(margin) : DesktopWorkArea.calculate(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopWorkArea.correctingDock(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopCoordinates.engine(screen.visibleFrame), dock: dock), hideMenuBar: false, hideDock: false, safeTop: Int(screen.safeAreaInsets.top.rounded(.up)), margin: margin))
         }
     }
 }

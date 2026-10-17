@@ -7,6 +7,10 @@ struct ReleaseNotes: Identifiable {
 
     // Keep newest first; ship the log with the app so it also works offline.
     static let history: [ReleaseNotes] = [
+        .init(version: "0.2.31", points: [
+            "Dock changes preserve your layout using actual available space.",
+            "Stronger Pin dimming; restored apps rejoin Bento after Unpin.",
+        ]),
         .init(version: "0.2.30", points: [
             "Preserve layouts through interruptions and Dock/menu-bar changes.",
             "Use hidden screen space and restore original slot proportions.",
