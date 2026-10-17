@@ -4,21 +4,19 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.24</title>
-            <pubDate>Sat, 17 Oct 2026 11:25:27 +0000</pubDate>
-            <sparkle:version>136</sparkle:version>
-            <sparkle:shortVersionString>0.2.24</sparkle:shortVersionString>
+            <title>0.2.25</title>
+            <pubDate>Sat, 17 Oct 2026 12:06:51 +0000</pubDate>
+            <sparkle:version>137</sparkle:version>
+            <sparkle:shortVersionString>0.2.25</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.24
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.25
 
-- Smarter app selection keeps more windows usable at their real size limits.
-- Flexible splits prioritize recent apps without wasting space.
-- Restored apps stay usable when no slot can fit them.
+- Black background dimming follows your darkness setting.
 ]]></description>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.24/Bento-macos-universal.zip" length="3913794" type="application/octet-stream" sparkle:edSignature="B4uFxqljsam3f6d4WFXx8LQfA8u+0jnpWLgNyBoqeQPGi5VafH0sYZZibdyPdSGamwlKMYkC5EG/y/dWwAT+Cg=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.25/Bento-macos-universal.zip" length="3913681" type="application/octet-stream" sparkle:edSignature="/3dn2Wt8LM+b5mbzT1GxcHj8oOP+ydvXoBCx3dRKx2mv/hDRq534M0FP/bIoZmLlX/WLPPqf3p29lFbzU21ZBA=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: 9q37YHB2HZO8fJpZNWUVHj+sQFf6X+Sknw3IlCd2y2oqVMGw0dGigSo+c6XPMbAFes64cVvhGMykKK3XZKfBCw==
-length: 1361
+edSignature: G1Hn7Prjz2IVJG85jn+uxJUKZ3/SV+LHK+hgfh9ps1Hdg/Wbc7s/Xkhlo6nCvMMUl1fZGNo2X+pr6olbzs6xBQ==
+length: 1223
 -->
