@@ -4,22 +4,20 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.30</title>
-            <pubDate>Sat, 17 Oct 2026 21:11:44 +0000</pubDate>
-            <sparkle:version>145</sparkle:version>
-            <sparkle:shortVersionString>0.2.30</sparkle:shortVersionString>
+            <title>0.2.31</title>
+            <pubDate>Sat, 17 Oct 2026 21:38:33 +0000</pubDate>
+            <sparkle:version>147</sparkle:version>
+            <sparkle:shortVersionString>0.2.31</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.30
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.31
 
-- Preserve layouts through interruptions and Dock/menu-bar changes.
-- Use hidden screen space and restore original slot proportions.
-- Reliable menu-icon hold and longer, quicker grabbers.
-- Pinned apps dim; click the pin icon to minimize floating apps and return.
+- Dock changes preserve your layout using actual available space.
+- Stronger Pin dimming; restored apps rejoin Bento after Unpin.
 ]]></description>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.30/Bento-macos-universal.zip" length="4175166" type="application/octet-stream" sparkle:edSignature="uUTiqzyfy+ZTmEBXIWikvgzlAdBygGzxQWIeAMhv8yRcCSmwshNwyFqCQ6dzXL4KyGM8I23I6D4G63LnEGiiDA=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.31/Bento-macos-universal.zip" length="4184542" type="application/octet-stream" sparkle:edSignature="b+9V0ireUO+Tuy20DhbbEGZL454A4CHAON76eaq2+GzXg3tOBb84lWohkoPcJ0t3V25jCxO8tPX6RZSpMH+3Dg=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: kLbfqoSWtQJVKlRBFKSiQ2HYIf2OrplbdbGJHsGORuQ18CNduaW/viJePqvZPt7coQq9D1mq9VOL6azV5+SQDw==
-length: 1430
+edSignature: VN0iVfPc51xlOsxdNC5f4rf236llJFvWj6y6X2gsdwwf6yVPDFDhezq/xxgVhieFZ37IU/yvXhKyUUuHVd2vAw==
+length: 1295
 -->
