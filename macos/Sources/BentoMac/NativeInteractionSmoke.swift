@@ -24,6 +24,10 @@ import BentoCore
     var pressDuringDiscovery = false
     var undiscovered = Set<UUID>()
     var deadWindows = Set<UUID>()
+    var outsideDesktop = Set<UUID>()
+    override func canRetainDuringInterruption(_ window: ManagedWindow) -> Bool {
+        isAlive(window) && !isMinimized(window) && !outsideDesktop.contains(window.id)
+    }
     var discoveryCount = 0
     var frameReads = 0
     override var pointerPressed: Bool { pointerHeld }

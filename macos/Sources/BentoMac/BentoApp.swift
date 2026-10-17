@@ -31,6 +31,8 @@ import Carbon.HIToolbox
     private var registeredShortcut: ShortcutConfig?
     private var canTerminate = false
     private var statusPress = StatusPress()
+    private var statusMouseMonitor: Any?
+    private var statusReleaseMonitor: Any?
     private var statusHoldTimer: Timer?
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.applicationIconImage = BentoStyle.icon
@@ -93,6 +95,20 @@ import Carbon.HIToolbox
             button.sendAction(on: [.leftMouseDown, .leftMouseUp, .rightMouseUp])
             button.setAccessibilityLabel("Bento — click to toggle; hold to hide or show Dock and menu bar; right-click for menu")
         }
+        // Handle physical presses before NSStatusBarButton enters its tracking loop.
+        // Its action callback is not a reliable mouse-down/up stream on every macOS.
+        statusMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { [weak self] event in
+            guard let self, let button = self.statusItem.button else { return event }
+            let inside = event.window === button.window && button.bounds.contains(button.convert(event.locationInWindow, from: nil))
+            guard inside || self.statusPress.isTracking else { return event }
+            self.handleStatusEvent(event)
+            return nil
+        }
+        statusReleaseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.statusHoldTimer?.invalidate(); self?.statusPress.cancel()
+            }
+        }
         updateMenu(); model.onStateChange = { [weak self] in self?.updateMenu(); self?.interactions?.synchronize(); self?.writeFixtureState() }
         model.onSettingsChange = { [weak self] in self?.configureShortcut(); self?.interactions?.synchronize(); self?.updateMenu(); if let self, let window = self.window { BentoWindowChrome.updateAppearance(window, theme: self.model.settings.theme) } }
         configureShortcut()
@@ -115,18 +131,18 @@ import Carbon.HIToolbox
         hideDesktop.toolTip = "This session only. Applies while Bento is on and resets when Bento quits."
         hideDesktop.state = model.settings.hideDock && model.settings.hideMenuBar ? .on : model.settings.hideDock || model.settings.hideMenuBar ? .mixed : .off
         menu.addItem(hideDesktop)
-        item("Pin Bento", #selector(togglePin), "pin")
+        item(model.pinned ? "Unpin Bento" : "Pin Bento", #selector(togglePin), "pin")
         menu.items.last?.state = model.pinned ? .on : .off
-        menu.items.last?.isEnabled = model.active && !model.busy && !model.activating
+        menu.items.last?.isEnabled = model.permission
         menu.items.last?.toolTip = "Keep this desktop’s layout. Newly opened apps stay above it."
         item("Settings…", #selector(settings), "gearshape")
         menu.addItem(.separator()); item("Quit Bento", #selector(quit), "xmark.circle")
         statusMenu = menu
         statusItem.button?.isEnabled = true
         statusItem.button?.appearsDisabled = false
-        statusItem.button?.image = BentoStatusIcon.image(active: model.active)
+        statusItem.button?.image = BentoStatusIcon.image(active: model.active, pinned: model.pinned)
         statusItem.button?.alphaValue = model.active ? 1 : 0.45
-        statusItem.button?.toolTip = !model.permission ? "Bento needs Accessibility access — click to enable" : model.active ? "Bento is on — click to turn off; right-click for menu" : "Bento is off — click to arrange windows; right-click for menu"
+        statusItem.button?.toolTip = model.pinned ? "Bento is pinned — click to unpin and minimize floating apps" : !model.permission ? "Bento needs Accessibility access — click to enable" : model.active ? "Bento is on — click to turn off; right-click for menu" : "Bento is off — click to arrange windows; right-click for menu"
         statusItem.button?.toolTip? += "\nHold to hide or show Dock and menu bar while Bento is on."
         if let message = model.message { statusItem.button?.toolTip? += "\n" + message }
     }
@@ -140,8 +156,10 @@ import Carbon.HIToolbox
     }
     @objc private func togglePin() { Task { await model.setPinned(!model.pinned) } }
     @objc private func statusClicked() {
+        handleStatusEvent(NSApp.currentEvent)
+    }
+    private func handleStatusEvent(_ event: NSEvent?) {
         guard let button = statusItem.button else { return }
-        let event = NSApp.currentEvent
         if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true {
             statusHoldTimer?.invalidate(); statusPress.cancel()
             if event?.type != .leftMouseDown { statusMenu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.minY), in: button) }
@@ -159,7 +177,9 @@ import Carbon.HIToolbox
             statusHoldTimer?.invalidate()
             let trackedPress = statusPress.isTracking
             if statusPress.hold(at: ProcessInfo.processInfo.systemUptime) { toggleDesktopHiding() }
-            if statusPress.end() || !trackedPress { toggle() }
+            if statusPress.end() || !trackedPress {
+                if model.pinned { Task { await model.setPinned(false) } } else { toggle() }
+            }
         }
     }
     @objc private func toggle() {

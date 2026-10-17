@@ -54,7 +54,7 @@ struct SettingsView: View {
           }.onAppear { compact = geometry.size.width < 680 }
            .onChange(of: geometry.size.width) { _, width in compact = width < 680 }
         }.bentoGlassContainer().frame(minWidth: 340, minHeight: 420).foregroundStyle(BentoStyle.text).background(BentoWindowSurface())
-            .disabled(model.switchingDesktop || model.interacting || (!model.applyingSettings && (model.busy || model.activating)))
+
             .onChange(of: model.settings.minimizeOverflow) { _, _ in model.saveSettings() }
             .onChange(of: model.settings.gap) { _, _ in model.saveSettings() }
             .onChange(of: model.settings.margin) { _, _ in model.saveSettings() }
@@ -87,9 +87,9 @@ struct SettingsView: View {
                     Toggle(isOn: Binding(get: { model.pinned }, set: { value in Task { await model.setPinned(value) } })) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Pin Bento").font(.system(size: 13, weight: .medium))
-                            Text("New apps stay above this desktop’s layout until you unpin.").font(.system(size: 11)).foregroundStyle(BentoStyle.secondary)
+                            Text("New apps float above Bento. Unpin minimizes them and returns to your layout.").font(.system(size: 11)).foregroundStyle(BentoStyle.secondary)
                         }
-                    }.toggleStyle(.switch).disabled(!model.active)
+                    }.toggleStyle(.switch)
                     if !model.permission { Text("In System Settings → Privacy & Security → Accessibility, enable this copy: \(Bundle.main.bundlePath). If access stays blocked after an update, remove the old Bento entry and add this app again.").font(.system(size: 11)).lineSpacing(3).foregroundStyle(BentoStyle.secondary).textSelection(.enabled) }
                     else { rowLayout { Text("Accessibility connected").foregroundStyle(BentoStyle.accent); Spacer(); Button("Refresh windows") { model.refresh() } }.font(.system(size: 11)) }
                     if let message = model.message { Text(message).font(.system(size: 12)).foregroundStyle(BentoStyle.secondary).textSelection(.enabled) }
@@ -99,7 +99,7 @@ struct SettingsView: View {
                             ForEach(model.floatingWindows, id: \.id) { window in
                                 Text("\(window.application) — \(window.title)\(model.minimizedByBento[window.id] == nil ? "" : " · In Dock")").font(.system(size: 11)).lineLimit(2)
                             }
-                            Text(model.pinned ? "Unpin Bento to add these windows to the layout." : "Open a minimized window from the Dock to give it priority in the layout. Turning Bento off brings back windows minimized by Bento.").font(.system(size: 11))
+                            Text(model.pinned ? "Unpin Bento to minimize these windows and return to your layout." : "Open a minimized window from the Dock to give it priority in the layout. Turning Bento off brings back windows minimized by Bento.").font(.system(size: 11))
                         }.foregroundStyle(BentoStyle.secondary)
                     }
                 }

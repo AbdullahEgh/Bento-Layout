@@ -30,7 +30,7 @@ private enum DockGeometry {
     private static var lastRead = -Double.infinity
     static func current() -> Rect? {
         let now = ProcessInfo.processInfo.systemUptime
-        if now - lastRead < 0.15 { return cached }
+        if now - lastRead < 0.025 { return cached }
         lastRead = now; cached = nil
         guard AXIsProcessTrusted(), let dock = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first else { return nil }
         func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
@@ -59,11 +59,12 @@ struct DisplayArea: Equatable {
             return (CFPreferencesCopyValue(key as CFString, domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? NSNumber)?.boolValue ?? false
         }
         let hideDock = flag("com.apple.dock" as CFString, "autohide")
+        let hideMenu = flag(kCFPreferencesAnyApplication, "_HIHideMenuBar")
         let dock = hideDock ? nil : DockGeometry.current()
         return NSScreen.screens.map { screen in
             let number = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
             let uuid = CGDisplayCreateUUIDFromDisplayID(number).takeRetainedValue()
-            return DisplayArea(id: CFUUIDCreateString(nil, uuid) as String, name: screen.localizedName, bounds: fullScreen ? DesktopCoordinates.engine(screen.frame).inset(margin) : DesktopWorkArea.calculate(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopWorkArea.correctingDock(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopCoordinates.engine(screen.visibleFrame), dock: dock), hideMenuBar: false, hideDock: false, safeTop: Int(screen.safeAreaInsets.top.rounded(.up)), margin: margin))
+            return DisplayArea(id: CFUUIDCreateString(nil, uuid) as String, name: screen.localizedName, bounds: fullScreen ? DesktopCoordinates.engine(screen.frame).inset(margin) : DesktopWorkArea.calculate(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopWorkArea.correctingDock(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopCoordinates.engine(screen.visibleFrame), dock: dock), hideMenuBar: hideMenu, hideDock: hideDock, safeTop: Int(screen.safeAreaInsets.top.rounded(.up)), margin: margin))
         }
     }
 }
@@ -75,6 +76,7 @@ final class ManagedWindow {
     // AX has no universal minimum-size attribute. Start small enough for narrow
     // displays, then learn actual app constraints from verified native writes.
     var minimum = Size(160, 120)
+    var serverNumber: Int?
     init(id: UUID = UUID(), element: AXUIElement, pid: pid_t, title: String, application: String, bundleID: String, frame: Rect) {
         self.id = id; self.element = element; self.pid = pid; self.title = title; self.application = application; self.bundleID = bundleID; self.frame = frame
     }
@@ -168,9 +170,9 @@ final class ManagedWindow {
         return NSScreen.screens.allSatisfy { screen in
             let top = Int((screen.frame.maxY - screen.visibleFrame.maxY).rounded())
             let safe = Int(screen.safeAreaInsets.top.rounded(.up))
-            let menuReady = hideMenu ? top <= safe : top >= max(1, safe)
-            let dockReady = !hideDock || (abs(screen.visibleFrame.minY - screen.frame.minY) <= 4 && abs(screen.visibleFrame.minX - screen.frame.minX) <= 4 && abs(screen.visibleFrame.maxX - screen.frame.maxX) <= 4)
-            return menuReady && dockReady
+            // Hidden reservations are removed by DesktopWorkArea immediately;
+            // stale visibleFrame data must not impose a two-second delay.
+            return hideMenu || top >= max(1, safe)
         }
     }
     func requestPermission() {
@@ -218,14 +220,14 @@ final class ManagedWindow {
                       let bounds = frame(of: element), bounds.width > 0, bounds.height > 0 else { continue }
                 // AXWindows may include other Spaces. Public on-screen metadata limits
                 // management to visible standard windows without reading screen pixels.
-                let onScreen = visible.contains { info in
+                let onScreen = visible.first { info in
                     guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == application.processIdentifier,
                           (info[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
                           let raw = info[kCGWindowBounds as String] as? [String: Any],
                           let frame = CGRect(dictionaryRepresentation: raw as CFDictionary) else { return false }
                     return abs(frame.minX - CGFloat(bounds.x)) <= 3 && abs(frame.minY - CGFloat(bounds.y)) <= 3 && abs(frame.width - CGFloat(bounds.width)) <= 3 && abs(frame.height - CGFloat(bounds.height)) <= 3
                 }
-                guard onScreen else { continue }
+                guard let onScreen else { continue }
                 var movable = DarwinBoolean(false), sizable = DarwinBoolean(false)
                 guard AXUIElementIsAttributeSettable(element, kAXPositionAttribute as CFString, &movable) == .success,
                       AXUIElementIsAttributeSettable(element, kAXSizeAttribute as CFString, &sizable) == .success,
@@ -237,6 +239,7 @@ final class ManagedWindow {
                     found.append(ManagedWindow(element: element, pid: application.processIdentifier, title: title,
                         application: application.localizedName ?? "Application", bundleID: application.bundleIdentifier ?? application.bundleURL?.path ?? "", frame: bounds))
                 }
+                found.last?.serverNumber = (onScreen[kCGWindowNumber as String] as? NSNumber)?.intValue
             }
         }
         for window in found {
@@ -267,6 +270,12 @@ final class ManagedWindow {
         guard NSRunningApplication(processIdentifier: window.pid)?.isTerminated == false else { return false }
         var role: CFTypeRef?
         return AXUIElementCopyAttributeValue(window.element, kAXRoleAttribute as CFString, &role) != .invalidUIElement
+    }
+    func canRetainDuringInterruption(_ window: ManagedWindow) -> Bool {
+        guard let number = window.serverNumber, DesktopIdentity.containsWindow(number) == true else { return false }
+        return isAlive(window) && !isMinimized(window)
+            && NSRunningApplication(processIdentifier: window.pid)?.isHidden != true
+            && attribute(window.element, "AXFullScreen") as? Bool != true
     }
     func isMinimized(_ window: ManagedWindow) -> Bool {
         attribute(window.element, kAXMinimizedAttribute) as? Bool ?? false

@@ -48,3 +48,38 @@ import AppKit
         if target == 0 && value <= 0 { panels.forEach { $0.orderOut(nil) }; panels.removeAll() }
     }
 }
+
+// One click-through tint immediately above each pinned native window. New normal
+// windows remain above these panels; no floating window level covers new apps.
+@MainActor final class PinnedWindowTint {
+    private var panels: [UUID: NSPanel] = [:]
+    func hide() { panels.values.forEach { $0.orderOut(nil) }; panels.removeAll() }
+    func show(windows: [ManagedWindow]) {
+        let visible = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        var retained = Set<UUID>()
+        for window in windows {
+            guard let info = visible.first(where: { entry in
+                guard (entry[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == window.pid,
+                      (entry[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
+                      let raw = entry[kCGWindowBounds as String] as? [String: Any],
+                      let rect = CGRect(dictionaryRepresentation: raw as CFDictionary) else { return false }
+                return abs(rect.minX - Double(window.frame.x)) <= 3 && abs(rect.minY - Double(window.frame.y)) <= 3
+                    && abs(rect.width - Double(window.frame.width)) <= 3 && abs(rect.height - Double(window.frame.height)) <= 3
+            }), let number = info[kCGWindowNumber as String] as? NSNumber else { continue }
+            retained.insert(window.id)
+            let panel: NSPanel
+            if let existing = panels[window.id] { panel = existing }
+            else {
+                panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+                panel.isReleasedWhenClosed = false; panel.ignoresMouseEvents = true
+                panel.isOpaque = false; panel.hasShadow = false; panel.hidesOnDeactivate = false
+                panel.backgroundColor = NSColor.black.withAlphaComponent(0.18)
+                panel.level = .normal; panel.collectionBehavior = [.stationary, .ignoresCycle]
+                panels[window.id] = panel
+            }
+            panel.setFrame(DesktopCoordinates.appKit(window.frame), display: true)
+            panel.order(.above, relativeTo: number.intValue)
+        }
+        for id in Array(panels.keys) where !retained.contains(id) { panels[id]?.orderOut(nil); panels.removeValue(forKey: id) }
+    }
+}

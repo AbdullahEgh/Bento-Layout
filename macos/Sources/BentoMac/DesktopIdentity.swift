@@ -21,4 +21,19 @@ enum DesktopIdentity {
         guard identities.count == rows.count else { return nil }
         return identities.sorted().joined(separator: "|")
     }
+    // Read-only window membership, also used by Hammerspoon's spaces adapter:
+    // https://github.com/Hammerspoon/hammerspoon/blob/master/extensions/spaces/libspaces.m
+    // A live AX window may have been moved to another Space, not merely hidden
+    // by Mission Control. Never pull that window back into this desktop.
+    static func containsWindow(_ number: Int) -> Bool? {
+        typealias WindowSpaces = @convention(c) (Int32, Int32, CFArray) -> Unmanaged<CFArray>?
+        guard let graphics, let connection = dlsym(graphics, "CGSMainConnectionID"),
+              let copy = dlsym(graphics, "CGSCopySpacesForWindows"), let identity = current() else { return nil }
+        let active = Set(identity.split(separator: "|").compactMap { UInt64($0.split(separator: ":").last ?? "") })
+        let id = unsafeBitCast(connection, to: Connection.self)()
+        let windows = [NSNumber(value: number)] as CFArray
+        guard let values = unsafeBitCast(copy, to: WindowSpaces.self)(id, 7, windows)?.takeRetainedValue() as? [NSNumber] else { return nil }
+        return values.contains { active.contains($0.uint64Value) }
+    }
+
 }

@@ -26,6 +26,7 @@ struct DesktopInput {
     private var grips: [UUID: GapPanel] = [:]
     private let preview = DestinationPanel()
     private let backdrop = DesktopBackdrop()
+    private let pinnedTint = PinnedWindowTint()
     private var wasPressed = false, waitForRelease = false, finishing = false
     private var pressedWindow: ManagedWindow?
     private var pressedFrame: Rect?
@@ -50,7 +51,7 @@ struct DesktopInput {
     init(model: WorkspaceController, input: (() -> DesktopInput)? = nil, automaticSampling: Bool = true, trace: ((String) -> Void)? = nil) {
         self.model = model; self.input = input ?? { DesktopInput.current() }; self.trace = trace ?? (automaticSampling ? { InteractionDiagnostics.record($0) } : nil)
         guard automaticSampling else { return }
-        pulse = Timer(timeInterval: 1 / 45, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.sample() } }
+        pulse = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.sample() } }
         RunLoop.main.add(pulse!, forMode: .common)
         escapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard event.keyCode == 53 else { return }
@@ -69,9 +70,13 @@ struct DesktopInput {
     func synchronize() {
         guard model.active, model.permission, model.desktopIsCurrent(), !model.switchingDesktop, !model.interacting else { if !model.interacting { removeHelpers() }; return }
         updateGrips(model.history.current)
+        if model.pinned {
+            let ids = Set(model.history.current.windows.map(\.windowID))
+            pinnedTint.show(windows: model.windows.filter { ids.contains($0.id) })
+        } else { pinnedTint.hide() }
     }
     private func areas() -> [String: Rect] { if let gestureAreas { return gestureAreas }; return Dictionary(uniqueKeysWithValues: model.displayAreas().map { ($0.id, $0.bounds) }) }
-    private func removeHelpers() { grips.values.forEach { $0.orderOut(nil) }; grips.removeAll(); preview.orderOut(nil); backdrop.hide(animated: model.settings.animate) }
+    private func removeHelpers() { pinnedTint.hide(); grips.values.forEach { $0.orderOut(nil) }; grips.removeAll(); preview.orderOut(nil); backdrop.hide(animated: model.settings.animate) }
     private func updateGrips(_ workspace: Workspace) {
         hoverNeedsUpdate = true
         backdrop.show(darkness: model.settings.backgroundDarkness, animated: model.settings.animate)
@@ -246,6 +251,7 @@ struct DesktopInput {
             let next = try InteractionGeometry.resize(original, display: grip.display, divider: grip.divider, pointer: input().point, area: area, gap: model.layoutGap, grabbedAt: gripStart)
             guard next != candidate else { return }
             candidate = next; pending = next
+            updateGrips(next)
             if liveTask == nil {
                 liveTask = Task { @MainActor [weak self] in
                     guard let self else { return }
@@ -253,9 +259,9 @@ struct DesktopInput {
                         self.pending = nil
                         do {
                             try await self.model.apply(next, displays: self.model.displayAreas(), liveResize: true)
-                            // Move the hit surface with the applied sample, not ahead
-                            // of the windows while a newer sample is still queued.
-                            self.updateGrips(next)
+                            // Do not move the grip back to an older applied sample
+                            // while a newer pointer destination is already queued.
+                            if self.candidate == next { self.updateGrips(next) }
                         }
                         catch { self.liveFailure = true; self.pending = nil; self.model.message = error.localizedDescription; break }
                     }
@@ -492,7 +498,7 @@ struct DesktopInput {
     private func transition() {
         animation?.invalidate()
         let oldLength = displayedLength, oldAlpha = displayedAlpha
-        let length = dragging ? 104.0 : 40.0, alpha = hovering || dragging ? 1.0 : 0.0
+        let length = dragging ? 160.0 : 80.0, alpha = hovering || dragging ? 1.0 : 0.0
         guard animate, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { displayedLength = length; displayedAlpha = alpha; needsDisplay = true; return }
         let start = ProcessInfo.processInfo.systemUptime
         animation = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in
