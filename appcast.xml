@@ -4,21 +4,22 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.18</title>
-            <pubDate>Sat, 17 Oct 2026 01:22:04 +0000</pubDate>
-            <sparkle:version>123</sparkle:version>
-            <sparkle:shortVersionString>0.2.18</sparkle:shortVersionString>
+            <title>0.2.19</title>
+            <pubDate>Sat, 17 Oct 2026 01:58:28 +0000</pubDate>
+            <sparkle:version>128</sparkle:version>
+            <sparkle:shortVersionString>0.2.19</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.18
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.19
 
-- Softer animated drag previews, without text, icons or hard borders.
-- Windows adapt to hidden menu bars, Dock visibility and Dock size.
-- Quicker transitions, fewer snap-backs, and clearer window controls.
+- Frosted split previews, brighter split highlights and amber conflict feedback.
+- Liquid Glass across the app on macOS 26, with blur on older systems.
+- Windows follow Dock size and menu-bar changes with quicker transitions.
+- Compact bullet points for every release in Update Log.
 ]]></description>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.18/Bento-macos-universal.zip" length="3319259" type="application/octet-stream" sparkle:edSignature="vpMLaU9XezzOYU7TyGxoGbTE2/k7mTd1kdDczWSTNmk+uXALesH2N4qzI1jvErxQFNTItOOoOAhgmDg7KoUHAA=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.19/Bento-macos-universal.zip" length="3603776" type="application/octet-stream" sparkle:edSignature="fAZpxyV/KmpaPTxqxNNxvut+enVwHwBRpSuvhvt1odSpq2fNhfnU0vskUsPMqNmY7Yh9/vU8S7+74wD8JNV/AA=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: +sIie1McAap4r3aZ9sGKEKgpNoGKUIfNdSQdReGQBhj2ys2692KPLS4YP7vXSNvi5itvLlft4Toz2PVHFVerCw==
-length: 1373
+edSignature: AfVPx+9nhl028QSjYz/laMykNf6ruBIQ21mYjhupH1bnFDWXWlQ7xPkCtp2g8NpTc5SYGE+JryamzX3TSQMmAg==
+length: 1448
 -->
