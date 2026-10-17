@@ -8,6 +8,7 @@ on:
         type: string
 permissions:
   contents: write
+  actions: read
 concurrency:
   group: macos-release
   cancel-in-progress: false
@@ -39,6 +40,13 @@ jobs:
         run: macos/scripts/test-code-identity.sh
       - name: Validate isolated native interaction
         run: artifacts/macos/Bento.app/Contents/MacOS/Bento --interaction-smoke artifacts/macos/interaction-smoke
+      - name: Require macOS 15 and 26 validation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          validation_id="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow macos.yml --commit "$GITHUB_SHA" --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+          [[ -n "$validation_id" ]] || { echo 'No macOS compatibility run exists for this commit.' >&2; exit 1; }
+          gh run watch "$validation_id" --repo "$GITHUB_REPOSITORY" --exit-status
       - name: Sign and publish app and feed
         env:
           GH_TOKEN: ${{ github.token }}

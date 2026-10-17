@@ -221,20 +221,38 @@ struct SettingsView: View {
             Link("Bento Layout on GitHub", destination: URL(string: "https://github.com/AbdullahEgh/Bento-Layout")!)
         }
     }
+    private func releasePoints(_ points: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(points, id: \.self) { point in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("•").foregroundStyle(BentoStyle.secondary)
+                    Text(point).frame(maxWidth: .infinity, alignment: .leading)
+                }.fixedSize(horizontal: false, vertical: true)
+            }
+        }.font(.system(size: 12)).lineSpacing(2)
+    }
     private var whatsNew: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text("Bento for macOS \(updater.version)").font(.system(size: 18, weight: .semibold))
-            BentoCard {
-                VStack(alignment: .leading, spacing: 14) {
-                    ForEach(["Soft animated previews communicate the layout without text or icons.", "Windows follow menu-bar visibility and Dock size changes.", "Coordinated transitions reduce waiting between window movements.", "Clearer menu labels explain which windows Bento arranges."], id: \.self) { Text($0).font(.system(size: 12)).lineSpacing(4) }
-                }
+            if let current = ReleaseNotes.history.first(where: { $0.version == updater.version }) {
+                BentoCard { releasePoints(current.points) }
             }
             DisclosureGroup("Update Log") {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("0.2.0 · Real-window layout, swaps, edge splits, resizing, edited-layout resume, saved layouts, configurable shortcut, background darkness, login startup and signed GitHub OTA.")
-                    Text("0.1.0 · Native Mac preview, onboarding, layout engine and original Bento artwork.")
-                    ForEach(updater.installationHistory, id: \.self) { Text($0) }
-                }.font(.system(size: 11)).foregroundStyle(BentoStyle.secondary).padding(.top, 12)
+                VStack(alignment: .leading, spacing: 18) {
+                    ForEach(ReleaseNotes.history) { release in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(release.version).font(.system(size: 13, weight: .semibold))
+                            releasePoints(release.points).foregroundStyle(BentoStyle.secondary)
+                        }
+                    }
+                }.padding(.top, 12)
+            }
+            if !updater.installationHistory.isEmpty {
+                DisclosureGroup("Installation History") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(updater.installationHistory, id: \.self) { Text($0) }
+                    }.font(.system(size: 11)).foregroundStyle(BentoStyle.secondary).padding(.top, 12)
+                }
             }
         }
     }

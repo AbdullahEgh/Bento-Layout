@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import ApplicationServices
 import BentoCore
 import OSLog
@@ -375,22 +376,40 @@ struct DesktopInput {
 }
 
 @MainActor final class PreviewSlotView: NSView {
-    var primary = true, conflict = false
+    var primary = true { didSet { if oldValue != primary { updateAppearance() } } }
+    var conflict = false { didSet { if oldValue != conflict { updateAppearance() } } }
     var swapsSections = false
     var placement = Placement.center
-    var progress: Double?
-    override func draw(_ dirtyRect: NSRect) {
-        NSBezierPath(rect: bounds).addClip()
-        NSColor.clear.setFill(); bounds.fill(using: .copy)
+    var progress: Double? { didSet { if oldValue != progress { updateAppearance() } } }
+    private let wash = CAGradientLayer()
+    private let glow = CALayer()
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+        layer?.addSublayer(glow); layer?.addSublayer(wash)
+        wash.cornerRadius = 18; wash.masksToBounds = true
+        glow.cornerRadius = 18; glow.shadowRadius = 12; glow.shadowOffset = .zero
+        updateGeometry(); updateAppearance()
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
+    override func layout() { super.layout(); updateGeometry() }
+    override func setFrameSize(_ newSize: NSSize) { super.setFrameSize(newSize); updateGeometry() }
+    private func updateGeometry() {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        let frame = NSRect(x: 6, y: 6, width: max(0, bounds.width - 12), height: max(0, bounds.height - 12))
+        wash.frame = frame; glow.frame = frame
+        glow.shadowPath = CGPath(roundedRect: glow.bounds, cornerWidth: 18, cornerHeight: 18, transform: nil)
+        CATransaction.commit()
+    }
+    private func updateAppearance() {
         let accent = conflict ? NSColor.systemOrange : NSColor(calibratedRed: 0.24, green: 0.78, blue: 0.73, alpha: 1)
         let strength = primary ? 0.20 + (progress ?? 0) * 0.10 : 0.08
-        let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 6, dy: 6), xRadius: 18, yRadius: 18)
-        NSGraphicsContext.saveGraphicsState()
-        let glow = NSShadow(); glow.shadowBlurRadius = 14; glow.shadowColor = accent.withAlphaComponent(strength * 0.65); glow.shadowOffset = .zero; glow.set()
-        accent.withAlphaComponent(strength * 0.5).setFill(); shape.fill()
-        NSGraphicsContext.restoreGraphicsState()
-        NSGradient(starting: accent.withAlphaComponent(strength), ending: accent.withAlphaComponent(strength * 0.35))?.draw(in: shape, angle: 90)
-
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        wash.colors = [accent.withAlphaComponent(strength).cgColor, accent.withAlphaComponent(strength * 0.35).cgColor]
+        glow.backgroundColor = accent.withAlphaComponent(strength * 0.25).cgColor
+        glow.shadowColor = accent.cgColor; glow.shadowOpacity = Float(strength * 0.45)
+        CATransaction.commit()
     }
 }
 

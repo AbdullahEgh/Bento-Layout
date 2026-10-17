@@ -586,8 +586,12 @@ private final class FixturePreferences: PreferenceBackend {
                 "Physical screen edge previews section movement instead of a leaf split")
             system.writes.removeAll()
             input.pressed = false; interactions.sample(); await settle()
-            try check(try model.history.current == expectedSectionMove && matchingGeometry() && system.writes.values.contains { $0 > 1 },
-                "Screen-edge drag animates the big section left and carries the stacked section right")
+            let sectionGeometryMatches = try matchingGeometry()
+            if model.history.current != expectedSectionMove || !sectionGeometryMatches {
+                print("Section move failure: expectedTree=\(model.history.current == expectedSectionMove), nativeGeometry=\(sectionGeometryMatches), trace=\(gestureTrace.suffix(8))")
+            }
+            try check(model.history.current == expectedSectionMove && sectionGeometryMatches && !system.writes.isEmpty,
+                "Screen-edge movement commits the complete sections at exact final bounds even when stale animation samples are skipped")
             await model.undo()
             try check(try model.history.current == sectionTree && matchingGeometry(), "Section movement undo restores the original grouping and ratios")
             let beforeClose = model.history.current

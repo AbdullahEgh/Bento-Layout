@@ -1,10 +1,12 @@
-# macOS 0.2.18 responsive work areas and coordinated motion — 2026-10-17
+# macOS 0.2.19 responsive work areas and coordinated motion — 2026-10-17
 
 50 core tests and 132 isolated native checks passed locally, including explicit animated and Reduce Motion preview cases. New core cases cover stale menu-bar reservations, hidden/left-side Docks, Dock size changes, camera-safe insets and negative screen coordinates. Native cases change work-area height and top inset repeatedly with fixed membership, verify every affected slot and split identity, and check that a settled area does not trigger repeated writes. A Dock-area change injected during a rejected AX transaction confirms that the new area remains eligible for retry; failure caching records the attempted area, not the area that appeared afterward. Geometry reads during animation are bounded independently of intermediate frame count. Existing delayed AX acceptance, minimum-size correction, rollback, Reduce Motion, resume, all drag directions, section moves, settings coalescing and OTA restoration checks remain green.
 
 Preview checks cover transparent click-through entry, retargeting to the latest destination, repeated-hide fade cleanup and immediate geometry when animation is disabled. The composited preview render was inspected: translucent teal/amber fields with no strokes, text, symbols or badges. The selected-window exclusion action retains the last external selection when Bento takes focus and remains undoable. A simulated delayed native rebound repairs only the moved window, retains the split tree, and does not write during a new pointer gesture.
 
 The first CI run exposed an assumption in the preview test: hosted runners enabled Reduce Motion, correctly producing an immediate preview rather than a fade. The fixture now supplies its motion policy explicitly and covers both policies without altering host accessibility settings.
+
+Final section geometry is required independently of the number of intermediate writes: the transition deliberately skips stale samples on busy clients. Preview fills use Core Animation layers, avoiding full gradient/shadow redraws for each window-frame sample.
 
 These checks use disposable windows and supplied interaction samples. Live desktop preference and installed OTA validation are recorded separately; the fixture does not change user preferences or imply all physical interactions are certified.
 
