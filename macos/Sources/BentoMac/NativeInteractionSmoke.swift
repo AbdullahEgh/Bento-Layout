@@ -46,6 +46,9 @@ import BentoCore
         return records.first { CFEqual($0.0.element, element) }.map { DesktopCoordinates.engine($0.1.frame) }
     }
     override func isAlive(_ window: ManagedWindow) -> Bool { !deadWindows.contains(window.id) && records.contains { $0.0.id == window.id } }
+    var areaOverride: [DisplayArea]?
+    override func displayAreas(margin: Int) -> [DisplayArea] { areaOverride ?? super.displayAreas(margin: margin) }
+    override func writeMotionFrame(_ window: ManagedWindow, frame: Rect, previous: Rect) throws { try write(window, frame: frame) }
     override func write(_ window: ManagedWindow, frame: Rect) throws {
         writes[window.id, default: 0] += 1
         if rejectAlways == window.id || rejectedWindows.contains(window.id) { throw WindowFailure.rejected(window.title) }
@@ -83,7 +86,7 @@ private final class FixturePreferences: PreferenceBackend {
             passed.append(title)
         }
         func matchingGeometry() throws -> Bool {
-            for display in DisplayArea.all(margin: model.layoutMargin) {
+            for display in model.displayAreas() {
                 for region in try LayoutEngine.calculate(model.history.current.roots[display.id], in: display.bounds, gap: model.layoutGap).regions {
                     guard let record = system.records.first(where: { $0.0.id == region.window.windowID })?.0, system.accepted(record, region.bounds) else { return false }
                 }
@@ -92,7 +95,7 @@ private final class FixturePreferences: PreferenceBackend {
         }
         func regions() throws -> (String, LayoutResult) {
             let key = model.history.current.roots.keys.sorted()[0]
-            let area = DisplayArea.all(margin: model.layoutMargin).first { $0.id == key }!
+            let area = model.displayAreas().first { $0.id == key }!
             return (key, try LayoutEngine.calculate(model.history.current.roots[key], in: area.bounds, gap: model.layoutGap))
         }
         func settle() async { try? await Task.sleep(for: .milliseconds(180)); while model.interacting || model.busy { try? await Task.sleep(for: .milliseconds(50)) } }
@@ -113,6 +116,42 @@ private final class FixturePreferences: PreferenceBackend {
             let writeCount = system.writes
             await model.arrange(preserving: true)
             try check(system.writes == writeCount, "Unchanged layout does not write native window frames again")
+            let originalAreas = model.displayAreas(), originalTree = model.history.current
+            model.settings.animate = true
+            system.areaOverride = originalAreas.map { DisplayArea(id: $0.id, name: $0.name, bounds: Rect($0.bounds.x, $0.bounds.y, $0.bounds.width, $0.bounds.height - 70)) }
+            model.tick(); await Task.yield(); await settle()
+            try check(try matchingGeometry() && model.history.current == originalTree, "Showing or enlarging the Dock resizes every affected slot without changing the split tree")
+            system.areaOverride = originalAreas.map { DisplayArea(id: $0.id, name: $0.name, bounds: Rect($0.bounds.x, $0.bounds.y + 12, $0.bounds.width, $0.bounds.height - 110)) }
+            model.tick(); await Task.yield(); await settle()
+            try check(try matchingGeometry() && model.history.current == originalTree, "A second Dock-size and top-area change is applied with unchanged window membership")
+            system.areaOverride = nil
+            model.tick(); await Task.yield(); await settle()
+            try check(try matchingGeometry() && model.history.current == originalTree, "Reclaiming desktop space expands every slot back to the current work area")
+            let areaWrites = system.writes
+            model.tick(); await Task.yield(); model.tick(); await Task.yield()
+            try check(system.writes == areaWrites, "Settled work-area changes do not queue repeated native transitions")
+            model.settings.animate = false
+            let reboundTree = model.history.current
+            model.scheduleSettledValidation(force: true)
+            let lateWindow = system.records[0].0
+            let lateBounds = system.frame(of: lateWindow.element)!
+            try system.write(lateWindow, frame: Rect(lateBounds.x + 25, lateBounds.y + 20, lateBounds.width, lateBounds.height))
+            system.writes.removeAll()
+            try? await Task.sleep(for: .milliseconds(500))
+            try check(try matchingGeometry() && model.history.current == reboundTree && system.writes.count == 1, "Late native rebound repairs only the moved window without rebuilding slots")
+            model.scheduleSettledValidation(force: true)
+            system.pointerHeld = true
+            try system.write(lateWindow, frame: Rect(lateBounds.x + 25, lateBounds.y + 20, lateBounds.width, lateBounds.height))
+            system.writes.removeAll()
+            try? await Task.sleep(for: .milliseconds(400))
+            try check(system.writes.isEmpty, "Late verification never interferes with a new pointer gesture")
+            system.pointerHeld = false; try system.write(lateWindow, frame: lateBounds)
+            let selectionTree = model.history.current
+            system.focused = system.records[0].0; model.tick(); system.focused = nil
+            await model.releaseActiveWindow()
+            try check(!model.history.current.windows.contains { $0.windowID == system.records[0].0.id }, "Stop Arranging Selected Window retains the app selection when Bento's settings takes focus")
+            await model.undo()
+            try check(model.history.current == selectionTree, "Undo restores a window excluded through the selected-window action")
             let beforeMonitor = model.history.current
             let monitorWrites = system.writes
             let discoveries = system.discoveryCount
@@ -186,7 +225,7 @@ private final class FixturePreferences: PreferenceBackend {
             input.pressed = false; interactions.sample(); await settle()
             try check(try model.history.current != beforeRebound && matchingGeometry(),
                 "A valid drop commits even when the native window rebounds before release without Escape")
-            try check(system.writes.values.allSatisfy { $0 == 1 }, "Successful relocation uses one final write per changed window with no second animation")
+            try check(system.writes.values.contains { $0 > 1 }, "Successful relocation animates as one coordinated transition")
             model.settings.animate = false
             await model.undo()
             let fastLayout = try regions().1
@@ -250,7 +289,7 @@ private final class FixturePreferences: PreferenceBackend {
             input.point = Point(releaseStart.x + 20, releaseStart.y + 20); interactions.moveGrip()
             input.point = Point(releaseStart.x + 40, releaseStart.y + 40); interactions.moveGrip()
             await interactions.finish(cancel: false)
-            let releaseArea = DisplayArea.all(margin: model.layoutMargin).first { $0.id == display }!.bounds
+            let releaseArea = model.displayAreas().first { $0.id == display }!.bounds
             let expectedRelease = try InteractionGeometry.resize(beforeRelease, display: display, divider: releaseDivider, pointer: input.point, area: releaseArea, gap: model.layoutGap, grabbedAt: releaseStart)
             try check(try model.history.current == expectedRelease && matchingGeometry(), "Quick release drains the newest queued pointer sample")
             try check(!system.writes.isEmpty && system.writes.values.allSatisfy { $0 <= 2 }, "Delayed native resize release has no second animation")
@@ -312,7 +351,7 @@ private final class FixturePreferences: PreferenceBackend {
             let failureCandidate = try model.history.current.placing(failureSource, on: failureDisplay, target: failureTarget.id, placement: .center)
             system.rejectOnce = failureTarget.windowID
             var rejected = false
-            do { try await model.apply(failureCandidate, displays: DisplayArea.all(margin: model.layoutMargin)) } catch { rejected = true }
+            do { try await model.apply(failureCandidate, displays: model.displayAreas()) } catch { rejected = true }
             try check(rejected && system.records.map { DesktopCoordinates.engine($0.1.frame) } == beforeFailure, "A rejected native write rolls back the batch")
             let rememberedBento = model.history.current
             system.deferWrites = true
@@ -341,7 +380,7 @@ private final class FixturePreferences: PreferenceBackend {
             try check(interactions.helperFrames.allSatisfy { frame in liveLayout.dividers.contains { $0.bounds == frame } }, "Live gaps and grabber hit surfaces share the applied geometry")
             let plannedGap = originalGap + 12
             let planDisplay = try regions().0
-            let planned = try LayoutEngine.calculate(model.history.current.roots[planDisplay], in: DisplayArea.all(margin: model.layoutMargin).first { $0.id == planDisplay }!.bounds, gap: plannedGap)
+            let planned = try LayoutEngine.calculate(model.history.current.roots[planDisplay], in: model.displayAreas().first { $0.id == planDisplay }!.bounds, gap: plannedGap)
             let refusedRegion = planned.regions.first { region in
                 let record = system.records.first { $0.0.id == region.window.windowID }!.0
                 return system.frame(of: record.element) != region.bounds
@@ -382,7 +421,7 @@ private final class FixturePreferences: PreferenceBackend {
             let (growthDisplay, growthLayout) = try regions()
             let growthSource = growthLayout.regions[0]
             let growthRecord = system.records.first { $0.0.id == growthSource.window.windowID }!.0
-            let growthArea = DisplayArea.all(margin: model.layoutMargin).first { $0.id == growthDisplay }!.bounds
+            let growthArea = model.displayAreas().first { $0.id == growthDisplay }!.bounds
             var grown = growthSource.bounds, newLimit = growthRecord.minimum
             if grown.width < growthArea.width { grown.width += 40; newLimit.width = grown.width }
             else { grown.height += 40; newLimit.height = grown.height }
@@ -455,7 +494,7 @@ private final class FixturePreferences: PreferenceBackend {
             await model.arrange()
             try check(try model.history.current.windows.count == 3 && matchingGeometry(), "Arrange all includes released windows again")
             await model.restore()
-            let area = DisplayArea.all(margin: model.layoutMargin)[0].bounds
+            let area = model.displayAreas()[0].bounds
             let oversized = system.records[0].0
             oversized.minimum = Size(area.width + 100, 120)
             system.writes.removeAll()
@@ -509,14 +548,15 @@ private final class FixturePreferences: PreferenceBackend {
             try check(try model.active && matchingGeometry(), "Granting access completes the requested activation")
             await model.restore()
             let activating = Task { await model.arrange() }
-            try? await Task.sleep(for: .milliseconds(100)); await model.restore(); await activating.value
+            try? await Task.sleep(for: .milliseconds(100)); await model.restore(); _ = await activating.value
             try check(!model.active && system.records.map { DesktopCoordinates.engine($0.1.frame) } == initial, "Restoring during activation cancels the pending arrangement")
             model.settings.animate = true
-            system.writes.removeAll()
+            system.writes.removeAll(); system.frameReads = 0
             await model.arrange()
+            try check(system.frameReads <= 24, "Animation uses bounded geometry reads instead of polling each intermediate frame")
             try check(try matchingGeometry() && system.writes.values.allSatisfy { $0 > 1 }, "Animated activation sends intermediate frames and reaches exact final geometry")
             let sectionDisplay = try regions().0
-            let sectionArea = DisplayArea.all(margin: model.layoutMargin).first { $0.id == sectionDisplay }!.bounds
+            let sectionArea = model.displayAreas().first { $0.id == sectionDisplay }!.bounds
             let group = LayoutNode.split(id: UUID(), axis: .vertical, ratio: 0.45, first: .window(system.records[0].0.leaf), second: .window(system.records[1].0.leaf))
             let sectionTree = Workspace(roots: [sectionDisplay: .split(id: UUID(), axis: .horizontal, ratio: 0.4, first: group, second: .window(system.records[2].0.leaf))])
             try await model.finishInteraction(sectionTree, commit: true, animate: false)
@@ -626,8 +666,8 @@ private final class FixturePreferences: PreferenceBackend {
                 && model.history.current.windows.count == 2, "Dock reopen evicts least recently used window on a full display")
             try check(system.frame(of: first.element) == retainedFrame && system.frame(of: oversized.element) == vacatedFrame,
                 "Crowded Dock admission reuses the idle slot without moving its neighbor")
-            try check(system.writes[first.id] == nil && system.writes[second.id] == nil && system.writes[oversized.id] == 1,
-                "Automatic Dock admission writes only the incoming final frame, even with animations enabled")
+            try check(system.writes[first.id] == nil && system.writes[second.id] == nil && (system.writes[oversized.id] ?? 0) > 1,
+                "Automatic Dock admission animates the incoming window without moving unchanged neighbors")
             model.settings.animate = false
             await model.arrange(preserving: true)
             try check(system.isMinimized(second) && !system.isMinimized(oversized), "Minimized overflow does not steal the reopened window's space on next reflow")
@@ -667,6 +707,20 @@ private final class FixturePreferences: PreferenceBackend {
                 "Retry installation resumes Sparkle exactly once after successful restoration")
             try check(!update.shouldPostponeInstallation { installCalls += 100 } && installCalls == 1 && !update.preparingInstallation,
                 "A repeated relaunch callback proceeds immediately after preparation instead of postponing forever")
+            let panelIDs = Set(NSApp.windows.map { ObjectIdentifier($0) })
+            let softPreview = DestinationPanel()
+            softPreview.presentConflict(Rect(40, 40, 400, 300))
+            let softPanel = NSApp.windows.first { !panelIDs.contains(ObjectIdentifier($0)) }!
+            try check(softPanel.alphaValue == 0 && softPanel.ignoresMouseEvents, "Soft preview starts transparent and never intercepts app input")
+            let retarget = Rect(120, 80, 520, 360)
+            softPreview.presentConflict(retarget)
+            try? await Task.sleep(for: .milliseconds(200))
+            try check(softPanel.frame == DesktopCoordinates.appKit(retarget) && softPanel.alphaValue == 1, "Preview retargeting reaches the latest destination without an old animation snapping back")
+            softPreview.orderOut(nil); try? await Task.sleep(for: .milliseconds(200))
+            try check(!softPanel.isVisible, "Preview fades out and removes its overlay after the gesture")
+            softPreview.animate = false; softPreview.presentConflict(retarget)
+            try check(softPanel.frame == DesktopCoordinates.appKit(retarget) && softPanel.alphaValue == 1, "Disabling motion applies preview geometry immediately")
+            softPreview.orderOut(nil)
             // Render only our own preview views for visual review, never desktop pixels.
             let canvas = NSView(frame: NSRect(x: 0, y: 0, width: 1224, height: 500))
             canvas.wantsLayer = true; canvas.layer?.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1).cgColor
@@ -678,7 +732,15 @@ private final class FixturePreferences: PreferenceBackend {
             }
             if let bitmap = canvas.bitmapImageRepForCachingDisplay(in: canvas.bounds) {
                 canvas.cacheDisplay(in: canvas.bounds, to: bitmap)
-                try bitmap.representation(using: .png, properties: [:])?.write(to: output.appendingPathComponent("split-preview.png"))
+                // Composite transparent panels over a known desktop color for
+                // review; the live WindowServer performs this compositing itself.
+                let composited = NSImage(size: canvas.bounds.size, flipped: false) { rect in
+                    NSColor(calibratedWhite: 0.16, alpha: 1).setFill(); rect.fill()
+                    bitmap.draw(in: rect); return true
+                }
+                if let data = composited.tiffRepresentation, let flattened = NSBitmapImageRep(data: data) {
+                    try flattened.representation(using: .png, properties: [:])?.write(to: output.appendingPathComponent("split-preview.png"))
+                }
             }
             try JSONSerialization.data(withJSONObject: ["passed": passed, "externalApplicationsTouched": false, "systemPreferencesChanged": false], options: [.prettyPrinted, .sortedKeys]).write(to: output.appendingPathComponent("results.json"))
             print("Native interaction smoke: \(passed.count) checks passed; disposable windows only.")

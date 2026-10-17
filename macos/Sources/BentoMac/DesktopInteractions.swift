@@ -68,7 +68,7 @@ struct DesktopInput {
         guard model.active, model.permission, !model.interacting else { if !model.interacting { removeHelpers() }; return }
         updateGrips(model.history.current)
     }
-    private func areas() -> [String: Rect] { if let gestureAreas { return gestureAreas }; return Dictionary(uniqueKeysWithValues: DisplayArea.all(margin: model.layoutMargin).map { ($0.id, $0.bounds) }) }
+    private func areas() -> [String: Rect] { if let gestureAreas { return gestureAreas }; return Dictionary(uniqueKeysWithValues: model.displayAreas().map { ($0.id, $0.bounds) }) }
     private func removeHelpers() { grips.values.forEach { $0.orderOut(nil) }; grips.removeAll(); preview.orderOut(nil); backdrop.hide() }
     private func updateGrips(_ workspace: Workspace) {
         hoverNeedsUpdate = true
@@ -192,8 +192,9 @@ struct DesktopInput {
     }
     private func updateDrop(state: DesktopInput) {
         do {
+            preview.animate = model.settings.animate
             if let proposal = try session?.propose(pointer: state.point, areas: areas(), gap: model.layoutGap, hold: model.settings.splitHold, now: state.time, screenBounds: gestureScreens) {
-                if candidate != proposal.workspace { trace?("drop proposal=\(proposal.placement.rawValue) bounds=\(proposal.bounds)") }
+                if candidate != proposal.workspace { trace?("drop proposal=\(proposal.placement.rawValue) section=\(proposal.swapsSections) bounds=\(proposal.bounds)") }
                 candidate = proposal.workspace; swapsSections = proposal.swapsSections; preview.present(proposal)
             } else {
                 candidate = nil
@@ -232,7 +233,7 @@ struct DesktopInput {
                     while let next = self.pending {
                         self.pending = nil
                         do {
-                            try await self.model.apply(next, displays: DisplayArea.all(margin: self.model.layoutMargin), liveResize: true)
+                            try await self.model.apply(next, displays: self.model.displayAreas(), liveResize: true)
                             // Move the hit surface with the applied sample, not ahead
                             // of the windows while a newer sample is still queued.
                             self.updateGrips(next)
@@ -263,7 +264,7 @@ struct DesktopInput {
            !original.windows.contains(where: { $0.windowID == window.id }) {
             model.rememberOriginal(window, frame: frame)
         }
-        do { try await model.finishInteraction(next, commit: !disappeared.isEmpty || !cancel && !liveFailure && candidate != nil, animate: cancel || liveFailure || !disappeared.isEmpty || swapsSections) }
+        do { try await model.finishInteraction(next, commit: !disappeared.isEmpty || !cancel && !liveFailure && candidate != nil, animate: cancel || liveFailure || (grip == nil && !nativeResize)) }
         catch {
             trace?("gesture commit rejected; rolling back")
             let failure = error.localizedDescription
@@ -280,30 +281,66 @@ struct DesktopInput {
     }
 }
 
-// Separate click-through panels outline every affected slot without covering the
+// Separate click-through panels softly fill each affected slot without covering the
 // desktop in one opaque overlay. Their geometry comes from the committed candidate.
 @MainActor final class DestinationPanel {
     private var panels: [PreviewSlotPanel] = []
+    var animate = true
+    private var motion: Timer?
+    private struct Transition { let panel: PreviewSlotPanel; let from: NSRect; let to: NSRect; let alpha: CGFloat; let targetAlpha: CGFloat }
+    private var transitions: [Transition] = []
+    private var started = 0.0
+    private func transition(to rectangles: [Rect]) {
+        motion?.invalidate()
+        while panels.count < rectangles.count { panels.append(PreviewSlotPanel()) }
+        transitions = panels.enumerated().map { index, panel in
+            let destination = index < rectangles.count ? DesktopCoordinates.appKit(rectangles[index]) : panel.frame
+            if !panel.isVisible && index < rectangles.count {
+                panel.alphaValue = 0; panel.setFrame(destination.insetBy(dx: 5, dy: 5), display: true); panel.orderFrontRegardless()
+            }
+            return Transition(panel: panel, from: panel.frame, to: destination, alpha: panel.alphaValue, targetAlpha: index < rectangles.count ? 1 : 0)
+        }
+        started = ProcessInfo.processInfo.systemUptime
+        if !animate || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { advance(progress: 1); return }
+        motion = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in
+            MainActor.assumeIsolated {
+                guard let self else { timer.invalidate(); return }
+                let t = min(1, (ProcessInfo.processInfo.systemUptime - self.started) / 0.12)
+                self.advance(progress: t)
+                if t >= 1 { timer.invalidate(); self.motion = nil }
+            }
+        }
+        RunLoop.main.add(motion!, forMode: .common)
+    }
+    private func advance(progress: Double) {
+        let t = progress * progress * (3 - 2 * progress)
+        for item in transitions {
+            func mix(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * t }
+            item.panel.setFrame(NSRect(x: mix(item.from.minX, item.to.minX), y: mix(item.from.minY, item.to.minY), width: mix(item.from.width, item.to.width), height: mix(item.from.height, item.to.height)), display: true)
+            item.panel.alphaValue = mix(item.alpha, item.targetAlpha)
+            if progress >= 1 && item.targetAlpha == 0 { item.panel.orderOut(nil) }
+        }
+    }
     private var lastProposal: DropProposal?
     private var lastConflict: Rect?
-    func orderOut(_ sender: Any?) { panels.forEach { $0.orderOut(sender) }; lastProposal = nil; lastConflict = nil }
+    func orderOut(_ sender: Any?) { if panels.contains(where: { $0.isVisible }) { transition(to: []) }; lastProposal = nil; lastConflict = nil }
     func presentConflict(_ bounds: Rect) {
         guard lastConflict != bounds || panels.first?.isVisible != true else { return }
         lastConflict = bounds; lastProposal = nil
         if panels.isEmpty { panels.append(PreviewSlotPanel()) }
-        for panel in panels.dropFirst() { panel.orderOut(nil) }
+
         let panel = panels[0]
         panel.slotView.primary = true; panel.slotView.conflict = true; panel.slotView.progress = nil
-        panel.setFrame(DesktopCoordinates.appKit(bounds), display: true)
-        panel.slotView.needsDisplay = true; panel.orderFrontRegardless()
+        panel.slotView.needsDisplay = true; transition(to: [bounds])
     }
     func present(_ proposal: DropProposal) {
         guard lastProposal != proposal || panels.first?.isVisible != true else { return }
+        let geometryChanged = lastConflict != nil || lastProposal?.bounds != proposal.bounds || lastProposal?.neighbors != proposal.neighbors
         lastProposal = proposal; lastConflict = nil
         let rectangles = [proposal.bounds] + proposal.neighbors
         while panels.count < rectangles.count { panels.append(PreviewSlotPanel()) }
         for (index, panel) in panels.enumerated() {
-            guard index < rectangles.count else { panel.orderOut(nil); continue }
+            guard index < rectangles.count else { continue }
             let primary = index == 0
             let progress = primary && proposal.waitingForSplit ? proposal.progress : nil
             let changed = panel.slotView.primary != primary || panel.slotView.progress != progress || panel.slotView.conflict || panel.slotView.placement != proposal.placement || panel.slotView.swapsSections != proposal.swapsSections
@@ -312,11 +349,9 @@ struct DesktopInput {
             panel.slotView.conflict = false
             panel.slotView.placement = proposal.placement
             panel.slotView.swapsSections = proposal.swapsSections
-            let frame = DesktopCoordinates.appKit(rectangles[index])
-            if panel.frame != frame { panel.setFrame(frame, display: true) }
             if changed { panel.slotView.needsDisplay = true }
-            if !panel.isVisible { panel.orderFrontRegardless() }
         }
+        if geometryChanged { transition(to: rectangles) }
     }
 }
 
@@ -341,36 +376,15 @@ struct DesktopInput {
     override func draw(_ dirtyRect: NSRect) {
         NSBezierPath(rect: bounds).addClip()
         NSColor.clear.setFill(); bounds.fill(using: .copy)
-        let outline = NSBezierPath(roundedRect: bounds.insetBy(dx: 3, dy: 3), xRadius: 14, yRadius: 14)
         let accent = conflict ? NSColor.systemOrange : NSColor(calibratedRed: 0.24, green: 0.78, blue: 0.73, alpha: 1)
-        accent.withAlphaComponent(primary ? 0.13 : 0.035).setFill(); outline.fill()
-        (primary ? accent.withAlphaComponent(0.95) : NSColor.white.withAlphaComponent(0.45)).setStroke()
-        outline.lineWidth = primary ? 2 : 1
-        if conflict { outline.setLineDash([5, 5], count: 2, phase: 0) }
-        outline.stroke()
-        guard primary else { return }
-        let size = min(52.0, max(24, min(bounds.width, bounds.height) - 20))
-        let chip = NSRect(x: bounds.midX - size / 2, y: bounds.midY - size / 2, width: size, height: size)
-        NSColor(calibratedWhite: 0.09, alpha: 0.9).setFill()
-        NSBezierPath(roundedRect: chip, xRadius: 16, yRadius: 16).fill()
-        let name = conflict ? "exclamationmark.triangle" : swapsSections ? "arrow.left.arrow.right" : (placement == .center && progress == nil ? "arrow.left.arrow.right" : (placement == .top || placement == .bottom ? "rectangle.split.1x2" : "rectangle.split.2x1"))
-        if let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(.init(pointSize: 21, weight: .medium).applying(.init(paletteColors: [accent]))) {
-            let icon = NSRect(x: chip.midX - 12, y: chip.midY - 12, width: 24, height: 24)
-            symbol.draw(in: icon)
-        }
-        let label = conflict ? "Cannot fit here" : swapsSections ? "Move section" : progress != nil ? "Hold to split" : placement == .center ? "Swap windows" : "Split \(placement.rawValue)"
-        let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11, weight: .semibold), .foregroundColor: NSColor.white]
-        let textSize = label.size(withAttributes: attributes)
-        let caption = NSRect(x: chip.midX - textSize.width / 2 - 7, y: chip.minY - 24, width: textSize.width + 14, height: 20)
-        NSColor(calibratedWhite: 0.09, alpha: 0.94).setFill()
-        NSBezierPath(roundedRect: caption, xRadius: 6, yRadius: 6).fill()
-        label.draw(at: NSPoint(x: caption.minX + 7, y: caption.minY + 3), withAttributes: attributes)
-        if let progress {
-            let ring = NSBezierPath()
-            ring.appendArc(withCenter: NSPoint(x: chip.midX, y: chip.midY), radius: size / 2 + 5,
-                           startAngle: 90, endAngle: 90 - CGFloat(max(0, min(1, progress))) * 360, clockwise: true)
-            ring.lineWidth = 2; ring.lineCapStyle = .round; accent.setStroke(); ring.stroke()
-        }
+        let strength = primary ? 0.20 + (progress ?? 0) * 0.10 : 0.08
+        let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 6, dy: 6), xRadius: 18, yRadius: 18)
+        NSGraphicsContext.saveGraphicsState()
+        let glow = NSShadow(); glow.shadowBlurRadius = 14; glow.shadowColor = accent.withAlphaComponent(strength * 0.65); glow.shadowOffset = .zero; glow.set()
+        accent.withAlphaComponent(strength * 0.5).setFill(); shape.fill()
+        NSGraphicsContext.restoreGraphicsState()
+        NSGradient(starting: accent.withAlphaComponent(strength), ending: accent.withAlphaComponent(strength * 0.35))?.draw(in: shape, angle: 90)
+
     }
 }
 

@@ -108,3 +108,15 @@ public enum LayoutEngine {
         return nearest == y ? .top : .bottom
     }
 }
+
+/// Desktop controls can briefly leave AppKit's visible frame stale while hiding.
+/// Reclaim only opted-out reservations, retaining the camera-safe top inset.
+public enum DesktopWorkArea {
+    public static func calculate(frame: Rect, visible: Rect, hideMenuBar: Bool, hideDock: Bool, safeTop: Int = 0, margin: Int = 0) -> Rect {
+        let top = max(frame.y + safeTop, hideMenuBar ? frame.y : visible.y)
+        let left = hideDock ? frame.x : max(frame.x, visible.x)
+        let right = hideDock ? frame.right : min(frame.right, visible.right)
+        let bottom = hideDock ? frame.bottom : min(frame.bottom, visible.bottom)
+        return Rect(left, top, max(0, right - left), max(0, bottom - top)).inset(margin)
+    }
+}

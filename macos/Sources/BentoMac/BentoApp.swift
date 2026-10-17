@@ -42,6 +42,7 @@ import Carbon.HIToolbox
             do {
                 let found = try model.system.discover()
                 print("Accessibility: \(model.system.trusted); eligible windows: \(found.count)")
+                for area in model.displayAreas() { print("Usable display bounds: \(area.bounds)") }
                 for window in found { print("\(window.application): \(window.frame)") }
             } catch { print(error.localizedDescription) }
             exit(model.system.trusted ? 0 : 2)
@@ -101,14 +102,15 @@ import Carbon.HIToolbox
         func item(_ title: String, _ action: Selector) { let i = NSMenuItem(title: title, action: action, keyEquivalent: ""); i.target = self; menu.addItem(i) }
         func section(_ title: String) { if !menu.items.isEmpty { menu.addItem(.separator()) }; menu.addItem(.sectionHeader(title: title)) }
         section("Layout")
-        item(!model.permission ? "Enable Accessibility…" : model.active ? "Turn Bento off" : "Arrange windows", #selector(toggle))
-        item("Arrange all windows", #selector(arrangeAll))
-        item("Release active window", #selector(releaseActive))
-        section("Layout history")
+        item(!model.permission ? "Enable Accessibility…" : model.active ? "Turn Bento Off" : "Arrange Windows", #selector(toggle))
+        item("Arrange All Windows", #selector(arrangeAll))
+        item("Stop Arranging Selected Window", #selector(releaseActive))
+        menu.items.last?.toolTip = "Remove the selected app window from the layout. Arrange All Windows includes it again."
+        section("History")
         item("Undo", #selector(undo)); item("Redo", #selector(redo))
-        item("Restore saved layout", #selector(loadLayout))
-        item("Restore original positions", #selector(restore))
-        section("Desktop")
+        item("Use Saved Layout", #selector(loadLayout))
+        item("Restore Windows to Before Bento", #selector(restore))
+        section("While Bento Is On")
         let hideDesktop = NSMenuItem(title: "Hide Dock & Menu Bar", action: #selector(toggleDesktopHiding), keyEquivalent: "")
         hideDesktop.target = self
         hideDesktop.toolTip = "Applies while Bento is on. Turning this off restores your previous macOS settings."

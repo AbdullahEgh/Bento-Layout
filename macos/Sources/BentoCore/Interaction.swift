@@ -170,7 +170,7 @@ public struct DropSession {
 public enum WindowMotion {
     public static func frame(from: Rect, to: Rect, progress: Double) -> Rect {
         let t = max(0, min(1, progress.isFinite ? progress : 1))
-        let eased = t * t * (3 - 2 * t)
+        let eased = 1 - pow(1 - t, 3)
         func mix(_ a: Int, _ b: Int) -> Int { Int((Double(a) + (Double(b) - Double(a)) * eased).rounded()) }
         return Rect(mix(from.x, to.x), mix(from.y, to.y), mix(from.width, to.width), mix(from.height, to.height))
     }

@@ -28,10 +28,16 @@ enum DesktopCoordinates {
 struct DisplayArea: Equatable {
     let id: String; let name: String; let bounds: Rect
     static func all(margin: Int, fullScreen: Bool = false) -> [DisplayArea] {
-        NSScreen.screens.map { screen in
+        func flag(_ domain: CFString, _ key: String) -> Bool {
+            CFPreferencesSynchronize(domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+            return (CFPreferencesCopyValue(key as CFString, domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? NSNumber)?.boolValue ?? false
+        }
+        let hideMenu = flag(kCFPreferencesAnyApplication, "_HIHideMenuBar")
+        let hideDock = flag("com.apple.dock" as CFString, "autohide")
+        return NSScreen.screens.map { screen in
             let number = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
             let uuid = CGDisplayCreateUUIDFromDisplayID(number).takeRetainedValue()
-            return DisplayArea(id: CFUUIDCreateString(nil, uuid) as String, name: screen.localizedName, bounds: DesktopCoordinates.engine(fullScreen ? screen.frame : screen.visibleFrame).inset(margin))
+            return DisplayArea(id: CFUUIDCreateString(nil, uuid) as String, name: screen.localizedName, bounds: fullScreen ? DesktopCoordinates.engine(screen.frame).inset(margin) : DesktopWorkArea.calculate(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopCoordinates.engine(screen.visibleFrame), hideMenuBar: hideMenu, hideDock: hideDock, safeTop: Int(screen.safeAreaInsets.top.rounded(.up)), margin: margin))
         }
     }
 }
@@ -71,6 +77,20 @@ final class ManagedWindow {
             element = parent as! AXUIElement
         }
         return nil
+    }
+    func displayAreas(margin: Int) -> [DisplayArea] { DisplayArea.all(margin: margin) }
+    /// Intermediate samples do not query AX geometry or wait on slow clients.
+    /// The final write and settled verification still use the normal adapter path.
+    func writeMotionFrame(_ window: ManagedWindow, frame: Rect, previous: Rect) throws {
+        AXUIElementSetMessagingTimeout(window.element, 0.025)
+        defer { AXUIElementSetMessagingTimeout(window.element, 0.15) }
+        var size = CGSize(width: frame.width, height: frame.height), point = CGPoint(x: frame.x, y: frame.y)
+        if frame.width != previous.width || frame.height != previous.height {
+            guard let value = AXValueCreate(.cgSize, &size), AXUIElementSetAttributeValue(window.element, kAXSizeAttribute as CFString, value) == .success else { throw WindowFailure.rejected(window.title) }
+        }
+        if frame.x != previous.x || frame.y != previous.y {
+            guard let value = AXValueCreate(.cgPoint, &point), AXUIElementSetAttributeValue(window.element, kAXPositionAttribute as CFString, value) == .success else { throw WindowFailure.rejected(window.title) }
+        }
     }
     func requestPermission() {
         let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String

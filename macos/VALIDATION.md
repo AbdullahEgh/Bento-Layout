@@ -1,3 +1,11 @@
+# macOS 0.2.18 responsive work areas and coordinated motion — 2026-10-17
+
+50 core tests and 130 isolated native checks passed locally. New core cases cover stale menu-bar reservations, hidden/left-side Docks, Dock size changes, camera-safe insets and negative screen coordinates. Native cases change work-area height and top inset repeatedly with fixed membership, verify every affected slot and split identity, and check that a settled area does not trigger repeated writes. Geometry reads during animation are bounded independently of intermediate frame count. Existing delayed AX acceptance, minimum-size correction, rollback, Reduce Motion, resume, all drag directions, section moves, settings coalescing and OTA restoration checks remain green.
+
+Preview checks cover transparent click-through entry, retargeting to the latest destination, fade cleanup and immediate geometry when animation is disabled. The composited preview render was inspected: translucent teal/amber fields with no strokes, text, symbols or badges. The selected-window exclusion action retains the last external selection when Bento takes focus and remains undoable. A simulated delayed native rebound repairs only the moved window, retains the split tree, and does not write during a new pointer gesture.
+
+These checks use disposable windows and supplied interaction samples. Live desktop preference and installed OTA validation are recorded separately; the fixture does not change user preferences or imply all physical interactions are certified.
+
 # macOS 0.2.17 section movement, close animation and layering — 2026-10-17
 
 49 core tests passed, including all four physical screen edges on negative-coordinate displays, a large window that cannot fit an individual stacked slot, preservation of clamped section sizes, repeated-sample caching, whole-group movement, round-trip geometry and separation from cross-display placement. The isolated native harness passed 117 checks, including section preview/animated commit/undo, animated branch collapse after a window closes, no writes to the closed window, no repeated reflow after settling, and grabber level -1 below app windows and above the dimming panel at -2. Existing normal swaps, held splits, live settings and bounded admission checks remain green.

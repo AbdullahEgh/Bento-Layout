@@ -3,6 +3,17 @@ import CryptoKit
 @testable import BentoCore
 
 final class InteractionAndUpdateTests: XCTestCase {
+    func testDesktopWorkAreaReclaimsHiddenMenuAndDockWithoutUsingCameraArea() {
+        let frame = Rect(-1440, -900, 1440, 900), visible = Rect(-1440, -870, 1440, 823)
+        XCTAssertEqual(DesktopWorkArea.calculate(frame: frame, visible: visible, hideMenuBar: true, hideDock: false, margin: 8), Rect(-1432, -892, 1424, 837))
+        XCTAssertEqual(DesktopWorkArea.calculate(frame: frame, visible: visible, hideMenuBar: true, hideDock: true, margin: 8), frame.inset(8))
+        XCTAssertEqual(DesktopWorkArea.calculate(frame: frame, visible: visible, hideMenuBar: true, hideDock: true, safeTop: 38).y, -862)
+        let leftDock = Rect(-1370, -870, 1370, 870)
+        XCTAssertEqual(DesktopWorkArea.calculate(frame: frame, visible: leftDock, hideMenuBar: false, hideDock: true), Rect(-1440, -870, 1440, 870))
+        XCTAssertEqual(DesktopWorkArea.calculate(frame: frame, visible: visible, hideMenuBar: false, hideDock: false), visible)
+        let largerDock = Rect(-1440, -870, 1440, 770)
+        XCTAssertEqual(DesktopWorkArea.calculate(frame: frame, visible: largerDock, hideMenuBar: false, hideDock: false), largerDock)
+    }
     func testPhysicalEdgeMovesWholeSectionWhenLeafSwapCannotFit() throws {
         for direction in [Placement.left, .right, .top, .bottom] {
             let horizontal = direction == .left || direction == .right
