@@ -200,14 +200,18 @@ private final class FixturePreferences: PreferenceBackend {
             await lifecycle.arrange()
             try check(lifecycle.history.current.windows.count == 2 && lifecycle.floatingWindows.contains { $0.id == hidden.id },
                 "A temporarily refusing incoming app remains discoverable outside the layout")
-            system.rejectedWindows.removeAll(); system.focused = hidden
+            system.rejectedWindows.removeAll()
+            lifecycle.recordInteraction(hidden)
+            system.focused = nil
+            lifecycle.applicationActivated(hidden.pid)
+            system.focused = hidden
             lifecycle.tick()
             for _ in 0..<150 {
                 if lifecycle.history.current.windows.count == 3 && !lifecycle.activating { break }
                 try? await Task.sleep(for: .milliseconds(30))
             }
             try check(lifecycle.history.current.windows.count == 3,
-                "Focusing a previously rejected visible app retries admission without a membership change or manual refresh")
+                "Deferred Dock focus retries a previously rejected visible app without a membership change or manual refresh")
             let admittedWrites = system.writes
             lifecycle.tick(); try? await Task.sleep(for: .milliseconds(100))
             try check(system.writes == admittedWrites,
@@ -218,15 +222,16 @@ private final class FixturePreferences: PreferenceBackend {
             // Both old rollback rectangles now violate the native limits; the
             // correction must retain the minimum-size failure and switch axes.
             let repairArea = lifecycle.displayAreas()[0]
-            system.areaOverride = [DisplayArea(id: repairArea.id, name: repairArea.name,
-                bounds: Rect(repairArea.bounds.x, repairArea.bounds.y, 1200, 900))]
+            let repairBounds = Rect(repairArea.bounds.x, repairArea.bounds.y,
+                min(1200, repairArea.bounds.width), min(900, repairArea.bounds.height))
+            system.areaOverride = [DisplayArea(id: repairArea.id, name: repairArea.name, bounds: repairBounds)]
             system.undiscovered = [hidden.id]
             let firstRepair = system.records[0].0, secondRepair = system.records[1].0
-            firstRepair.minimum = Size(700, 120); secondRepair.minimum = Size(700, 120)
+            firstRepair.minimum = Size(repairBounds.width / 2 + 20, 120); secondRepair.minimum = firstRepair.minimum
             await lifecycle.arrange()
             firstRepair.minimum = Size(160, 120); secondRepair.minimum = Size(160, 120)
-            system.nativeMinimum[firstRepair.id] = Size(160, 600)
-            system.nativeMinimum[secondRepair.id] = Size(160, 600)
+            system.nativeMinimum[firstRepair.id] = Size(160, repairBounds.height / 2 + 20)
+            system.nativeMinimum[secondRepair.id] = system.nativeMinimum[firstRepair.id]
             let repaired = await lifecycle.arrange(preserving: true)
             let repairRegions = try LayoutEngine.calculate(lifecycle.history.current.roots[repairArea.id], in: system.areaOverride![0].bounds, gap: lifecycle.layoutGap).regions
             try check(repaired && repairRegions.count == 2 && repairRegions.allSatisfy { region in

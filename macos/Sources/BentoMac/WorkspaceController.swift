@@ -72,14 +72,26 @@ struct MacSettings: Codable {
     private var interactionSequence = 0
     private var lastInteraction: [UUID: Int] = [:]
     private var lastFocusedWindow: UUID?
+    private var pendingApplicationActivation: pid_t?
 
     func recordInteraction(_ window: ManagedWindow) {
         interactionSequence += 1
         lastInteraction[window.id] = interactionSequence
         lastFocusedWindow = window.id
     }
-    private func observeFocus(in current: [ManagedWindow], activation: Bool = false) {
+    func applicationActivated(_ pid: pid_t) {
+        lastMembershipScan = 0
+        pendingApplicationActivation = pid
+        if let current = try? system.discover() { observeFocus(in: current) }
+    }
+    private func observeFocus(in current: [ManagedWindow]) {
         let focused = system.focusedWindow(in: current)
+        // Dock activation can precede AXFocusedWindow or arrive during a resize.
+        // Retain the latest app's intent until its focused window is available
+        // and the current transaction has finished; polling consumes it once.
+        let activation = focused.map { $0.pid == pendingApplicationActivation } == true
+            && !busy && !interacting && !activating
+        if activation { pendingApplicationActivation = nil }
         if let focused, focused.id != lastFocusedWindow || activation {
             recordInteraction(focused)
             // Bringing an already-visible floating app forward is admission intent,
@@ -145,13 +157,13 @@ struct MacSettings: Codable {
         permission = self.system.trusted
         if backgroundMonitoring {
             timer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in Task { @MainActor in self?.tick() } }
-            activationObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
+            activationObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] notification in
                 MainActor.assumeIsolated {
                     guard let self else { return }
-                    self.lastMembershipScan = 0
-                    // Keep recent-use history even while Bento is off. Settings
-                    // activation must not replace the last focused external app.
-                    if let current = try? self.system.discover() { self.observeFocus(in: current, activation: true) }
+                    guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+                    // Keep recent-use history while off, and retain Dock intent
+                    // when the app has not exposed its focused AX window yet.
+                    self.applicationActivated(app.processIdentifier)
                 }
             }
         }
