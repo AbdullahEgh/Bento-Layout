@@ -137,3 +137,19 @@ struct DemoDesktop: View {
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(BentoStyle.line.opacity(0.7)))
     }
 }
+
+@MainActor enum BentoWindowChrome {
+    static func configure(_ window: NSWindow, onboarding: Bool, theme: String) {
+        window.title = onboarding ? "Bento" : "Bento Settings"
+        // Reserve the native title bar instead of extending glass content beneath it.
+        window.styleMask = [.titled, .closable, .miniaturizable]
+        if !onboarding { window.styleMask.insert(.resizable); window.contentMinSize = NSSize(width: 340, height: 420) }
+        window.titleVisibility = .visible; window.titlebarAppearsTransparent = false
+        window.titlebarSeparatorStyle = .none
+        window.isOpaque = false; window.backgroundColor = .clear
+        updateAppearance(window, theme: theme)
+    }
+    static func updateAppearance(_ window: NSWindow, theme: String) {
+        window.appearance = theme == "Dark" ? NSAppearance(named: .darkAqua) : theme == "Light" ? NSAppearance(named: .aqua) : nil
+    }
+}

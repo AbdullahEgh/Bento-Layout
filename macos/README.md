@@ -128,3 +128,9 @@ Failed automatic arrangements cache the display bounds they actually attempted. 
 ### Glass surfaces
 
 macOS 26 and later use native Liquid Glass for split destinations, settings surfaces, onboarding and primary actions. macOS 15 retains native backdrop blur; Reduce Transparency switches to solid surfaces. Split destinations use a neutral frosted background, brighter cyan during splitting and amber for conflicts, without labels, icons or hard outlines. Related SwiftUI glass surfaces share a container. Preview backdrops are reused during drag updates and retain click-through behavior. Release builds use the Xcode 26 SDK while retaining the macOS 15 deployment target.
+
+### Session-only layout saves and desktop hiding
+
+Choose **Save for This Session** in Settings to keep window positions when Bento is turned off. Without that explicit save, turning it off restores pre-Bento positions. **Clear Session Save** returns to the unsaved behavior; **Restore Window Positions** always restores originals. The snapshot lives in memory and clears on app exit. Old persistent layout files are no longer read or written. Dock and menu-bar hiding also start off in each new session and are never persisted. Desktop preference recovery remains journaled so a crash can restore the previous macOS state.
+
+Settings use a standard native title bar, separate from glass content. Drop slots use neutral native glass and a gentle outline; only a conflict adds a warm tint. The menu keeps Turn On/Off, Undo Layout Change, Hide Dock & Menu Bar, Settings and Quit. Add `--keep-preview-open` to `--render-settings` to inspect a live material preview through the native UI.

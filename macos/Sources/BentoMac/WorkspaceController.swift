@@ -11,7 +11,7 @@ struct MacSettings: Codable {
     var minimizeOverflow = true
     var animate = true; var animationMS = 140
     init() {}
-    enum CodingKeys: String, CodingKey { case minimizeOverflow, gap, margin, splitHold, theme, onboardingComplete, hideDock, hideMenuBar, edgeSnapping, shortcut, backgroundDarkness, animate, animationMS }
+    enum CodingKeys: String, CodingKey { case minimizeOverflow, gap, margin, splitHold, theme, onboardingComplete, edgeSnapping, shortcut, backgroundDarkness, animate, animationMS }
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         minimizeOverflow = try values.decodeIfPresent(Bool.self, forKey: .minimizeOverflow) ?? true
@@ -20,8 +20,7 @@ struct MacSettings: Codable {
         splitHold = try values.decodeIfPresent(Int.self, forKey: .splitHold) ?? 900
         theme = try values.decodeIfPresent(String.self, forKey: .theme) ?? "System"
         onboardingComplete = try values.decodeIfPresent(Bool.self, forKey: .onboardingComplete) ?? false
-        hideDock = try values.decodeIfPresent(Bool.self, forKey: .hideDock) ?? false
-        hideMenuBar = try values.decodeIfPresent(Bool.self, forKey: .hideMenuBar) ?? false
+        // Dock and menu-bar overrides start off in every new app session.
         edgeSnapping = try values.decodeIfPresent(String.self, forKey: .edgeSnapping) ?? "Keep"
         shortcut = try values.decodeIfPresent(ShortcutConfig.self, forKey: .shortcut) ?? ShortcutConfig()
         backgroundDarkness = try values.decodeIfPresent(Int.self, forKey: .backgroundDarkness) ?? 50
@@ -42,12 +41,6 @@ struct MacSettings: Codable {
         try JSONEncoder().encode(self).write(to: Self.url, options: .atomic)
     }
 }
-struct SavedWorkspace: Codable {
-    struct Match: Codable { let bundleID: String; let title: String }
-    let version: Int; let platform: String; let workspace: Workspace; let applications: [UUID: Match]
-    static var url: URL { MacSettings.directory.appendingPathComponent("saved-layout-macos.json") }
-}
-
 @MainActor final class WorkspaceController: ObservableObject {
     private enum ArrangementFailure: LocalizedError {
         case window(UUID)
@@ -63,6 +56,7 @@ struct SavedWorkspace: Codable {
     private var settingsTask: Task<Void, Never>?
     @Published private(set) var applyingSettings = false
     @Published var permission = false
+    @Published private(set) var savedSessionLayout: Workspace?
     @Published var active = false
     @Published var busy = false
     @Published var interacting = false
@@ -346,7 +340,7 @@ struct SavedWorkspace: Codable {
         catch { message = error.localizedDescription }
     }
     func toggle() { Task { await toggleLayout() } }
-    func toggleLayout() async { if active { await restore() } else { await arrange(resuming: lastBento != nil) } }
+    func toggleLayout() async { if active { await stop() } else { await arrange(resuming: lastBento != nil) } }
     private func display(for window: ManagedWindow, displays: [DisplayArea]) -> DisplayArea? {
         displays.max { a, b in
             func overlap(_ r: Rect) -> Int { max(0, min(r.right, window.frame.right) - max(r.x, window.frame.x)) * max(0, min(r.bottom, window.frame.bottom) - max(r.y, window.frame.y)) }
@@ -608,7 +602,9 @@ struct SavedWorkspace: Codable {
         }
         for (window, _, to) in changes { try write(window, to) }
     }
-    func restore() async {
+    func stop() async { await deactivate(restorePositions: savedSessionLayout == nil) }
+    func restore() async { await deactivate(restorePositions: true) }
+    private func deactivate(restorePositions: Bool) async {
         settledValidationTask?.cancel()
         activateAfterPermission = false
         activationGeneration += 1
@@ -621,29 +617,35 @@ struct SavedWorkspace: Codable {
             lastReleased = released.union(windows.map(\.id).filter { !tiled.contains($0) && minimizedByBento[$0] == nil })
             lastMinimized = Set(minimizedByBento.keys)
         }
-        var remaining: [UUID: (ManagedWindow, Rect)] = [:]
-        let pending = originals.filter { system.isAlive($0.value.0) }
-        try? await move(Array(pending.values), animated: true) { window, frame in
-            try? self.system.write(window, frame: frame)
+        var remaining = originals
+        if restorePositions {
+            remaining = [:]
+            let pending = originals.filter { system.isAlive($0.value.0) }
+            try? await move(Array(pending.values), animated: true) { window, frame in
+                try? self.system.write(window, frame: frame)
+            }
+            await settle(Array(pending.values))
+            for (id, entry) in pending where system.isAlive(entry.0) && !system.accepted(entry.0, entry.1) { remaining[id] = entry }
         }
-        await settle(Array(pending.values))
-        for (id, entry) in pending where system.isAlive(entry.0) && !system.accepted(entry.0, entry.1) { remaining[id] = entry }
         let minimizedFailures = await restoreMinimized()
         originals = remaining; appliedDesktopOptions = [:]; released.removeAll(); reopenedWindows.removeAll(); active = false; history = LayoutHistory()
-        message = remaining.isEmpty && minimizedFailures == 0 ? nil : system.trusted
-            ? "\(remaining.count + minimizedFailures) window(s) could not return to their original size or position. Try Restore again after checking the app and display."
+        let failures = (restorePositions ? remaining.count : 0) + minimizedFailures
+        message = failures == 0 ? nil : system.trusted
+            ? "\(failures) window(s) could not return to their original size or position. Try Restore again after checking the app and display."
             : WindowFailure.permission.localizedDescription
         onStateChange?()
         do { try desktopPreferences.restore() } catch { message = error.localizedDescription }
     }
-    func saveLayout(quiet: Bool = false) {
-        guard active else { message = "Arrange windows before saving a layout."; return }
-        let matches = Dictionary(uniqueKeysWithValues: windows.map { ($0.id, SavedWorkspace.Match(bundleID: $0.bundleID, title: $0.title)) })
-        do {
-            try FileManager.default.createDirectory(at: MacSettings.directory, withIntermediateDirectories: true)
-            try JSONEncoder().encode(SavedWorkspace(version: 1, platform: "macOS", workspace: history.current, applications: matches)).write(to: SavedWorkspace.url, options: .atomic)
-            if !quiet { message = "Bento layout saved on this Mac." }
-        } catch { message = error.localizedDescription }
+    func saveLayout() {
+        guard active, !busy, !interacting, !activating else { return }
+        savedSessionLayout = history.current
+        message = "Saved for this session. Turning Bento off keeps windows in place."
+        onStateChange?()
+    }
+    func clearSavedLayout() {
+        savedSessionLayout = nil
+        message = "Session save cleared. Turning Bento off restores original window positions."
+        onStateChange?()
     }
     func releaseActiveWindow() async {
         guard active, !busy, !interacting, !activating else { return }
@@ -660,38 +662,29 @@ struct SavedWorkspace: Codable {
         activating = true; defer { activating = false }
         let wasActive = active, generation = activationGeneration
         do {
-            let saved = try JSONDecoder().decode(SavedWorkspace.self, from: Data(contentsOf: SavedWorkspace.url))
-            guard saved.version == 1, saved.platform == "macOS" else { throw LayoutError.invalidInput }
-            windows = try system.discover(); var available = windows
-            func remap(_ node: LayoutNode, depth: Int = 0) throws -> LayoutNode? {
-                guard depth < 64 else { throw LayoutError.invalidInput }
-                switch node {
-                case .window(let leaf):
-                    guard let match = saved.applications[leaf.windowID] else { return nil }
-                    let exact = available.firstIndex { $0.bundleID == match.bundleID && $0.title == match.title }
-                    guard let index = exact ?? available.firstIndex(where: { $0.bundleID == match.bundleID }) else { return nil }
-                    return .window(available.remove(at: index).leaf)
-                case let .split(id, axis, ratio, first, second):
-                    guard ratio.isFinite && ratio > 0 && ratio < 1 else { throw LayoutError.invalidInput }
-                    let a = try remap(first, depth: depth + 1), b = try remap(second, depth: depth + 1)
-                    guard let a else { return b }; guard let b else { return a }
-                    return .split(id: id, axis: axis, ratio: ratio, first: a, second: b)
-                }
-            }
+            guard let saved = savedSessionLayout else { message = "Save a layout during this session first."; return }
+            windows = try discoverWindows()
             if !wasActive {
                 for window in windows where originals[window.id] == nil { originals[window.id] = (window, window.frame) }
                 try activateDesktop(); try await Task.sleep(for: .milliseconds(500))
             }
             guard generation == activationGeneration else { return }
-            let displays = displayAreas(); var next = Workspace()
-            for display in displays { if let root = saved.workspace.roots[display.id] { next.roots[display.id] = try remap(root) } }
+            let displays = displayAreas()
+            var next = saved.reconciled(with: windows.map(\.leaf))
+            next.roots = next.roots.filter { id, _ in displays.contains { $0.id == id } }
             guard !next.windows.isEmpty else {
                 if !wasActive { try desktopPreferences.restore() }
-                message = "No saved windows match this display setup. Open the saved applications or arrange a new layout."; return
+                message = "The saved windows are no longer available on these displays."; return
             }
-            try await apply(next, displays: displays)
+            do { try await apply(next, displays: displays) }
+            catch WindowFailure.minimumSize {
+                next = next.reconciled(with: windows.map(\.leaf))
+                try await apply(next, displays: displays, animate: false)
+            }
             guard generation == activationGeneration else { return }
-            lastDisplays = displays; history.commit(next); active = true; scheduleSettledValidation(); onStateChange?(); message = "Saved layout restored. Other windows stay outside the layout."
+            lastDisplays = displays; history.commit(next); active = true
+            released = Set(windows.map(\.id)).subtracting(next.windows.map(\.windowID)).subtracting(minimizedByBento.keys)
+            scheduleSettledValidation(); onStateChange?(); message = "Session layout restored."
         } catch {
             message = "Could not restore saved layout: \(error.localizedDescription)"
             if !wasActive { do { try desktopPreferences.restore() } catch { message = "\(message ?? "") \(error.localizedDescription)" } }

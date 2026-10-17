@@ -124,7 +124,7 @@ struct UpdatesView: View {
                     Divider()
                     Toggle("Check for updates automatically", isOn: Binding(get: { updater.automaticallyChecks }, set: { updater.setAutomaticChecks($0) })).toggleStyle(.switch)
                     Toggle("Download updates automatically", isOn: Binding(get: { updater.automaticallyInstalls }, set: { updater.setAutomaticInstall($0) })).toggleStyle(.switch)
-                    Text("Bento verifies update signatures before installation and restores your window positions before restarting.").font(.system(size: 11)).lineSpacing(4).foregroundStyle(BentoStyle.secondary)
+                    Text("Bento verifies update signatures before installation and restores desktop visibility before restarting. Session saves end when Bento restarts.").font(.system(size: 11)).lineSpacing(4).foregroundStyle(BentoStyle.secondary)
                 }.font(.system(size: 12)).disabled(!updater.ready)
             }
             Link(destination: URL(string: "https://github.com/AbdullahEgh/Bento-Layout/releases")!) { Label("View releases on GitHub", systemImage: "arrow.up.right.square") }

@@ -70,7 +70,7 @@ import Carbon.HIToolbox
         updater.beforeInstall = { [weak self] in
             guard let self else { return false }
             await self.interactions?.finish(cancel: true)
-            await self.model.restore(); return self.model.message == nil
+            await self.model.stop(); return self.model.message == nil
         }
         updater.onInstallationNeedsAttention = { [weak self] in
             self?.model.page = "Updates"; self?.showWindow(onboarding: false)
@@ -88,8 +88,8 @@ import Carbon.HIToolbox
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.setAccessibilityLabel("Bento — toggle layout; right-click for menu")
         }
-        updateMenu(); model.onStateChange = { [weak self] in self?.updateMenu(); self?.interactions?.synchronize(); self?.writeFixtureState(); if self?.model.active == true { self?.model.saveLayout(quiet: true) } }
-        model.onSettingsChange = { [weak self] in self?.configureShortcut(); self?.interactions?.synchronize(); self?.updateMenu() }
+        updateMenu(); model.onStateChange = { [weak self] in self?.updateMenu(); self?.interactions?.synchronize(); self?.writeFixtureState() }
+        model.onSettingsChange = { [weak self] in self?.configureShortcut(); self?.interactions?.synchronize(); self?.updateMenu(); if let self, let window = self.window { BentoWindowChrome.updateAppearance(window, theme: self.model.settings.theme) } }
         configureShortcut()
         let launchEvent = NSAppleEventManager.shared().currentAppleEvent
         let launchedAtLogin = launchEvent?.eventID == kAEOpenApplication && launchEvent?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
@@ -98,35 +98,25 @@ import Carbon.HIToolbox
         model.refresh()
     }
     private func updateMenu() {
-        let menu = NSMenu()
+        let menu = NSMenu(); menu.autoenablesItems = false
         func item(_ title: String, _ action: Selector) { let i = NSMenuItem(title: title, action: action, keyEquivalent: ""); i.target = self; menu.addItem(i) }
-        func section(_ title: String) { if !menu.items.isEmpty { menu.addItem(.separator()) }; menu.addItem(.sectionHeader(title: title)) }
-        section("Layout")
-        item(!model.permission ? "Enable Accessibility…" : model.active ? "Turn Bento Off" : "Arrange Windows", #selector(toggle))
-        item("Arrange All Windows", #selector(arrangeAll))
-        item("Stop Arranging Selected Window", #selector(releaseActive))
-        menu.items.last?.toolTip = "Remove the selected app window from the layout. Arrange All Windows includes it again."
-        section("History")
-        item("Undo", #selector(undo)); item("Redo", #selector(redo))
-        item("Use Saved Layout", #selector(loadLayout))
-        item("Restore Windows to Before Bento", #selector(restore))
-        section("While Bento Is On")
+        item(!model.permission ? "Enable Accessibility…" : model.active ? "Turn Bento Off" : "Turn Bento On", #selector(toggle))
+        item("Undo Layout Change", #selector(undo))
+        menu.items.last?.isEnabled = model.active
+        menu.addItem(.separator())
         let hideDesktop = NSMenuItem(title: "Hide Dock & Menu Bar", action: #selector(toggleDesktopHiding), keyEquivalent: "")
         hideDesktop.target = self
-        hideDesktop.toolTip = "Applies while Bento is on. Turning this off restores your previous macOS settings."
+        hideDesktop.toolTip = "This session only. Applies while Bento is on and resets when Bento quits."
         hideDesktop.state = model.settings.hideDock && model.settings.hideMenuBar ? .on : model.settings.hideDock || model.settings.hideMenuBar ? .mixed : .off
         menu.addItem(hideDesktop)
-        section("Bento")
         item("Settings…", #selector(settings))
-        item("Check for updates…", #selector(checkUpdates))
-        item("View onboarding…", #selector(onboarding))
         menu.addItem(.separator()); item("Quit Bento", #selector(quit))
         statusMenu = menu
         statusItem.button?.isEnabled = true
         statusItem.button?.appearsDisabled = false
         statusItem.button?.image = BentoStatusIcon.image(active: model.active)
         statusItem.button?.alphaValue = model.active ? 1 : 0.45
-        statusItem.button?.toolTip = !model.permission ? "Bento needs Accessibility access — click to enable" : model.active ? "Bento is on — click to restore windows; right-click for menu" : "Bento is off — click to arrange windows; right-click for menu"
+        statusItem.button?.toolTip = !model.permission ? "Bento needs Accessibility access — click to enable" : model.active ? "Bento is on — click to turn off; right-click for menu" : "Bento is off — click to arrange windows; right-click for menu"
         if let message = model.message { statusItem.button?.toolTip? += "\n" + message }
     }
     @objc private func toggleDesktopHiding() {
@@ -191,10 +181,7 @@ import Carbon.HIToolbox
         else { content = AnyView(SettingsView(model: model, updater: updater, showOnboarding: { [weak self] in self?.showWindow(onboarding: true) })) }
         let host = NSHostingController(rootView: ThemedRoot(model: model, content: content))
         let panel = NSWindow(contentViewController: host)
-        panel.title = "Bento"; panel.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
-        if !onboarding { panel.styleMask.insert(.resizable); panel.contentMinSize = NSSize(width: 340, height: 420) }
-        panel.titlebarAppearsTransparent = true; panel.titleVisibility = .hidden
-        panel.isOpaque = false; panel.backgroundColor = .clear
+        BentoWindowChrome.configure(panel, onboarding: onboarding, theme: model.settings.theme)
         panel.level = .normal
         panel.isReleasedWhenClosed = false
         let available = NSScreen.main?.visibleFrame.size ?? NSSize(width: 820, height: 620)
@@ -203,13 +190,14 @@ import Carbon.HIToolbox
         NSApp.activate(ignoringOtherApps: true)
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if CommandLine.arguments.contains("--render-settings") && CommandLine.arguments.contains("--keep-preview-open") { return .terminateNow }
         if canTerminate || (updater.installationPrepared && !model.active && !model.busy && !model.interacting) { return .terminateNow }
         Task {
             await interactions?.finish(cancel: true)
-            // Restore cancels pending arrangement work before waiting for native writes.
-            await model.restore()
+            // Stop honors this session’s explicit layout save and restores desktop overrides.
+            await model.stop()
             if let message = model.message {
-                let alert = NSAlert(); alert.messageText = "Some windows could not be restored"
+                let alert = NSAlert(); alert.messageText = "Could not finish this Bento session"
                 alert.informativeText = message; alert.addButton(withTitle: "Keep Bento open"); alert.addButton(withTitle: "Quit anyway")
                 if alert.runModal() == .alertFirstButtonReturn { NSApp.reply(toApplicationShouldTerminate: false); return }
             }
@@ -237,6 +225,7 @@ import Carbon.HIToolbox
                     guard let png = bitmap.representation(using: .png, properties: [:]) else { exit(1) }
                     do { try png.write(to: directory.appendingPathComponent("onboarding-\(step + 1)-\(dark ? "dark" : "light").png")) }
                     catch { fputs("\(error)\n", stderr); exit(1) }
+                    if CommandLine.arguments.contains("--keep-preview-open") { window = panel; NSApp.activate(ignoringOtherApps: true); return }
                     panel.close()
                 }
             }
@@ -253,8 +242,7 @@ import Carbon.HIToolbox
                     let view = SettingsView(model: model, updater: updater, showOnboarding: {}).environment(\.colorScheme, dark ? .dark : .light)
                     let controller = NSHostingController(rootView: view)
                     let panel = NSWindow(contentViewController: controller)
-                    panel.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView, .resizable]
-                    panel.contentMinSize = NSSize(width: 340, height: 420)
+                    BentoWindowChrome.configure(panel, onboarding: false, theme: dark ? "Dark" : "Light")
                     panel.isReleasedWhenClosed = false; panel.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
                     let host = controller.view
                     panel.setContentSize(NSSize(width: 820, height: 620)); panel.orderFront(nil)
@@ -266,6 +254,7 @@ import Carbon.HIToolbox
                     host.cacheDisplay(in: host.bounds, to: bitmap)
                     guard let png = bitmap.representation(using: .png, properties: [:]) else { exit(1) }
                     do { try png.write(to: directory.appendingPathComponent("\(page.lowercased())-\(width)-\(dark ? "dark" : "light").png")) } catch { exit(1) }
+                    if CommandLine.arguments.contains("--keep-preview-open") { window = panel; NSApp.activate(ignoringOtherApps: true); return }
                     panel.close()
                 }
             }

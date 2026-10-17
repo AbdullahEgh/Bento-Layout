@@ -1,6 +1,6 @@
-Bento for macOS 0.2.19
+Bento for macOS 0.2.20
 
-- Frosted split previews, brighter split highlights and amber conflict feedback.
-- Liquid Glass across the app on macOS 26, with blur on older systems.
-- Windows follow Dock size and menu-bar changes with quicker transitions.
-- Compact bullet points for every release in Update Log.
+- Correct native title bar and a shorter menu-bar menu.
+- Gentle glass slot outlines, without blue indicators.
+- Explicit session saves keep windows in place when Bento turns off.
+- Dock and menu-bar hiding reset when Bento restarts.

@@ -371,6 +371,41 @@ private final class FixturePreferences: PreferenceBackend {
             do { try await model.apply(failureCandidate, displays: model.displayAreas()) } catch { rejected = true }
             try check(rejected && system.records.map { DesktopCoordinates.engine($0.1.frame) } == beforeFailure, "A rejected native write rolls back the batch")
             let rememberedBento = model.history.current
+            let keptFrames = system.records.map { DesktopCoordinates.engine($0.1.frame) }
+            try check(model.savedSessionLayout == nil, "Every new controller starts without a saved session layout")
+            model.saveLayout()
+            let savedRegions = try regions()
+            let changedAfterSave = try model.history.current.placing(savedRegions.1.regions[0].window, on: savedRegions.0, target: savedRegions.1.regions[1].window.id, placement: .center)
+            try await model.finishInteraction(changedAfterSave, commit: true, animate: false)
+            await model.loadLayout()
+            try check(try model.history.current == rememberedBento && matchingGeometry(), "Use Saved Layout restores the explicit session snapshot after later edits")
+            system.writes.removeAll()
+            await model.toggleLayout(); interactions.synchronize()
+            try check(!model.active && model.savedSessionLayout == rememberedBento && system.records.map { DesktopCoordinates.engine($0.1.frame) } == keptFrames && system.writes.isEmpty,
+                "Turning Bento off after an explicit session save leaves native window positions untouched")
+            try check(interactions.helperFrames.isEmpty && preferences.values.isEmpty, "Saved-session stop removes grabbers and restores desktop overrides")
+            await model.toggleLayout()
+            try check(try model.active && model.history.current == rememberedBento && matchingGeometry(), "Saved-session restart resumes the exact edited split tree")
+            model.clearSavedLayout(); await model.toggleLayout()
+            try check(!model.active && system.records.map { DesktopCoordinates.engine($0.1.frame) } == initial, "Without a session save, turning Bento off restores original window positions")
+            await model.toggleLayout()
+            let freshSession = WorkspaceController(system: system, settings: MacSettings(), backgroundMonitoring: false)
+            try check(freshSession.savedSessionLayout == nil, "A new app session never reloads a previous session save")
+            let oldPreferences = Data(#"{"hideDock":true,"hideMenuBar":true,"gap":14}"#.utf8)
+            let resetPreferences = try JSONDecoder().decode(MacSettings.self, from: oldPreferences)
+            let encodedPreferences = try JSONSerialization.jsonObject(with: JSONEncoder().encode(resetPreferences)) as! [String: Any]
+            try check(!resetPreferences.hideDock && !resetPreferences.hideMenuBar && resetPreferences.gap == 14 && encodedPreferences["hideDock"] == nil && encodedPreferences["hideMenuBar"] == nil,
+                "Legacy desktop-hiding values do not survive a new session or persist with other preferences")
+            let chrome = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 620), styleMask: [.titled], backing: .buffered, defer: false)
+            chrome.isReleasedWhenClosed = false
+            BentoWindowChrome.configure(chrome, onboarding: false, theme: "Dark")
+            try check(!chrome.styleMask.contains(.fullSizeContentView) && chrome.titleVisibility == .visible && !chrome.titlebarAppearsTransparent && chrome.appearance?.name == .darkAqua,
+                "Settings reserve a native title bar and match the selected appearance")
+            if let close = chrome.standardWindowButton(.closeButton) {
+                let buttonFrame = close.convert(close.bounds, to: nil)
+                try check(buttonFrame.minY >= chrome.contentLayoutRect.maxY, "Window controls sit above settings content instead of overlapping the glass sidebar")
+            }
+            chrome.close()
             system.deferWrites = true
             await model.restore(); interactions.synchronize()
             system.deferWrites = false
@@ -750,7 +785,7 @@ private final class FixturePreferences: PreferenceBackend {
             softPreview.orderOut(nil)
             let splitFrost = PreviewSlotView(frame: NSRect(x: 0, y: 0, width: 300, height: 400), reduceTransparency: false)
             splitFrost.placement = .left
-            try check(splitFrost.isSplitting, "Directional destinations receive the stronger splitting highlight")
+            try check(splitFrost.isSplitting, "Directional destinations retain split semantics with a neutral glass outline")
             splitFrost.conflict = true
             try check(!splitFrost.isSplitting, "A conflict replaces splitting feedback instead of showing both states")
             if #available(macOS 26.0, *) {

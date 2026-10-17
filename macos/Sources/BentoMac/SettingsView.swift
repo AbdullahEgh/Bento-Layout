@@ -109,8 +109,20 @@ struct SettingsView: View {
                     if let message = loginStartup.message { Text(message).font(.system(size: 11)).foregroundStyle(BentoStyle.secondary) }
                 }
             }
+            BentoCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    cardHeading("Session layout")
+                    Text(model.savedSessionLayout == nil ? "Turning Bento off restores original window positions. Save this session to keep them in place instead." : "Saved for this session. Turning Bento off keeps windows in place. The save clears when Bento quits.")
+                        .font(.system(size: 11)).foregroundStyle(BentoStyle.secondary)
+                    rowLayout {
+                        Button("Save for This Session") { model.saveLayout() }.disabled(!model.active || model.busy)
+                        Button("Use Saved Layout") { Task { await model.loadLayout() } }.disabled(!model.permission || model.savedSessionLayout == nil || model.busy)
+                    }
+                    if model.savedSessionLayout != nil { Button("Clear Session Save") { model.clearSavedLayout() }.buttonStyle(.plain).font(.system(size: 11)) }
+                }
+            }
             rowLayout {
-                Button("Use Saved Layout") { Task { await model.loadLayout() } }.disabled(!model.permission || model.busy)
+                Button("Arrange All Windows") { Task { await model.arrange() } }.disabled(!model.permission || model.busy)
                 Spacer(); Button("Undo") { Task { await model.undo() } }.disabled(!model.active || model.busy)
                 Button("Redo") { Task { await model.undo(redo: true) } }.disabled(model.busy)
             }
@@ -132,9 +144,9 @@ struct SettingsView: View {
         BentoCard {
             VStack(alignment: .leading, spacing: 18) {
                 cardHeading("Desktop space", detail: "Applied automatically while Bento is on.")
-                switchSetting("Hide Dock", symbol: "Dock", isOn: $model.settings.hideDock)
+                switchSetting("Hide Dock", symbol: "Dock", detail: "This session only.", isOn: $model.settings.hideDock)
                 Divider()
-                switchSetting("Hide Menu Bar", symbol: "MenuBar", isOn: $model.settings.hideMenuBar)
+                switchSetting("Hide Menu Bar", symbol: "MenuBar", detail: "This session only.", isOn: $model.settings.hideMenuBar)
                 Divider()
                 rowLayout {
                     settingLabel("macOS Window Snapping", symbol: "Snap"); Spacer()

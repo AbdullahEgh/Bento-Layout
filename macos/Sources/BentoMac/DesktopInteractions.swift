@@ -384,6 +384,7 @@ struct DesktopInput {
     private let frost: BentoFrostView
     private let wash = CAGradientLayer()
     private let glow = CALayer()
+    private let outline = CALayer()
     var isSplitting: Bool { !conflict && !swapsSections && (placement != .center || progress != nil) }
     var materialKind: BentoFrostView.Kind { frost.kind }
     // Fixture overrides exercise both native glass and the macOS 15 / accessibility fallback.
@@ -393,7 +394,8 @@ struct DesktopInput {
         wantsLayer = true; layer?.backgroundColor = NSColor.clear.cgColor
         layer?.addSublayer(glow)
         addSubview(frost)
-        frost.ink.layer?.addSublayer(wash)
+        frost.ink.layer?.addSublayer(wash); frost.ink.layer?.addSublayer(outline)
+        outline.cornerRadius = 17.5; outline.borderWidth = 0.8
         wash.cornerRadius = 18; wash.masksToBounds = true
         wash.startPoint = CGPoint(x: 0.15, y: 1); wash.endPoint = CGPoint(x: 0.85, y: 0)
         glow.cornerRadius = 18; glow.shadowRadius = 18; glow.shadowOffset = .zero
@@ -406,19 +408,21 @@ struct DesktopInput {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         let frame = NSRect(x: 6, y: 6, width: max(0, bounds.width - 12), height: max(0, bounds.height - 12))
         frost.frame = frame; wash.frame = NSRect(origin: .zero, size: frame.size); glow.frame = frame
+        outline.frame = wash.bounds.insetBy(dx: 0.5, dy: 0.5)
         glow.shadowPath = CGPath(roundedRect: glow.bounds, cornerWidth: 18, cornerHeight: 18, transform: nil)
         CATransaction.commit()
     }
     private func updateAppearance() {
-        // Neutral frost communicates a destination; bright blue marks a split and
-        // amber marks a size conflict. Intensity distinguishes the active slot.
-        let accent: NSColor = conflict ? .systemOrange : isSplitting ? .systemCyan : .white
-        let strength: Double = primary ? (conflict ? 0.30 : isSplitting ? 0.28 + (progress ?? 1) * 0.18 : 0.13) : 0.045
-        frost.tint = primary && (conflict || isSplitting) ? accent.withAlphaComponent(0.18) : nil
+        // Native glass and a quiet neutral edge carry placement and splitting.
+        // A warm tint appears only when the destination cannot fit.
+        let accent: NSColor = conflict ? .systemOrange : .white
+        let strength: Double = primary ? (conflict ? 0.16 : isSplitting ? 0.06 + (progress ?? 1) * 0.04 : 0.045) : 0.02
+        frost.tint = conflict ? accent.withAlphaComponent(0.12) : nil
         CATransaction.begin(); CATransaction.setDisableActions(true)
         wash.colors = [accent.withAlphaComponent(strength).cgColor, accent.withAlphaComponent(strength * 0.30).cgColor]
-        glow.backgroundColor = accent.withAlphaComponent(strength * 0.35).cgColor
-        glow.shadowColor = accent.cgColor; glow.shadowOpacity = Float(primary ? strength * 0.9 : 0.06)
+        outline.borderColor = accent.withAlphaComponent(primary ? 0.38 : 0.16).cgColor
+        glow.backgroundColor = accent.withAlphaComponent(strength * 0.20).cgColor
+        glow.shadowColor = accent.cgColor; glow.shadowOpacity = primary ? 0.10 : 0.035
         CATransaction.commit()
     }
 }
