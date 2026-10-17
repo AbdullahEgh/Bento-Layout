@@ -378,18 +378,25 @@ struct DesktopInput {
 @MainActor final class PreviewSlotView: NSView {
     var primary = true { didSet { if oldValue != primary { updateAppearance() } } }
     var conflict = false { didSet { if oldValue != conflict { updateAppearance() } } }
-    var swapsSections = false
-    var placement = Placement.center
+    var swapsSections = false { didSet { if oldValue != swapsSections { updateAppearance() } } }
+    var placement = Placement.center { didSet { if oldValue != placement { updateAppearance() } } }
     var progress: Double? { didSet { if oldValue != progress { updateAppearance() } } }
+    private let frost: BentoFrostView
     private let wash = CAGradientLayer()
     private let glow = CALayer()
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.backgroundColor = NSColor.clear.cgColor
-        layer?.addSublayer(glow); layer?.addSublayer(wash)
+    var isSplitting: Bool { !conflict && !swapsSections && (placement != .center || progress != nil) }
+    var materialKind: BentoFrostView.Kind { frost.kind }
+    // Fixture overrides exercise both native glass and the macOS 15 / accessibility fallback.
+    init(frame: NSRect = .zero, allowGlass: Bool = true, reduceTransparency: Bool? = nil) {
+        frost = BentoFrostView(radius: 18, allowGlass: allowGlass, reduceTransparency: reduceTransparency)
+        super.init(frame: frame)
+        wantsLayer = true; layer?.backgroundColor = NSColor.clear.cgColor
+        layer?.addSublayer(glow)
+        addSubview(frost)
+        frost.ink.layer?.addSublayer(wash)
         wash.cornerRadius = 18; wash.masksToBounds = true
-        glow.cornerRadius = 18; glow.shadowRadius = 12; glow.shadowOffset = .zero
+        wash.startPoint = CGPoint(x: 0.15, y: 1); wash.endPoint = CGPoint(x: 0.85, y: 0)
+        glow.cornerRadius = 18; glow.shadowRadius = 18; glow.shadowOffset = .zero
         updateGeometry(); updateAppearance()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
@@ -398,17 +405,20 @@ struct DesktopInput {
     private func updateGeometry() {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         let frame = NSRect(x: 6, y: 6, width: max(0, bounds.width - 12), height: max(0, bounds.height - 12))
-        wash.frame = frame; glow.frame = frame
+        frost.frame = frame; wash.frame = NSRect(origin: .zero, size: frame.size); glow.frame = frame
         glow.shadowPath = CGPath(roundedRect: glow.bounds, cornerWidth: 18, cornerHeight: 18, transform: nil)
         CATransaction.commit()
     }
     private func updateAppearance() {
-        let accent = conflict ? NSColor.systemOrange : NSColor(calibratedRed: 0.24, green: 0.78, blue: 0.73, alpha: 1)
-        let strength = primary ? 0.20 + (progress ?? 0) * 0.10 : 0.08
+        // Neutral frost communicates a destination; bright blue marks a split and
+        // amber marks a size conflict. Intensity distinguishes the active slot.
+        let accent: NSColor = conflict ? .systemOrange : isSplitting ? .systemCyan : .white
+        let strength: Double = primary ? (conflict ? 0.30 : isSplitting ? 0.28 + (progress ?? 1) * 0.18 : 0.13) : 0.045
+        frost.tint = primary && (conflict || isSplitting) ? accent.withAlphaComponent(0.18) : nil
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        wash.colors = [accent.withAlphaComponent(strength).cgColor, accent.withAlphaComponent(strength * 0.35).cgColor]
-        glow.backgroundColor = accent.withAlphaComponent(strength * 0.25).cgColor
-        glow.shadowColor = accent.cgColor; glow.shadowOpacity = Float(strength * 0.45)
+        wash.colors = [accent.withAlphaComponent(strength).cgColor, accent.withAlphaComponent(strength * 0.30).cgColor]
+        glow.backgroundColor = accent.withAlphaComponent(strength * 0.35).cgColor
+        glow.shadowColor = accent.cgColor; glow.shadowOpacity = Float(primary ? strength * 0.9 : 0.06)
         CATransaction.commit()
     }
 }

@@ -8,9 +8,9 @@ struct ReleaseNotes: Identifiable {
     // Keep newest first; ship the log with the app so it also works offline.
     static let history: [ReleaseNotes] = [
         .init(version: "0.2.19", points: [
-            "Smoother previews and more reliable window transitions.",
-            "Windows follow menu-bar visibility and Dock size changes.",
-            "Clearer controls and a complete release history.",
+            "Frosted previews, brighter splits and amber conflict feedback.",
+            "Liquid Glass across the app, with blur on older systems.",
+            "Responsive desktop space and compact release history.",
         ]),
         .init(version: "0.2.18", points: [
             "Soft animated previews without text, icons or hard borders.",

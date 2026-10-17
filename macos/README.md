@@ -124,3 +124,7 @@ Drop previews use retargetable 120 ms position/opacity transitions and transluce
 A one-shot check 320 ms after a committed transition catches delayed native rebounds. It repairs only drifted geometry in the committed tree, with no automatic repacking. Changed history, display bounds, activation state, an active gesture or another transaction invalidates the check.
 
 Failed automatic arrangements cache the display bounds they actually attempted. If the Dock changes during a rejected transaction, the new area is retried and newly opened-window priority is retained.
+
+### Glass surfaces
+
+macOS 26 and later use native Liquid Glass for split destinations, settings surfaces, onboarding and primary actions. macOS 15 retains native backdrop blur; Reduce Transparency switches to solid surfaces. Split destinations use a neutral frosted background, brighter cyan during splitting and amber for conflicts, without labels, icons or hard outlines. Related SwiftUI glass surfaces share a container. Preview backdrops are reused during drag updates and retain click-through behavior. Release builds use the Xcode 26 SDK while retaining the macOS 15 deployment target.

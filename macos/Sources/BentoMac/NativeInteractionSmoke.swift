@@ -748,6 +748,20 @@ private final class FixturePreferences: PreferenceBackend {
             softPreview.presentConflict(retarget)
             try check(softPanel.frame == DesktopCoordinates.appKit(retarget) && softPanel.alphaValue == 1, "Reduce Motion skips preview movement while preserving the destination")
             softPreview.orderOut(nil)
+            let splitFrost = PreviewSlotView(frame: NSRect(x: 0, y: 0, width: 300, height: 400), reduceTransparency: false)
+            splitFrost.placement = .left
+            try check(splitFrost.isSplitting, "Directional destinations receive the stronger splitting highlight")
+            splitFrost.conflict = true
+            try check(!splitFrost.isSplitting, "A conflict replaces splitting feedback instead of showing both states")
+            if #available(macOS 26.0, *) {
+                try check(splitFrost.materialKind == .liquidGlass, "macOS 26 previews use the native Liquid Glass material")
+            } else {
+                try check(splitFrost.materialKind == .blur, "macOS 15 previews retain a native blurred backdrop")
+            }
+            let fallbackFrost = PreviewSlotView(allowGlass: false, reduceTransparency: false)
+            try check(fallbackFrost.materialKind == .blur, "The older-system fallback uses native background blur")
+            let accessibleFrost = PreviewSlotView(reduceTransparency: true)
+            try check(accessibleFrost.materialKind == .opaque, "Reduce Transparency replaces glass with a readable solid backdrop")
             // Render only our own preview views for visual review, never desktop pixels.
             let canvas = NSView(frame: NSRect(x: 0, y: 0, width: 1224, height: 500))
             canvas.wantsLayer = true; canvas.layer?.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1).cgColor

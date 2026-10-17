@@ -29,7 +29,7 @@ struct OnboardingView: View {
                 BentoSymbol(name: "Workspace", size: 26).foregroundStyle(BentoStyle.accent).padding(.bottom, 12)
                 Text("Your windows,\nnaturally arranged.").font(.system(size: 14, weight: .medium)).lineSpacing(4)
                 Text("Made for the way you work.").font(.system(size: 10)).foregroundStyle(BentoStyle.secondary).padding(.top, 9)
-            }.padding(28).frame(width: 222).background(BentoStyle.sidebar)
+            }.padding(28).frame(width: 222).background(BentoGlassSurface(radius: 22))
             VStack(alignment: .leading, spacing: 0) {
                 HStack { Text("WELCOME TO A CALMER DESKTOP").font(.system(size: 9, weight: .semibold)).tracking(1.5).foregroundStyle(BentoStyle.accent); Spacer(); Text("\(step + 1) / 4").font(.system(size: 11, design: .monospaced)).foregroundStyle(BentoStyle.secondary) }.padding(.bottom, 22)
                 Group {
@@ -61,7 +61,7 @@ struct OnboardingView: View {
                     }
                 }
             }.padding(.horizontal, 38).padding(.vertical, 32).frame(maxWidth: .infinity, maxHeight: .infinity)
-        }.frame(width: 940, height: 650).background(BentoStyle.page).foregroundStyle(BentoStyle.text)
+        }.bentoGlassContainer().frame(width: 940, height: 650).background(BentoWindowSurface()).foregroundStyle(BentoStyle.text)
             .onAppear { if !CommandLine.arguments.contains("--render-preview") { model.refresh() } }
     }
     private func changeStep(_ next: Int) { withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { step = next }; if next == 3 { model.refresh() } }

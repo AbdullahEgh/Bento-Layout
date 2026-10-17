@@ -194,6 +194,7 @@ import Carbon.HIToolbox
         panel.title = "Bento"; panel.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
         if !onboarding { panel.styleMask.insert(.resizable); panel.contentMinSize = NSSize(width: 340, height: 420) }
         panel.titlebarAppearsTransparent = true; panel.titleVisibility = .hidden
+        panel.isOpaque = false; panel.backgroundColor = .clear
         panel.level = .normal
         panel.isReleasedWhenClosed = false
         let available = NSScreen.main?.visibleFrame.size ?? NSSize(width: 820, height: 620)
