@@ -58,6 +58,16 @@ struct MacSettings: Codable {
     @Published var permission = false
     @Published private(set) var savedSessionLayout: Workspace?
     @Published var active = false
+    @Published private(set) var pinned = false
+    private var pinnedWindowIDs = Set<UUID>()
+    func canArrangeWindow(_ id: UUID) -> Bool { !pinned || pinnedWindowIDs.contains(id) }
+    func setPinned(_ value: Bool) async {
+        guard active, !busy, !interacting, !activating, !switchingDesktop, desktopIsCurrent() else { return }
+        pinned = value
+        pinnedWindowIDs = value ? Set(history.current.windows.map(\.windowID)) : []
+        onStateChange?()
+        if !value { await arrange(preserving: true) }
+    }
     @Published var busy = false
     @Published var interacting = false
     @Published var activating = false
@@ -97,7 +107,7 @@ struct MacSettings: Codable {
             // Bringing an already-visible floating app forward is admission intent,
             // even when its window identity and frame have not changed. Consume
             // that intent once; a permanently oversized app must not cause a loop.
-            if active, !released.contains(focused.id),
+            if active, canArrangeWindow(focused.id), !released.contains(focused.id),
                !history.current.windows.contains(where: { $0.windowID == focused.id }) {
                 reopenedWindows.insert(focused.id)
                 failedAutomaticInput = nil
@@ -122,6 +132,78 @@ struct MacSettings: Codable {
         let ordered = current.sorted { $0.id.uuidString < $1.id.uuidString }
         return ArrangementInput(ids: ordered.map(\.id), minima: ordered.map(\.minimum), frames: ordered.map(\.frame),
             displays: areas ?? displayAreas(), gap: layoutGap)
+    }
+    private struct DesktopSession {
+        var active: Bool
+        var history: LayoutHistory
+        var windows: [ManagedWindow]
+        var originals: [UUID: (ManagedWindow, Rect)]
+        var minimized: [UUID: ManagedWindow]
+        var released: Set<UUID>
+        var floating: Set<UUID>
+        var saved: Workspace?
+        var remembered: Workspace?
+        var lastReleased: Set<UUID>
+        var lastMinimized: Set<UUID>
+        var edited: Bool
+        var pinned: Bool
+        var pinnedIDs: Set<UUID>
+        var displays: [DisplayArea]
+        var hideDock: Bool
+        var hideMenu: Bool
+    }
+    private var desktopSessions: [String: DesktopSession] = [:]
+    private var currentDesktop: String?
+    @Published private(set) var switchingDesktop = false
+    private var desktopSwitchTask: Task<Void, Never>?
+    func desktopDidChange() async {
+        guard !switchingDesktop else { return }
+        // Duplicate Space notifications must not cancel an in-flight layout.
+        if let identity = system.desktopIdentity, identity == currentDesktop { return }
+        switchingDesktop = true
+        defer { switchingDesktop = false; onStateChange?() }
+        // Invalidate stale validation/reflow work before any other desktop writes.
+        settledValidationTask?.cancel(); activationGeneration += 1
+        if interacting { await cancelInteraction?() }
+        while busy || activating { try? await Task.sleep(for: .milliseconds(20)) }
+        guard let identity = system.desktopIdentity else {
+            message = "Bento is waiting for this desktop to become available."; return
+        }
+        guard identity != currentDesktop else { return }
+        if let currentDesktop {
+            desktopSessions[currentDesktop] = DesktopSession(active: active, history: history, windows: windows,
+                originals: originals, minimized: minimizedByBento, released: released, floating: floatingForSize,
+                saved: savedSessionLayout, remembered: lastBento, lastReleased: lastReleased, lastMinimized: lastMinimized,
+                edited: editedLayout, pinned: pinned, pinnedIDs: pinnedWindowIDs, displays: lastDisplays,
+                hideDock: settings.hideDock, hideMenu: settings.hideMenuBar)
+        }
+        currentDesktop = identity
+        let session = desktopSessions[identity]
+        active = session?.active ?? false; history = session?.history ?? LayoutHistory()
+        windows = session?.windows ?? []; originals = session?.originals ?? [:]
+        minimizedByBento = session?.minimized ?? [:]; released = session?.released ?? []
+        floatingForSize = session?.floating ?? []; savedSessionLayout = session?.saved
+        lastBento = session?.remembered; lastReleased = session?.lastReleased ?? []
+        lastMinimized = session?.lastMinimized ?? []; editedLayout = session?.edited ?? false
+        pinned = session?.pinned ?? false; pinnedWindowIDs = session?.pinnedIDs ?? []
+        lastDisplays = session?.displays ?? []; settings.hideDock = session?.hideDock ?? false
+        settings.hideMenuBar = session?.hideMenu ?? false
+        reopenedWindows = []; failedAutomaticInput = nil; pendingMembership = nil; membershipSamples = 0
+        pendingDrift = nil; driftSamples = 0; lastFocusedWindow = nil; pendingApplicationActivation = nil
+        lastMembershipScan = 0; message = nil
+        do {
+            let desired = active ? try settings.desktopOverrides() : [:]
+            try desktopPreferences.update(desired); appliedDesktopOptions = desired
+            if active {
+                try await settleDesktopSpace()
+                await arrange(preserving: true, automatic: true)
+            } else { windows = try system.discover() }
+            trace?("desktop session restored active=\(active) pinned=\(pinned) windows=\(history.current.windows.count)")
+        } catch { message = error.localizedDescription }
+    }
+    func desktopIsCurrent() -> Bool {
+        guard let identity = system.desktopIdentity else { return !backgroundMonitoring }
+        return identity == currentDesktop
     }
     private let backgroundMonitoring: Bool
     private var lastMembershipScan = 0.0
@@ -155,6 +237,7 @@ struct MacSettings: Codable {
         layoutGap = self.settings.gap; layoutMargin = self.settings.margin
         appliedMinimizeOverflow = self.settings.minimizeOverflow
         permission = self.system.trusted
+        currentDesktop = self.system.desktopIdentity
         if backgroundMonitoring {
             timer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in Task { @MainActor in self?.tick() } }
             activationObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] notification in
@@ -208,13 +291,13 @@ struct MacSettings: Codable {
         let started = ProcessInfo.processInfo.systemUptime
         var previous = displayAreas(), stable = 0
         repeat {
-            try await Task.sleep(for: .milliseconds(80))
+            try await Task.sleep(for: .milliseconds(40))
             let current = displayAreas()
             stable = current == previous ? stable + 1 : 0
             previous = current
             let hostsReady = !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").isEmpty
                 && !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.controlcenter").isEmpty
-            if stable >= 2 && hostsReady && system.desktopSpaceReady() && ProcessInfo.processInfo.systemUptime - started >= 0.32 { return }
+            if stable >= 2 && hostsReady && system.desktopSpaceReady() { return }
         } while ProcessInfo.processInfo.systemUptime - started < 2
     }
     func saveSettings() {
@@ -229,9 +312,9 @@ struct MacSettings: Codable {
             guard let self else { return }
             while !Task.isCancelled {
                 let revision = self.settingsRevision
-                try? await Task.sleep(for: .milliseconds(120))
+                try? await Task.sleep(for: .milliseconds(60))
                 if revision != self.settingsRevision { continue }
-                while self.busy || self.interacting || self.activating || self.desktopPointerPressed {
+                while self.busy || self.interacting || self.activating || self.switchingDesktop || self.desktopPointerPressed {
                     if Task.isCancelled { break }
                     try? await Task.sleep(for: .milliseconds(50))
                 }
@@ -243,7 +326,7 @@ struct MacSettings: Codable {
         }
     }
     func applyLiveSettings() async {
-        guard !busy, !interacting, !activating, !desktopPointerPressed else { scheduleSettingsUpdate(); return }
+        guard !busy, !interacting, !activating, !switchingDesktop, desktopIsCurrent(), !desktopPointerPressed else { scheduleSettingsUpdate(); return }
         applyingSettings = true; activating = true
         defer { activating = false; applyingSettings = false; onSettingsChange?(); onStateChange?() }
         let oldGap = layoutGap, oldMargin = layoutMargin
@@ -286,7 +369,16 @@ struct MacSettings: Codable {
     }
     func tick() {
         refreshPermissionStatus()
-        guard permission, !busy, !interacting, !activating, !reconciliationQueued, !system.pointerPressed else { return }
+        if !desktopIsCurrent() {
+            if desktopSwitchTask == nil {
+                desktopSwitchTask = Task { [weak self] in
+                    guard let self else { return }
+                    await self.desktopDidChange(); self.desktopSwitchTask = nil
+                }
+            }
+            return
+        }
+        guard !switchingDesktop, permission, !busy, !interacting, !activating, !reconciliationQueued, !system.pointerPressed else { return }
         if active {
             do {
                 let displaysChanged = displayAreas() != lastDisplays
@@ -337,7 +429,7 @@ struct MacSettings: Codable {
         if active {
             // Includes newly launched, manually restored and unhidden windows,
             // even when Bento did not own their earlier minimization.
-            reopenedWindows.formUnion(visibleIDs.subtracting(Set(windows.map(\.id))))
+            reopenedWindows.formUnion(visibleIDs.subtracting(Set(windows.map(\.id))).filter { canArrangeWindow($0) })
         }
         observeFocus(in: visible)
         for (id, window) in minimizedByBento {
@@ -350,7 +442,7 @@ struct MacSettings: Codable {
     }
     private func minimizeOverflow(included: Set<UUID>, current: [ManagedWindow]) {
         guard settings.minimizeOverflow else { return }
-        for window in current where !included.contains(window.id) && minimizedByBento[window.id] == nil && !floatingForSize.contains(window.id) {
+        for window in current where canArrangeWindow(window.id) && !included.contains(window.id) && minimizedByBento[window.id] == nil && !floatingForSize.contains(window.id) {
             // Only own minimizations made by Bento, never those made before activation.
             guard !system.isMinimized(window) else { continue }
             do { try system.setMinimized(window, true); minimizedByBento[window.id] = window }
@@ -381,13 +473,19 @@ struct MacSettings: Codable {
         }
     }
     func refresh() {
+        guard desktopIsCurrent(), !switchingDesktop else {
+            Task { await desktopDidChange() }; return
+        }
         permission = system.trusted
         guard permission else { return }
         do { windows = try discoverWindows(); message = windows.isEmpty ? "Open an application window to begin." : nil }
         catch { message = error.localizedDescription }
     }
     func toggle() { Task { await toggleLayout() } }
-    func toggleLayout() async { if active { await stop() } else { await arrange(resuming: lastBento != nil && (editedLayout || savedSessionLayout != nil || !lastReleased.isEmpty)) } }
+    func toggleLayout() async {
+        guard await ensureCurrentDesktop() else { message = "Bento is waiting for this desktop to become available."; onStateChange?(); return }
+        if active { await stop() } else { await arrange(resuming: lastBento != nil) }
+    }
     private func display(for window: ManagedWindow, displays: [DisplayArea]) -> DisplayArea? {
         displays.max { a, b in
             func overlap(_ r: Rect) -> Int { max(0, min(r.right, window.frame.right) - max(r.x, window.frame.x)) * max(0, min(r.bottom, window.frame.bottom) - max(r.y, window.frame.y)) }
@@ -399,7 +497,7 @@ struct MacSettings: Codable {
         return windows.filter { !tiled.contains($0.id) }
     }
     @discardableResult func arrange(preserving: Bool = false, resuming: Bool = false, automatic: Bool = false, skipRefusingWindows: Bool = true) async -> Bool {
-        guard !busy, !interacting, !activating else { return false }
+        guard !busy, !interacting, !activating, desktopIsCurrent() else { return false }
         if automatic && system.pointerPressed { return false }
         activating = true; defer { activating = false }
         let previousWindows = windows
@@ -467,7 +565,7 @@ struct MacSettings: Codable {
                 var usesSizePreference = false
                 for area in displays {
                     let members = current.filter { window in
-                        guard !released.contains(window.id), !excluded.contains(window.id) else { return false }
+                        guard canArrangeWindow(window.id), !released.contains(window.id), !excluded.contains(window.id) else { return false }
                         // A geometry repair is not a request to readmit quiet
                         // overflow. Wait for new space, an explicit arrangement,
                         // or the user restoring that app from the Dock.
@@ -543,6 +641,7 @@ struct MacSettings: Codable {
                     continue
                 }
                 guard generation == activationGeneration else { return false }
+                if !pinned { next = await alignNativeSeams(next, displays: displays) }
                 let included = Set(next.windows.map(\.windowID))
                 // Keep originals for overflow minimized in place. Floating exclusions
                 // are forgotten so restoration cannot undo later user movement.
@@ -560,7 +659,7 @@ struct MacSettings: Codable {
                 reopenedWindows.removeAll(); failedAutomaticInput = nil
                 if !preserving && !resuming { editedLayout = false }
                 let committed = usesSizePreference ? next.reconciled(with: current.map(\.leaf)) : next
-                lastDisplays = displays; history.commit(committed); active = !included.isEmpty || !minimizedByBento.isEmpty
+                lastDisplays = displays; history.commit(committed); active = !included.isEmpty || !minimizedByBento.isEmpty || (pinned && wasActive)
                 if !active { try desktopPreferences.restore() }
                 message = active ? (floatingForSize.isEmpty ? nil : "A restored app stays outside Bento because it cannot use a slot on this display.") : "No windows fit on this display. Your windows were left in their original positions."
                 scheduleSettledValidation(); onStateChange?(); return active
@@ -579,7 +678,7 @@ struct MacSettings: Codable {
         return false
     }
     func apply(_ workspace: Workspace, displays: [DisplayArea], allowSkipping: Bool = false, liveResize: Bool = false, animate: Bool = true, validateIndividually: Bool = true, returning: Bool = false) async throws {
-        guard !busy else { throw LayoutError.invalidInput }; busy = true; defer { busy = false }
+        guard !busy, desktopIsCurrent() else { throw LayoutError.invalidInput }; busy = true; defer { busy = false }
         let restoreAXMode = system.beginFrameAdjustment(windows)
         defer { restoreAXMode() }
         func write(_ window: ManagedWindow, frame: Rect) throws {
@@ -611,7 +710,7 @@ struct MacSettings: Codable {
         for (window, _) in plan {
             guard let frame = system.frame(of: window.element) else { throw WindowFailure.unavailable(window.title) }
             rollback.append((window, frame))
-            if originals[window.id] == nil { originals[window.id] = (window, frame) }
+            if originals[window.id] == nil { originals[window.id] = desktopSessions.values.compactMap { $0.originals[window.id] }.first ?? (window, frame) }
         }
         do {
             if allowSkipping && !animate && validateIndividually {
@@ -646,6 +745,8 @@ struct MacSettings: Codable {
             await settle(plan)
             try validate(plan, allowSkipping: allowSkipping)
         } catch {
+            // Never roll old desktop windows into the newly visible desktop.
+            guard desktopIsCurrent() else { throw error }
             let recovery = rollback.filter { system.isAlive($0.0) }
             try? await move(recovery, animated: animate && !liveResize, returning: true) { window, frame in
                 try? self.system.write(window, frame: frame)
@@ -662,6 +763,41 @@ struct MacSettings: Codable {
             }
             throw error
         }
+    }
+    private func alignNativeSeams(_ workspace: Workspace, displays: [DisplayArea]) async -> Workspace {
+        func frames() -> [UUID: Rect] {
+            Dictionary(uniqueKeysWithValues: windows.compactMap { window in
+                system.frame(of: window.element).map { (window.id, $0) }
+            })
+        }
+        let before = frames()
+        var candidate = workspace
+        var oldScore = 0
+        for display in displays {
+            guard let root = workspace.roots[display.id] else { continue }
+            let score = NativeSeamAlignment.score(root, area: display.bounds, gap: layoutGap, frames: before)
+            guard score != Int.max else { return workspace }
+            oldScore += score
+            if let aligned = NativeSeamAlignment.proposal(root, area: display.bounds, gap: layoutGap, frames: before) {
+                candidate.roots[display.id] = aligned
+            }
+        }
+        guard candidate != workspace else { return workspace }
+        do {
+            try await apply(candidate, displays: displays, animate: false)
+            let after = frames()
+            var score = 0
+            for display in displays {
+                guard let root = candidate.roots[display.id] else { continue }
+                let value = NativeSeamAlignment.score(root, area: display.bounds, gap: layoutGap, frames: after)
+                guard value != Int.max else { throw LayoutError.invalidInput }
+                score += value
+            }
+            if score < oldScore { trace?("native divider alignment reclaimed=\(oldScore - score) points"); return candidate }
+        } catch { trace?("native divider alignment retained previous geometry") }
+        // One verified proposal, at most one rollback. Never chase cell rounding.
+        try? await apply(workspace, displays: displays, animate: false)
+        return workspace
     }
     private func validate(_ plan: [(ManagedWindow, Rect)], allowSkipping: Bool) throws {
         // Use one settled snapshot per window for acceptance, diagnostics and
@@ -703,6 +839,7 @@ struct MacSettings: Codable {
         let started = ProcessInfo.processInfo.systemUptime
         var retried = false
         while !Task.isCancelled {
+            guard desktopIsCurrent() else { return }
             let pending = plan.filter { system.isAlive($0.0) && !system.accepted($0.0, $0.1) }
             matchingSamples = pending.isEmpty ? matchingSamples + 1 : 0
             if matchingSamples >= 2 { return }
@@ -732,6 +869,7 @@ struct MacSettings: Codable {
             var sent = Dictionary(uniqueKeysWithValues: changes.map { ($0.0.id, $0.1) })
             var slow = Set<UUID>()
             while true {
+                guard desktopIsCurrent() else { throw LayoutError.invalidInput }
                 let sampleStart = ProcessInfo.processInfo.systemUptime
                 if sampleStart - start >= duration { break }
                 for (window, from, to) in changes where !slow.contains(window.id) {
@@ -745,10 +883,22 @@ struct MacSettings: Codable {
                 try await Task.sleep(for: .seconds(remaining))
             }
         }
+        guard desktopIsCurrent() else { throw LayoutError.invalidInput }
         for (window, _, to) in changes { try write(window, to) }
     }
-    func stop() async { await deactivate(restorePositions: savedSessionLayout == nil) }
-    func restore() async { await deactivate(restorePositions: true) }
+    private func ensureCurrentDesktop() async -> Bool {
+        while switchingDesktop { try? await Task.sleep(for: .milliseconds(20)) }
+        if !desktopIsCurrent() { await desktopDidChange() }
+        return desktopIsCurrent()
+    }
+    func stop() async {
+        guard await ensureCurrentDesktop() else { return }
+        await deactivate(restorePositions: savedSessionLayout == nil)
+    }
+    func restore() async {
+        guard await ensureCurrentDesktop() else { return }
+        await deactivate(restorePositions: true)
+    }
     private func deactivate(restorePositions: Bool) async {
         settledValidationTask?.cancel()
         activateAfterPermission = false
@@ -758,8 +908,7 @@ struct MacSettings: Codable {
         busy = true; defer { busy = false }
         if active {
             lastBento = history.current
-            let tiled = Set(history.current.windows.map(\.windowID))
-            lastReleased = released.union(windows.map(\.id).filter { !tiled.contains($0) && minimizedByBento[$0] == nil })
+            lastReleased = released
             lastMinimized = Set(minimizedByBento.keys)
         }
         var remaining = originals
@@ -782,6 +931,23 @@ struct MacSettings: Codable {
             : WindowFailure.permission.localizedDescription
         onStateChange?()
         do { try desktopPreferences.restore() } catch { message = error.localizedDescription }
+    }
+    func stopAllDesktops() async {
+        await stop()
+        var failures = 0
+        var restored = Set<UUID>()
+        for (key, session) in desktopSessions where key != currentDesktop {
+            if session.saved == nil {
+                for (id, entry) in session.originals where restored.insert(id).inserted && system.isAlive(entry.0) {
+                    do { try system.write(entry.0, frame: entry.1) } catch { failures += 1 }
+                }
+            }
+            for window in session.minimized.values where system.isAlive(window) {
+                do { try system.setMinimized(window, false) } catch { failures += 1 }
+            }
+        }
+        desktopSessions.removeAll()
+        if failures > 0 { message = "\(failures) window(s) on other desktops could not be restored." }
     }
     func saveLayout() {
         guard active, !busy, !interacting, !activating else { return }
@@ -858,9 +1024,10 @@ struct MacSettings: Codable {
     }
     func recoverDesktopPreferences() { do { try desktopPreferences.restore() } catch { message = error.localizedDescription } }
     func rememberOriginal(_ window: ManagedWindow, frame: Rect) {
-        if originals[window.id] == nil { originals[window.id] = (window, frame) }
+        if originals[window.id] == nil { originals[window.id] = desktopSessions.values.compactMap { $0.originals[window.id] }.first ?? (window, frame) }
     }
     func finishInteraction(_ workspace: Workspace, commit: Bool, animate: Bool = true) async throws {
+        guard workspace.windows.allSatisfy({ canArrangeWindow($0.windowID) }) else { throw LayoutError.invalidInput }
         var resolved = workspace.reconciled(with: windows.map(\.leaf))
         let displays = displayAreas()
         do { try await apply(resolved, displays: displays, animate: animate, returning: !commit) }
@@ -871,6 +1038,7 @@ struct MacSettings: Codable {
             try await apply(resolved, displays: displays, animate: false)
         }
         if commit {
+            resolved = await alignNativeSeams(resolved, displays: displays)
             released.subtract(resolved.windows.map(\.windowID))
             editedLayout = true; history.commit(resolved); message = nil
             trace?("interaction history committed windows=\(resolved.windows.count)")

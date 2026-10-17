@@ -3,6 +3,40 @@ import CryptoKit
 @testable import BentoCore
 
 final class InteractionAndUpdateTests: XCTestCase {
+    func testStatusHoldConsumesReleaseAndFiresOnce() {
+        var press = StatusPress()
+        press.begin(at: 1)
+        XCTAssertFalse(press.hold(at: 1.3))
+        XCTAssertTrue(press.end())
+        press.begin(at: 2)
+        XCTAssertTrue(press.hold(at: 2.6))
+        XCTAssertFalse(press.hold(at: 3))
+        XCTAssertFalse(press.end())
+        press.begin(at: 4); press.cancel()
+        XCTAssertFalse(press.end())
+    }
+    func testNativeSeamReclaimsRoundedStripWithoutChangingMembership() throws {
+        let a = WindowLeaf(windowID: UUID(), minimum: Size(160, 120))
+        let b = WindowLeaf(windowID: UUID(), minimum: Size(160, 120))
+        for axis in [Axis.horizontal, .vertical] {
+            let root = LayoutNode.split(id: UUID(), axis: axis, ratio: 0.5, first: .window(a), second: .window(b))
+            let area = Rect(0, 0, 1208, 908)
+            let regions = try LayoutEngine.calculate(root, in: area, gap: 8).regions
+            for rounded in [a.windowID, b.windowID] {
+                var frames = Dictionary(uniqueKeysWithValues: regions.map { ($0.window.windowID, $0.bounds) })
+                if axis == .horizontal { frames[rounded]!.width -= 14 } else { frames[rounded]!.height -= 14 }
+                let aligned = try XCTUnwrap(NativeSeamAlignment.proposal(root, area: area, gap: 8, frames: frames))
+                let result = try LayoutEngine.calculate(aligned, in: area, gap: 8)
+                XCTAssertEqual(aligned.windows.map(\.windowID), root.windows.map(\.windowID))
+                let target = try XCTUnwrap(result.regions.first { $0.window.windowID == rounded })
+                XCTAssertEqual(axis == .horizontal ? target.bounds.width : target.bounds.height,
+                    axis == .horizontal ? frames[rounded]!.width : frames[rounded]!.height)
+                let exact = Dictionary(uniqueKeysWithValues: result.regions.map { ($0.window.windowID, $0.bounds) })
+                XCTAssertNil(NativeSeamAlignment.proposal(aligned, area: area, gap: 8, frames: exact))
+            }
+        }
+    }
+
     func testDesktopWorkAreaReclaimsHiddenMenuAndDockWithoutUsingCameraArea() {
         let frame = Rect(-1440, -900, 1440, 900), visible = Rect(-1440, -870, 1440, 823)
         XCTAssertEqual(DesktopWorkArea.calculate(frame: frame, visible: visible, hideMenuBar: true, hideDock: false, margin: 8), Rect(-1432, -892, 1424, 837))

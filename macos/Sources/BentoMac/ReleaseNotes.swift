@@ -7,6 +7,13 @@ struct ReleaseNotes: Identifiable {
 
     // Keep newest first; ship the log with the app so it also works offline.
     static let history: [ReleaseNotes] = [
+        .init(version: "0.2.29", points: [
+            "Separate desktop layouts remember their arrangement automatically.",
+            "Pin Bento keeps newly opened apps outside the current layout.",
+            "Hold the menu icon to toggle Dock and menu-bar hiding.",
+            "Brighter grips, fading black backdrop, and better divider alignment.",
+            "Quicker Dock and menu-bar space updates.",
+        ]),
         .init(version: "0.2.28", points: [
             "Finder and other apps settle reliably into their slots.",
             "Bringing an app forward retries placement automatically.",

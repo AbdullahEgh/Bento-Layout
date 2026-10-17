@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import BentoCore
 import Carbon.HIToolbox
 
 @main enum BentoApp {
@@ -29,6 +30,8 @@ import Carbon.HIToolbox
     private var hotKey: GlobalHotKey?
     private var registeredShortcut: ShortcutConfig?
     private var canTerminate = false
+    private var statusPress = StatusPress()
+    private var statusHoldTimer: Timer?
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.applicationIconImage = BentoStyle.icon
         if let flag = CommandLine.arguments.firstIndex(of: "--external-ax-smoke"), CommandLine.arguments.count > flag + 2, let pid = Int32(CommandLine.arguments[flag + 1]) {
@@ -70,7 +73,7 @@ import Carbon.HIToolbox
         updater.beforeInstall = { [weak self] in
             guard let self else { return false }
             await self.interactions?.finish(cancel: true)
-            await self.model.stop(); return self.model.message == nil
+            await self.model.stopAllDesktops(); return self.model.message == nil
         }
         updater.onInstallationNeedsAttention = { [weak self] in
             self?.model.page = "Updates"; self?.showWindow(onboarding: false)
@@ -79,14 +82,16 @@ import Carbon.HIToolbox
         let menuBar = NSMenu(), appItem = NSMenuItem(), appMenu = NSMenu(title: "Bento")
         menuBar.addItem(appItem); appItem.submenu = appMenu
         for (title, action, key) in [("Settings…", #selector(settings), ","), ("Check for updates…", #selector(checkUpdates), ""), ("Quit Bento", #selector(quit), "q")] {
-            let entry = NSMenuItem(title: title, action: action, keyEquivalent: key); entry.target = self; appMenu.addItem(entry)
+            let entry = NSMenuItem(title: title, action: action, keyEquivalent: key); entry.target = self
+            let symbol = action == #selector(settings) ? "gearshape" : action == #selector(checkUpdates) ? "arrow.down.circle" : "xmark.circle"
+            entry.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil); appMenu.addItem(entry)
         }
         NSApp.mainMenu = menuBar
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
             button.target = self; button.action = #selector(statusClicked)
-            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-            button.setAccessibilityLabel("Bento — toggle layout; right-click for menu")
+            button.sendAction(on: [.leftMouseDown, .leftMouseUp, .rightMouseUp])
+            button.setAccessibilityLabel("Bento — click to toggle; hold to hide or show Dock and menu bar; right-click for menu")
         }
         updateMenu(); model.onStateChange = { [weak self] in self?.updateMenu(); self?.interactions?.synchronize(); self?.writeFixtureState() }
         model.onSettingsChange = { [weak self] in self?.configureShortcut(); self?.interactions?.synchronize(); self?.updateMenu(); if let self, let window = self.window { BentoWindowChrome.updateAppearance(window, theme: self.model.settings.theme) } }
@@ -99,24 +104,30 @@ import Carbon.HIToolbox
     }
     private func updateMenu() {
         let menu = NSMenu(); menu.autoenablesItems = false
-        func item(_ title: String, _ action: Selector) { let i = NSMenuItem(title: title, action: action, keyEquivalent: ""); i.target = self; menu.addItem(i) }
-        item(!model.permission ? "Enable Accessibility…" : model.active ? "Turn Bento Off" : "Turn Bento On", #selector(toggle))
-        item("Undo Layout Change", #selector(undo))
+        func item(_ title: String, _ action: Selector, _ symbol: String) { let i = NSMenuItem(title: title, action: action, keyEquivalent: ""); i.target = self; i.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil); menu.addItem(i) }
+        item(!model.permission ? "Enable Accessibility…" : model.active ? "Turn Bento Off" : "Turn Bento On", #selector(toggle), "power")
+        item("Undo Layout Change", #selector(undo), "arrow.uturn.backward")
         menu.items.last?.isEnabled = model.active
         menu.addItem(.separator())
         let hideDesktop = NSMenuItem(title: "Hide Dock & Menu Bar", action: #selector(toggleDesktopHiding), keyEquivalent: "")
         hideDesktop.target = self
+        hideDesktop.image = NSImage(systemSymbolName: "menubar.dock.rectangle", accessibilityDescription: nil)
         hideDesktop.toolTip = "This session only. Applies while Bento is on and resets when Bento quits."
         hideDesktop.state = model.settings.hideDock && model.settings.hideMenuBar ? .on : model.settings.hideDock || model.settings.hideMenuBar ? .mixed : .off
         menu.addItem(hideDesktop)
-        item("Settings…", #selector(settings))
-        menu.addItem(.separator()); item("Quit Bento", #selector(quit))
+        item("Pin Bento", #selector(togglePin), "pin")
+        menu.items.last?.state = model.pinned ? .on : .off
+        menu.items.last?.isEnabled = model.active && !model.busy && !model.activating
+        menu.items.last?.toolTip = "Keep this desktop’s layout. Newly opened apps stay above it."
+        item("Settings…", #selector(settings), "gearshape")
+        menu.addItem(.separator()); item("Quit Bento", #selector(quit), "xmark.circle")
         statusMenu = menu
         statusItem.button?.isEnabled = true
         statusItem.button?.appearsDisabled = false
         statusItem.button?.image = BentoStatusIcon.image(active: model.active)
         statusItem.button?.alphaValue = model.active ? 1 : 0.45
         statusItem.button?.toolTip = !model.permission ? "Bento needs Accessibility access — click to enable" : model.active ? "Bento is on — click to turn off; right-click for menu" : "Bento is off — click to arrange windows; right-click for menu"
+        statusItem.button?.toolTip? += "\nHold to hide or show Dock and menu bar while Bento is on."
         if let message = model.message { statusItem.button?.toolTip? += "\n" + message }
     }
     @objc private func toggleDesktopHiding() {
@@ -127,11 +138,29 @@ import Carbon.HIToolbox
         model.saveSettings()
         updateMenu()
     }
+    @objc private func togglePin() { Task { await model.setPinned(!model.pinned) } }
     @objc private func statusClicked() {
         guard let button = statusItem.button else { return }
-        if NSApp.currentEvent?.type == .rightMouseUp || NSApp.currentEvent?.modifierFlags.contains(.control) == true {
-            statusMenu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.minY), in: button)
-        } else { toggle() }
+        let event = NSApp.currentEvent
+        if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true {
+            statusHoldTimer?.invalidate(); statusPress.cancel()
+            if event?.type != .leftMouseDown { statusMenu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.minY), in: button) }
+        } else if event?.type == .leftMouseDown {
+            statusPress.begin(at: ProcessInfo.processInfo.systemUptime)
+            statusHoldTimer?.invalidate()
+            statusHoldTimer = Timer(timeInterval: 0.56, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.statusPress.hold(at: ProcessInfo.processInfo.systemUptime) else { return }
+                    self.toggleDesktopHiding()
+                }
+            }
+            RunLoop.main.add(statusHoldTimer!, forMode: .common)
+        } else {
+            statusHoldTimer?.invalidate()
+            let trackedPress = statusPress.isTracking
+            if statusPress.hold(at: ProcessInfo.processInfo.systemUptime) { toggleDesktopHiding() }
+            if statusPress.end() || !trackedPress { toggle() }
+        }
     }
     @objc private func toggle() {
         model.permission = model.system.trusted
@@ -195,7 +224,7 @@ import Carbon.HIToolbox
         Task {
             await interactions?.finish(cancel: true)
             // Stop honors this session’s explicit layout save and restores desktop overrides.
-            await model.stop()
+            await model.stopAllDesktops()
             if let message = model.message {
                 let alert = NSAlert(); alert.messageText = "Could not finish this Bento session"
                 alert.informativeText = message; alert.addButton(withTitle: "Keep Bento open"); alert.addButton(withTitle: "Quit anyway")

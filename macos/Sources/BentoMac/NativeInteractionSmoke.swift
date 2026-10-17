@@ -4,8 +4,10 @@ import BentoCore
 
 // Disposable in-process NSWindows exercise the production controller/panels with
 // supplied pointer samples. This adapter never queries or changes other applications.
-@MainActor private final class FixtureWindowSystem: MacWindowSystem {
+@MainActor final class FixtureWindowSystem: MacWindowSystem {
     var records: [(ManagedWindow, NSWindow)] = []
+    var fixtureDesktop = "fixture-main"
+    override var desktopIdentity: String? { fixtureDesktop }
     var focused: ManagedWindow?
     var pointed: ManagedWindow?
     var pointerHeld = false
@@ -79,7 +81,7 @@ import BentoCore
         else { actual.setFrame(nativeFrame, display: true) }
     }
 }
-private final class FixturePreferences: PreferenceBackend {
+final class FixturePreferences: PreferenceBackend {
     var values: [PreferenceKey: Data] = [:]
     func read(_ key: PreferenceKey) -> Data? { values[key] }
     func write(_ key: PreferenceKey, value: Data?) { values[key] = value }
@@ -140,6 +142,7 @@ private final class FixturePreferences: PreferenceBackend {
         let initial = system.records.map { DesktopCoordinates.engine($0.1.frame) }
         defer { system.records.forEach { $0.1.close() } }
         do {
+            passed += try await DesktopSessionSmoke.run(system: system, initial: initial, output: output)
             let lifecycle = WorkspaceController(system: system, settings: fixtureSettings,
                 preferences: ActivationOverrides(backend: FixturePreferences(), journal: output.appendingPathComponent("lifecycle-preferences.json")),
                 persistSettings: { _ in }, backgroundMonitoring: false)
@@ -955,11 +958,17 @@ private final class FixturePreferences: PreferenceBackend {
             await model.restore()
             // Re-establish owned overflow for the independent fresh-activation
             // check; the preceding restore intentionally left that app floating.
-            await model.arrange(); await model.restore()
+            await model.arrange()
+            let automaticallyRemembered = model.history.current
+            await model.restore()
             let previousFocus = system.focused
             let mostRecent = system.records.map(\.0).first { $0.id != oversized.id }!
             system.focused = mostRecent; model.recordInteraction(mostRecent)
             await model.toggleLayout()
+            try check(model.history.current == automaticallyRemembered,
+                "Turning Bento back on prioritizes the remembered layout over a changed focus")
+            // Explicit Arrange All remains a fresh recent-use arrangement.
+            await model.arrange()
             let renewedRegions = try regions().1.regions
             let recentSlot = renewedRegions.first { $0.window.windowID == mostRecent.id }!
             try check(try Set(model.history.current.windows.map(\.windowID)) == Set(overflowLayout.windows.map(\.windowID)) && system.isMinimized(oversized) && matchingGeometry(), "Fresh activation retains overflow ownership and every fitting window")

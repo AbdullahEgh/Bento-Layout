@@ -59,21 +59,22 @@ struct DesktopInput {
         spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                await self.finish(cancel: true); self.removeHelpers()
-                if self.model.active { await self.model.arrange(preserving: true, automatic: true) }; self.synchronize()
+                self.removeHelpers()
+                await self.finish(cancel: true)
+                await self.model.desktopDidChange(); self.synchronize()
             }
         }
     }
     var helperFrames: [Rect] { grips.values.map { DesktopCoordinates.engine($0.frame) } }
     func synchronize() {
-        guard model.active, model.permission, !model.interacting else { if !model.interacting { removeHelpers() }; return }
+        guard model.active, model.permission, model.desktopIsCurrent(), !model.switchingDesktop, !model.interacting else { if !model.interacting { removeHelpers() }; return }
         updateGrips(model.history.current)
     }
     private func areas() -> [String: Rect] { if let gestureAreas { return gestureAreas }; return Dictionary(uniqueKeysWithValues: model.displayAreas().map { ($0.id, $0.bounds) }) }
-    private func removeHelpers() { grips.values.forEach { $0.orderOut(nil) }; grips.removeAll(); preview.orderOut(nil); backdrop.hide() }
+    private func removeHelpers() { grips.values.forEach { $0.orderOut(nil) }; grips.removeAll(); preview.orderOut(nil); backdrop.hide(animated: model.settings.animate) }
     private func updateGrips(_ workspace: Workspace) {
         hoverNeedsUpdate = true
-        backdrop.show(darkness: model.settings.backgroundDarkness)
+        backdrop.show(darkness: model.settings.backgroundDarkness, animated: model.settings.animate)
         let displays = areas(); var retained = Set<UUID>()
         for (display, root) in workspace.roots {
             guard let area = displays[display], let layout = try? LayoutEngine.calculate(root, in: area, gap: model.layoutGap) else { continue }
@@ -92,7 +93,7 @@ struct DesktopInput {
                 if panel.frame != frame { panel.setFrame(frame, display: true) }
                 panel.gripView.animate = model.settings.animate
                 panel.gripView.duration = Double(model.settings.animationMS) / 1000
-                let lightInk = model.settings.backgroundDarkness >= 40 || NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                let lightInk = true
                 if panel.gripView.lightInk != lightInk { panel.gripView.lightInk = lightInk; panel.gripView.needsDisplay = true }
                 panel.gripView.dragging = grip?.divider.id == divider.id
                 if !panel.isVisible { panel.orderFrontRegardless() }
@@ -105,7 +106,7 @@ struct DesktopInput {
         defer { wasPressed = pressed; lastSamplePoint = state.point }
         guard !finishing else { return }
         if waitForRelease { if !pressed { waitForRelease = false }; return }
-        guard model.active, model.permission else {
+        guard model.active, model.permission, model.desktopIsCurrent(), !model.switchingDesktop else {
             if snapshot != nil { Task { await finish(cancel: true) } } else { removeHelpers() }
             return
         }
@@ -142,6 +143,9 @@ struct DesktopInput {
             gestureAreas = nil; gestureAreas = areas()
             gestureScreens = Dictionary(uniqueKeysWithValues: DisplayArea.all(margin: 0, fullScreen: true).map { ($0.id, $0.bounds) })
             pressedWindow = model.system.window(at: pressPoint, in: model.windows)
+            // With Pin enabled, never guess a tiled window underneath an app
+            // that has not yet appeared in accessibility discovery.
+            if model.pinned && pressedWindow == nil { gestureAreas = nil; return }
             if pressedWindow == nil {
                 for (display, root) in model.history.current.roots {
                     guard let area = gestureAreas?[display], let region = try? LayoutEngine.calculate(root, in: area, gap: model.layoutGap).regions.first(where: { $0.bounds.contains(pressPoint) }) else { continue }
@@ -150,6 +154,7 @@ struct DesktopInput {
             }
             if pressedWindow == nil, let focused = model.system.focusedWindow(in: model.windows),
                model.system.frame(of: focused.element)?.contains(pressPoint) == true { pressedWindow = focused }
+            if let window = pressedWindow, !model.canArrangeWindow(window.id) { pressedWindow = nil; gestureAreas = nil; return }
             if let window = pressedWindow {
                 for (display, root) in model.history.current.roots {
                     guard let area = gestureAreas?[display], let region = try? LayoutEngine.calculate(root, in: area, gap: model.layoutGap).regions.first(where: { $0.window.windowID == window.id }) else { continue }
@@ -487,7 +492,7 @@ struct DesktopInput {
     private func transition() {
         animation?.invalidate()
         let oldLength = displayedLength, oldAlpha = displayedAlpha
-        let length = dragging ? 104.0 : 40.0, alpha = hovering || dragging ? 0.85 : 0.0
+        let length = dragging ? 104.0 : 40.0, alpha = hovering || dragging ? 1.0 : 0.0
         guard animate, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { displayedLength = length; displayedAlpha = alpha; needsDisplay = true; return }
         let start = ProcessInfo.processInfo.systemUptime
         animation = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in
@@ -508,7 +513,7 @@ struct DesktopInput {
         NSColor.black.withAlphaComponent(1.0 / 255).setFill(); dirtyRect.fill(using: .copy)
         guard displayedAlpha > 0 else { return }
         let length = min(displayedLength, axis == .horizontal ? bounds.height : bounds.width)
-        let rect = axis == .horizontal ? NSRect(x: bounds.midX - 1, y: bounds.midY - length / 2, width: 2, height: length) : NSRect(x: bounds.midX - length / 2, y: bounds.midY - 1, width: length, height: 2)
-        (lightInk ? NSColor.white : .black).withAlphaComponent(displayedAlpha).setFill(); NSBezierPath(roundedRect: rect, xRadius: 1, yRadius: 1).fill()
+        let rect = axis == .horizontal ? NSRect(x: bounds.midX - 2, y: bounds.midY - length / 2, width: 4, height: length) : NSRect(x: bounds.midX - length / 2, y: bounds.midY - 2, width: length, height: 4)
+        (lightInk ? NSColor.white : .black).withAlphaComponent(displayedAlpha).setFill(); NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2).fill()
     }
 }

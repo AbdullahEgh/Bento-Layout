@@ -86,6 +86,7 @@ final class ManagedWindow {
     private let allowedPIDs: Set<pid_t>?
     init(allowedPIDs: Set<pid_t>? = nil) { self.allowedPIDs = allowedPIDs }
     var trusted: Bool { AXIsProcessTrusted() }
+    var desktopIdentity: String? { DesktopIdentity.current() }
     var pointerPressed: Bool { CGEventSource.buttonState(.combinedSessionState, button: .left) }
     var tracksDesktopPointer: Bool { !NSApp.isActive }
     func window(at point: Point, in windows: [ManagedWindow]) -> ManagedWindow? {
@@ -149,6 +150,21 @@ final class ManagedWindow {
     func desktopSpaceReady() -> Bool {
         let hideMenu = (CFPreferencesCopyValue("_HIHideMenuBar" as CFString, kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? NSNumber)?.boolValue ?? false
         let hideDock = (CFPreferencesCopyValue("autohide" as CFString, "com.apple.dock" as CFString, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? NSNumber)?.boolValue ?? false
+        // Showing Dock is ready only once its visible reservation exists. The old
+        // !hideDock shortcut returned before the slide finished, causing two reflows.
+        let dock = hideDock ? nil : DockGeometry.current()
+        let shownDockReady = hideDock || NSScreen.screens.contains { screen in
+            let frame = DesktopCoordinates.engine(screen.frame)
+            if let dock {
+                let width = min(frame.right, dock.right) - max(frame.x, dock.x)
+                let height = min(frame.bottom, dock.bottom) - max(frame.y, dock.y)
+                return width > 8 && height > 8
+            }
+            return screen.visibleFrame.minY - screen.frame.minY > 8
+                || screen.visibleFrame.minX - screen.frame.minX > 8
+                || screen.frame.maxX - screen.visibleFrame.maxX > 8
+        }
+        guard shownDockReady else { return false }
         return NSScreen.screens.allSatisfy { screen in
             let top = Int((screen.frame.maxY - screen.visibleFrame.maxY).rounded())
             let safe = Int(screen.safeAreaInsets.top.rounded(.up))
