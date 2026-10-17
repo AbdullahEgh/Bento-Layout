@@ -584,6 +584,7 @@ struct MacSettings: Codable {
             return (window, start, target)
         }
         if animated && settings.animate && !reduceMotion() {
+            if !changes.isEmpty { trace?("motion batch started windows=\(changes.count) durationMS=\(settings.animationMS)") }
             let start = ProcessInfo.processInfo.systemUptime
             let duration = Double(settings.animationMS) / 1000
             var sent = Dictionary(uniqueKeysWithValues: changes.map { ($0.0.id, $0.1) })

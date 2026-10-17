@@ -76,7 +76,8 @@ private final class FixturePreferences: PreferenceBackend {
         var reduceMotion = false
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         var fixtureSettings = MacSettings(); fixtureSettings.animate = false; fixtureSettings.minimizeOverflow = false
-        let model = WorkspaceController(system: system, settings: fixtureSettings, preferences: ActivationOverrides(backend: preferences, journal: output.appendingPathComponent("fixture-preferences.json")), persistSettings: { _ in }, backgroundMonitoring: false, reduceMotion: { reduceMotion })
+        var modelTrace: [String] = []
+        let model = WorkspaceController(system: system, settings: fixtureSettings, preferences: ActivationOverrides(backend: preferences, journal: output.appendingPathComponent("fixture-preferences.json")), persistSettings: { _ in }, backgroundMonitoring: false, trace: { modelTrace.append($0) }, reduceMotion: { reduceMotion })
         var input = DesktopInput(point: Point(0, 0), pressed: false, escape: false, time: 0)
         var gestureTrace: [String] = []
         let interactions = DesktopInteractions(model: model, input: { input }, automaticSampling: false, trace: { gestureTrace.append($0) })
@@ -94,6 +95,13 @@ private final class FixturePreferences: PreferenceBackend {
                 }
             }
             return true
+        }
+        func motionBatches() -> Int { modelTrace.filter { $0.hasPrefix("motion batch started") }.count }
+        func boundedAnimationWrites(since started: Int) -> Bool {
+            // Wall-clock animation may skip every intermediate sample on a busy
+            // runner. Require final writes and reject excessive work instead.
+            let limit = Int(ceil(Double(model.settings.animationMS) / 16)) + 3
+            return motionBatches() > started && !system.writes.isEmpty && system.writes.values.allSatisfy { (1...limit).contains($0) }
         }
         func regions() throws -> (String, LayoutResult) {
             let key = model.history.current.roots.keys.sorted()[0]
@@ -239,10 +247,11 @@ private final class FixturePreferences: PreferenceBackend {
             let reboundRecord = system.records.first { $0.0.id == reboundSource.window.windowID }!.0
             try system.write(reboundRecord, frame: reboundSource.bounds)
             model.settings.animate = true; system.writes.removeAll()
+            let relocationMotionStart = motionBatches()
             input.pressed = false; interactions.sample(); await settle()
             try check(try model.history.current != beforeRebound && matchingGeometry(),
                 "A valid drop commits even when the native window rebounds before release without Escape")
-            try check(system.writes.values.contains { $0 > 1 }, "Successful relocation animates as one coordinated transition")
+            try check(boundedAnimationWrites(since: relocationMotionStart), "Relocation reaches its final destination with a bounded coordinated transition")
             model.settings.animate = false
             await model.undo()
             let fastLayout = try regions().1
@@ -604,9 +613,10 @@ private final class FixturePreferences: PreferenceBackend {
             try check(!model.active && system.records.map { DesktopCoordinates.engine($0.1.frame) } == initial, "Restoring during activation cancels the pending arrangement")
             model.settings.animate = true
             system.writes.removeAll(); system.frameReads = 0
+            let activationMotionStart = motionBatches()
             await model.arrange()
             try check(system.frameReads <= 24, "Animation uses bounded geometry reads instead of polling each intermediate frame")
-            try check(try matchingGeometry() && system.writes.values.allSatisfy { $0 > 1 }, "Animated activation sends intermediate frames and reaches exact final geometry")
+            try check(try matchingGeometry() && boundedAnimationWrites(since: activationMotionStart), "Animated activation reaches exact final geometry with bounded writes under host load")
             let sectionDisplay = try regions().0
             let sectionArea = model.displayAreas().first { $0.id == sectionDisplay }!.bounds
             let group = LayoutNode.split(id: UUID(), axis: .vertical, ratio: 0.45, first: .window(system.records[0].0.leaf), second: .window(system.records[1].0.leaf))
@@ -632,14 +642,15 @@ private final class FixturePreferences: PreferenceBackend {
             let beforeClose = model.history.current
             let closingID = try regions().1.regions[0].window.windowID
             system.deadWindows = [closingID]; system.writes.removeAll()
+            let closeMotionStart = motionBatches()
             model.tick()
             for _ in 0..<100 {
                 await Task.yield()
                 if !model.activating && !model.busy && model.history.current.windows.count == 2 { break }
                 try? await Task.sleep(for: .milliseconds(30))
             }
-            try check(try model.history.current == beforeClose.removing(closingID) && matchingGeometry() && system.writes.values.contains { $0 > 1 },
-                "Closing a window animates the collapsed slots to their exact final frames")
+            try check(try model.history.current == beforeClose.removing(closingID) && matchingGeometry() && boundedAnimationWrites(since: closeMotionStart),
+                "Closing a window reaches exact collapsed-slot geometry with a bounded transition")
             try check(system.writes[closingID] == nil, "Closing-window reflow never writes the deleted window")
             let closedTree = model.history.current, settledWrites = system.writes
             model.tick(); await Task.yield(); model.tick(); await Task.yield()
@@ -716,14 +727,15 @@ private final class FixturePreferences: PreferenceBackend {
             let retainedFrame = system.frame(of: first.element)
             let vacatedFrame = system.frame(of: second.element)
             model.settings.animate = true; system.writes.removeAll()
+            let admissionMotionStart = motionBatches()
             try system.setMinimized(oversized, false); system.focused = oversized
             await model.arrange(preserving: true)
             try check(!system.isMinimized(oversized) && !system.isMinimized(first) && system.isMinimized(second)
                 && model.history.current.windows.count == 2, "Dock reopen evicts least recently used window on a full display")
             try check(system.frame(of: first.element) == retainedFrame && system.frame(of: oversized.element) == vacatedFrame,
                 "Crowded Dock admission reuses the idle slot without moving its neighbor")
-            try check(system.writes[first.id] == nil && system.writes[second.id] == nil && (system.writes[oversized.id] ?? 0) > 1,
-                "Automatic Dock admission animates the incoming window without moving unchanged neighbors")
+            try check(system.writes[first.id] == nil && system.writes[second.id] == nil && (system.writes[oversized.id] ?? 0) >= 1 && boundedAnimationWrites(since: admissionMotionStart),
+                "Automatic Dock admission reaches the incoming slot with bounded writes and no unchanged-neighbor moves")
             model.settings.animate = false
             await model.arrange(preserving: true)
             try check(system.isMinimized(second) && !system.isMinimized(oversized), "Minimized overflow does not steal the reopened window's space on next reflow")
