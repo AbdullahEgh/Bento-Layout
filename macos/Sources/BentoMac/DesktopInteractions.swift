@@ -120,10 +120,22 @@ struct DesktopInput {
         for panel in grips.values {
             panel.gripView.hovering = panel.isVisible && DesktopCoordinates.engine(panel.frame).contains(state.point)
         }
-        if grip != nil { return }
+        if grip != nil {
+            if pressed { moveGrip() }
+            else if wasPressed { moveGrip(); releasePending = true; Task { await self.finish(cancel: false) } }
+            return
+        }
         guard !model.busy, !model.activating else { return }
         if pressed && !wasPressed {
             pressedWindow = nil; pressedFrame = nil; pressPoint = state.point; escapeRequested = false
+            // The complete divider is draggable, including its transparent
+            // ends. Do not depend on WindowServer delivering a mouseDown to ink.
+            for (display, root) in model.history.current.roots {
+                guard let area = areas()[display],
+                      let divider = try? LayoutEngine.calculate(root, in: area, gap: model.layoutGap).dividers.first(where: { $0.bounds.contains(pressPoint) }),
+                      grips[divider.id]?.isVisible == true else { continue }
+                if model.system.dividerIsExposed(at: pressPoint), beginGrip(display: display, id: divider.id) { return }
+            }
             // Bento's settings controls may cover a tiled slot. Never bind a
             // settings click or slider drag to a window underneath our own UI.
             guard model.system.tracksDesktopPointer else { return }
@@ -212,6 +224,7 @@ struct DesktopInput {
         }
     }
     func beginGrip(display: String, id: UUID) -> Bool {
+        if grip?.display == display && grip?.divider.id == id { return true }
         guard model.active, model.permission, !model.busy, !model.interacting, !finishing, !releasePending,
               let root = model.history.current.roots[display], let area = areas()[display],
               let divider = try? LayoutEngine.calculate(root, in: area, gap: model.layoutGap).dividers.first(where: { $0.id == id }) else { return false }

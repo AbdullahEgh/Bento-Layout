@@ -556,7 +556,7 @@ struct MacSettings: Codable {
         }
         return false
     }
-    func apply(_ workspace: Workspace, displays: [DisplayArea], allowSkipping: Bool = false, liveResize: Bool = false, animate: Bool = true, validateIndividually: Bool = true) async throws {
+    func apply(_ workspace: Workspace, displays: [DisplayArea], allowSkipping: Bool = false, liveResize: Bool = false, animate: Bool = true, validateIndividually: Bool = true, returning: Bool = false) async throws {
         guard !busy else { throw LayoutError.invalidInput }; busy = true; defer { busy = false }
         let restoreAXMode = system.beginFrameAdjustment(windows)
         defer { restoreAXMode() }
@@ -614,7 +614,7 @@ struct MacSettings: Codable {
                     await settle([entry])
                     try validate([entry], allowSkipping: true)
                 }
-            } else { try await move(plan, animated: animate && !liveResize, write: write) }
+            } else { try await move(plan, animated: animate && !liveResize, returning: returning, write: write) }
             if liveResize && interacting {
                 // Coalesce pointer samples at display cadence. Mouse-up performs the
                 // full settled verification and rolls back if an app refused a size.
@@ -624,8 +624,9 @@ struct MacSettings: Codable {
             await settle(plan)
             try validate(plan, allowSkipping: allowSkipping)
         } catch {
-            for (window, frame) in rollback where system.isAlive(window) && !system.accepted(window, frame) {
-                try? system.write(window, frame: frame)
+            let recovery = rollback.filter { system.isAlive($0.0) }
+            try? await move(recovery, animated: animate && !liveResize, returning: true) { window, frame in
+                try? self.system.write(window, frame: frame)
             }
             await settle(rollback)
             let failed = rollback.filter { system.isAlive($0.0) && !system.accepted($0.0, $0.1) }.count
@@ -688,28 +689,31 @@ struct MacSettings: Codable {
             }
         }
     }
-    private func move(_ plan: [(ManagedWindow, Rect)], animated: Bool,
+    private func move(_ plan: [(ManagedWindow, Rect)], animated: Bool, returning: Bool = false,
                       write: (ManagedWindow, Rect) throws -> Void) async throws {
         let changes = plan.compactMap { window, target -> (ManagedWindow, Rect, Rect)? in
             guard let start = system.frame(of: window.element), start != target else { return nil }
             return (window, start, target)
         }
+        guard !changes.isEmpty else { return }
         if animated && settings.animate && !reduceMotion() {
-            if !changes.isEmpty { trace?("motion batch started windows=\(changes.count) durationMS=\(settings.animationMS)") }
+            let duration = max(returning ? 0.32 : 0, Double(settings.animationMS) / 1000)
+            if !changes.isEmpty { trace?("motion batch started windows=\(changes.count) durationMS=\(Int(duration * 1000)) returning=\(returning)") }
             let start = ProcessInfo.processInfo.systemUptime
-            let duration = Double(settings.animationMS) / 1000
             var sent = Dictionary(uniqueKeysWithValues: changes.map { ($0.0.id, $0.1) })
             var slow = Set<UUID>()
             while true {
-                let progress = (ProcessInfo.processInfo.systemUptime - start) / duration
-                if progress >= 1 { break }
+                let sampleStart = ProcessInfo.processInfo.systemUptime
+                if sampleStart - start >= duration { break }
                 for (window, from, to) in changes where !slow.contains(window.id) {
+                    let progress = (ProcessInfo.processInfo.systemUptime - start) / duration
                     let frame = WindowMotion.frame(from: from, to: to, progress: progress)
                     guard let previous = sent[window.id], frame != previous else { continue }
                     do { try system.writeMotionFrame(window, frame: frame, previous: previous); sent[window.id] = frame }
                     catch { slow.insert(window.id) }
                 }
-                try await Task.sleep(for: .milliseconds(16))
+                let remaining = max(0.001, 1.0 / 60 - (ProcessInfo.processInfo.systemUptime - sampleStart))
+                try await Task.sleep(for: .seconds(remaining))
             }
         }
         for (window, _, to) in changes { try write(window, to) }
@@ -733,7 +737,9 @@ struct MacSettings: Codable {
         if restorePositions {
             remaining = [:]
             let pending = originals.filter { system.isAlive($0.value.0) }
-            try? await move(Array(pending.values), animated: true) { window, frame in
+            let restoreAXMode = system.beginFrameAdjustment(pending.values.map { $0.0 })
+            defer { restoreAXMode() }
+            try? await move(Array(pending.values), animated: true, returning: true) { window, frame in
                 try? self.system.write(window, frame: frame)
             }
             await settle(Array(pending.values))
@@ -828,7 +834,7 @@ struct MacSettings: Codable {
     func finishInteraction(_ workspace: Workspace, commit: Bool, animate: Bool = true) async throws {
         var resolved = workspace.reconciled(with: windows.map(\.leaf))
         let displays = displayAreas()
-        do { try await apply(resolved, displays: displays, animate: animate) }
+        do { try await apply(resolved, displays: displays, animate: animate, returning: !commit) }
         catch WindowFailure.minimumSize {
             // One correction of this exact split tree using the native constraint.
             // Never invoke automatic arrangement during a user's gesture.

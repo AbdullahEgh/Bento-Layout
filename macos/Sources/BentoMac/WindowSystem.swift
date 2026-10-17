@@ -104,6 +104,18 @@ final class ManagedWindow {
         }
         return nil
     }
+    /// Only exposed divider space may start a polled drag. WindowServer bounds
+    /// exclude shadows, but include app content, dialogs, menus and Bento settings.
+    func dividerIsExposed(at point: Point) -> Bool {
+        guard let visible = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return false }
+        return !visible.contains { info in
+            guard (info[kCGWindowLayer as String] as? NSNumber)?.intValue ?? -1 >= 0,
+                  (info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1 > 0,
+                  let raw = info[kCGWindowBounds as String] as? [String: Any],
+                  let bounds = CGRect(dictionaryRepresentation: raw as CFDictionary) else { return false }
+            return bounds.insetBy(dx: -0.5, dy: -0.5).contains(CGPoint(x: point.x, y: point.y))
+        }
+    }
     func displayAreas(margin: Int) -> [DisplayArea] { DisplayArea.all(margin: margin) }
     /// Intermediate samples do not query AX geometry or wait on slow clients.
     /// The final write and settled verification still use the normal adapter path.

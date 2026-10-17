@@ -10,6 +10,14 @@ import BentoCore
     var pointed: ManagedWindow?
     var pointerHeld = false
     var desktopPointerEnabled = true
+    var dividerExposed = true
+    override func dividerIsExposed(at point: Point) -> Bool { dividerExposed }
+    var adjustmentDepth = 0
+    var motionAdjustmentDepths: [Int] = []
+    override func beginFrameAdjustment(_ windows: [ManagedWindow]) -> () -> Void {
+        adjustmentDepth += 1
+        return { self.adjustmentDepth -= 1 }
+    }
     override var tracksDesktopPointer: Bool { desktopPointerEnabled }
     var pressDuringDiscovery = false
     var undiscovered = Set<UUID>()
@@ -50,7 +58,10 @@ import BentoCore
     var areaChangeOnWrite: [DisplayArea]?
     var areaOverride: [DisplayArea]?
     override func displayAreas(margin: Int) -> [DisplayArea] { areaOverride ?? super.displayAreas(margin: margin) }
-    override func writeMotionFrame(_ window: ManagedWindow, frame: Rect, previous: Rect) throws { try write(window, frame: frame) }
+    override func writeMotionFrame(_ window: ManagedWindow, frame: Rect, previous: Rect) throws {
+        motionAdjustmentDepths.append(adjustmentDepth)
+        try write(window, frame: frame)
+    }
     override func write(_ window: ManagedWindow, frame: Rect) throws {
         if let areaChangeOnWrite { areaOverride = areaChangeOnWrite; self.areaChangeOnWrite = nil }
         writes[window.id, default: 0] += 1
@@ -341,6 +352,24 @@ private final class FixturePreferences: PreferenceBackend {
             try check(hoverPanels.contains { $0.gripView.visibleInk > 0 }, "Pointer polling reveals a grabber without a mouse-enter event")
             input.point = Point(-100_000, -100_000); interactions.sample()
             try check(hoverPanels.allSatisfy { $0.gripView.visibleInk == 0 }, "Pointer polling hides grabbers after leaving the gap")
+            let dividerTree = model.history.current
+            for edgeDivider in firstLayout.dividers {
+                let point = edgeDivider.axis == .horizontal
+                    ? Point(edgeDivider.bounds.x + max(0, edgeDivider.bounds.width / 2), edgeDivider.bounds.y + 3)
+                    : Point(edgeDivider.bounds.x + 3, edgeDivider.bounds.y + max(0, edgeDivider.bounds.height / 2))
+                input.point = point; input.pressed = true; system.writes.removeAll(); interactions.sample()
+                try check(model.interacting && system.writes.isEmpty, "The far end of a divider starts a drag without a center-handle click or initial jump")
+                input.point = edgeDivider.axis == .horizontal ? Point(point.x + 35, point.y) : Point(point.x, point.y + 35)
+                interactions.sample(); input.pressed = false; interactions.sample(); await settle()
+                try check(try !model.interacting && model.history.current != dividerTree && matchingGeometry(), "Polled full-divider drag commits on release outside its original gap")
+                await model.undo(); interactions.synchronize()
+            }
+            system.dividerExposed = false
+            let protectedDivider = firstLayout.dividers[0]
+            input.point = Point(protectedDivider.bounds.x + protectedDivider.bounds.width / 2, protectedDivider.bounds.y + protectedDivider.bounds.height / 2)
+            system.desktopPointerEnabled = false; input.pressed = true; interactions.sample()
+            try check(!model.interacting, "A window covering the divider keeps its click instead of starting a Bento resize")
+            input.pressed = false; interactions.sample(); system.desktopPointerEnabled = true; system.dividerExposed = true
             let driftSource = firstLayout.regions[0]
             let driftWindow = system.records.first { $0.0.id == driftSource.window.windowID }!.0
             var driftFrame = driftSource.bounds; driftFrame.x += 12
@@ -806,8 +835,12 @@ private final class FixturePreferences: PreferenceBackend {
             model.tick(); await Task.yield(); model.tick(); await Task.yield()
             try check(model.history.current == closedTree && system.writes == settledWrites, "Closed-window animation settles once without a second reflow")
             system.deadWindows.removeAll(); await model.arrange(preserving: true)
+            system.motionAdjustmentDepths.removeAll()
+            let returnTraceStart = modelTrace.count
             await model.restore()
             try check(system.records.map { DesktopCoordinates.engine($0.1.frame) } == initial, "Animated deactivation restores exact starting geometry")
+            try check(modelTrace.dropFirst(returnTraceStart).contains { $0.contains("durationMS=320 returning=true") } && system.adjustmentDepth == 0 && system.motionAdjustmentDepths.allSatisfy { $0 > 0 },
+                "Window return uses the gentle duration and restores native animation mode after its transaction")
             system.deferWrites = true; system.writeDelay = 0.25
             await model.arrange()
             try check(try model.active && matchingGeometry() && model.history.current.windows.count == 3, "Slow native animation settles before learning constraints or skipping windows")

@@ -1,5 +1,4 @@
-Bento for macOS 0.2.26
+Bento for macOS 0.2.27
 
-- Terminal-sized splits tolerate native text-grid rounding.
-- Bento resumes after minimizing or restoring windows.
-- Available apps can reshape old slots to fit the display.
+- Drag anywhere along an exposed divider to resize its slots.
+- Gentler window returns, cancellations, and recovery animations.

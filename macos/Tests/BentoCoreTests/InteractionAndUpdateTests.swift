@@ -170,6 +170,13 @@ final class InteractionAndUpdateTests: XCTestCase {
         }
         XCTAssertEqual(failed.geometryBuildCount, 1)
     }
+    func testMotionAcceleratesAndSettlesGentlyWithoutOvershoot() {
+        let start = Rect(0, 0, 100, 100), end = Rect(1000, 1000, 1100, 1100)
+        XCTAssertLessThan(WindowMotion.frame(from: start, to: end, progress: 0.1).x, 20)
+        XCTAssertEqual(WindowMotion.frame(from: start, to: end, progress: 0.5).x, 500)
+        XCTAssertGreaterThan(WindowMotion.frame(from: start, to: end, progress: 0.9).x, 980)
+        for i in 0...100 { XCTAssertTrue((0...1000).contains(WindowMotion.frame(from: start, to: end, progress: Double(i) / 100).x)) }
+    }
     func testMotionEndpointsAndMonotonicity() {
         let a = Rect(-200, 30, 800, 400), b = Rect(30, -200, 400, 800)
         XCTAssertEqual(WindowMotion.frame(from: a, to: b, progress: 0), a)
