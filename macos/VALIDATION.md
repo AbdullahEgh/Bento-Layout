@@ -1,3 +1,9 @@
+# Installed 0.2.24 selection update — 2026-10-17
+
+[Compatibility run 39027956308](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/39027956308) passed macOS 15 and 26 at `53b4e7e`; [release run 39027956289](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/39027956289) published [0.2.24](https://github.com/AbdullahEgh/Bento-Layout/releases/tag/macos-v0.2.24), build 136. Local verification passed 59 core tests and 162 native checks. The archive/feed signature, code signature and installed executable hash matched. Installation completed through the actual Install Update and Install and Relaunch controls with Accessibility retained.
+
+The live installed pass arranged Vivaldi, MindSpace and MindBoard within the 1904 × 1118 work area in one attempt. No overlap or frame drift appeared in the observed interval. Off restored their original positions; re-enabling took one attempt and reproduced identical arranged rectangles. Desktop control blocked restoring the ChatGPT/Codex window for safety, so no live ChatGPT result is claimed. The exact constrained four-app engine case and initially unknown native four-app case passed in isolated fixtures. Evidence is in ignored `artifacts/macos/smart-selection-qa/`.
+
 # Capacity, axis limits and stable selection — 0.2.24, 2026-10-17
 
 The 0.2.23 policy could minimize usable apps to keep the most recent app largest, and could persist an unrefused dimension as a false minimum. Activation now treats a large primary as a preference and uses a bounded subset/partition search to group restricted apps independently of discovery order. Within eight candidates it prioritizes keeping the focused app, more usable windows, then recent use. Search has a fixed join budget and existing ordered planning remains the fallback. Admission retains a valid tree or exact idle slot before considering regrouping. Equal scores follow stable input order rather than UUIDs.
