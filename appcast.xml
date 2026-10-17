@@ -4,20 +4,21 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.23</title>
-            <pubDate>Sat, 17 Oct 2026 08:35:10 +0000</pubDate>
-            <sparkle:version>134</sparkle:version>
-            <sparkle:shortVersionString>0.2.23</sparkle:shortVersionString>
+            <title>0.2.24</title>
+            <pubDate>Sat, 17 Oct 2026 11:25:27 +0000</pubDate>
+            <sparkle:version>136</sparkle:version>
+            <sparkle:shortVersionString>0.2.24</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.23
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.24
 
-- Native Dock and menu-bar hiding updates usable space live.
-- Safer size-limit handling keeps recent apps in the largest slot.
+- Smarter app selection keeps more windows usable at their real size limits.
+- Flexible splits prioritize recent apps without wasting space.
+- Restored apps stay usable when no slot can fit them.
 ]]></description>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.23/Bento-macos-universal.zip" length="3828661" type="application/octet-stream" sparkle:edSignature="echSY4VyOJLC6j0VPUsMbn51qgEl16mAVufwzf7Hvtzis6hDNHUTHGgKs6WGn8/blveejXItN605+izufXOKBA=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.24/Bento-macos-universal.zip" length="3913794" type="application/octet-stream" sparkle:edSignature="B4uFxqljsam3f6d4WFXx8LQfA8u+0jnpWLgNyBoqeQPGi5VafH0sYZZibdyPdSGamwlKMYkC5EG/y/dWwAT+Cg=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: BubrdV/KimCTtN58qJm7z5/LdmQniaqzzl/Q9E8i8Or00c6c1vKXGhsJ2/BQIoMhb/+9RRA7RAlr/jlxM9iHCQ==
-length: 1293
+edSignature: 9q37YHB2HZO8fJpZNWUVHj+sQFf6X+Sknw3IlCd2y2oqVMGw0dGigSo+c6XPMbAFes64cVvhGMykKK3XZKfBCw==
+length: 1361
 -->
