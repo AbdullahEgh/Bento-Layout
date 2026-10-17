@@ -4,28 +4,21 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.17</title>
-            <pubDate>Sat, 17 Oct 2026 00:41:47 +0000</pubDate>
-            <sparkle:version>121</sparkle:version>
-            <sparkle:shortVersionString>0.2.17</sparkle:shortVersionString>
+            <title>0.2.18</title>
+            <pubDate>Sat, 17 Oct 2026 01:22:04 +0000</pubDate>
+            <sparkle:version>123</sparkle:version>
+            <sparkle:shortVersionString>0.2.18</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.17
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.18
 
-What’s new
-
-- Drag a tiled window to the outer screen edge to move its whole section. A large right slot can move left while the stacked left slots move right together, preserving their sizes and internal split.
-- Preview every affected slot before releasing a section move. Undo restores the original grouping and ratios.
-- Closing a window smoothly expands the remaining slots, respecting animation settings and Reduce Motion.
-- Keep gap grabbers below app windows and above the dark backdrop, visible only on hover or while held.
-- Keep normal window swaps and hold-to-split gestures inside the layout.
-- Show a dim outline menu-bar icon while Bento is off and a filled white icon while it is active.
-- Group the menu-bar right-click menu into Layout, Layout history, Desktop and Bento, with a combined Hide Dock & Menu Bar toggle.
-- Organize settings into Layout & spacing, Desktop, Appearance & motion, and General, with switches aligned to the far right.
+- Softer animated drag previews, without text, icons or hard borders.
+- Windows adapt to hidden menu bars, Dock visibility and Dock size.
+- Quicker transitions, fewer snap-backs, and clearer window controls.
 ]]></description>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.17/Bento-macos-universal.zip" length="3257747" type="application/octet-stream" sparkle:edSignature="L9LEPJsgoKABfowm5OmOzSLhxMGtZJqy4x4LdqoQBXckSqielQKO0ISeUHREo9OgnaQpJpHoB2s+D22iu4D8Bg=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.18/Bento-macos-universal.zip" length="3319259" type="application/octet-stream" sparkle:edSignature="vpMLaU9XezzOYU7TyGxoGbTE2/k7mTd1kdDczWSTNmk+uXALesH2N4qzI1jvErxQFNTItOOoOAhgmDg7KoUHAA=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: H2SgIKcPQTzhLZB+r5CdC3/55xzg2kUblutoUZJQWfm6l7bm9rdbFpjcgK6bwUh869ZND61S7LdX4I/orwqYDg==
-length: 2128
+edSignature: +sIie1McAap4r3aZ9sGKEKgpNoGKUIfNdSQdReGQBhj2ys2692KPLS4YP7vXSNvi5itvLlft4Toz2PVHFVerCw==
+length: 1373
 -->
