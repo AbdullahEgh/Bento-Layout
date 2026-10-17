@@ -4,22 +4,19 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.20</title>
-            <pubDate>Sat, 17 Oct 2026 02:33:51 +0000</pubDate>
-            <sparkle:version>130</sparkle:version>
-            <sparkle:shortVersionString>0.2.20</sparkle:shortVersionString>
+            <title>0.2.21</title>
+            <pubDate>Sat, 17 Oct 2026 02:45:05 +0000</pubDate>
+            <sparkle:version>131</sparkle:version>
+            <sparkle:shortVersionString>0.2.21</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.20
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.21
 
-- Correct native title bar and a shorter menu-bar menu.
-- Gentle glass slot outlines, without blue indicators.
-- Explicit session saves keep windows in place when Bento turns off.
-- Dock and menu-bar hiding reset when Bento restarts.
+- Fix title-bar contrast in dark and light modes while keeping glass content.
 ]]></description>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.20/Bento-macos-universal.zip" length="3693705" type="application/octet-stream" sparkle:edSignature="FEjqLNv83Ys5q4xeBhO/sJk1fFSJDpBVzY+oeJkSzSIXWLZkbiG2jb9Y8wmZ44WgtiXqI+wj3rzOkkuUVVniBA=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.21/Bento-macos-universal.zip" length="3700270" type="application/octet-stream" sparkle:edSignature="WN3VVFSJaJR3mKD3GcsdKfTMr/elUtYq/Mk5GAN4hh1cXUqESuw5bjrycjqg1OWW25iMOme1IJj7p2PsDGv6CQ=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: xrhm8LzOznLHLEkIu++BW4Zt2vSgr7LVt3YMNxleWTS6bgj6+Jf5IUDXFvP2PSbDXDNLe7R1LHZEJddZjBkZCQ==
-length: 1399
+edSignature: LwMsqwqsOKSsQj882yIkb01RFdLQaCsLTNnibe+vkqWkcVjAm85XvOn3lM7p9Dwyd/yitJNM4NrvKLFlQXxIBg==
+length: 1243
 -->
