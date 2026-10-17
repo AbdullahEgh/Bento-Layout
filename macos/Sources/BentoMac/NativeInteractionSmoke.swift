@@ -708,7 +708,8 @@ private final class FixturePreferences: PreferenceBackend {
             try check(!update.shouldPostponeInstallation { installCalls += 100 } && installCalls == 1 && !update.preparingInstallation,
                 "A repeated relaunch callback proceeds immediately after preparation instead of postponing forever")
             let panelIDs = Set(NSApp.windows.map { ObjectIdentifier($0) })
-            let softPreview = DestinationPanel()
+            var previewReducedMotion = false
+            let softPreview = DestinationPanel(reduceMotion: { previewReducedMotion })
             softPreview.presentConflict(Rect(40, 40, 400, 300))
             let softPanel = NSApp.windows.first { !panelIDs.contains(ObjectIdentifier($0)) }!
             try check(softPanel.alphaValue == 0 && softPanel.ignoresMouseEvents, "Soft preview starts transparent and never intercepts app input")
@@ -720,6 +721,10 @@ private final class FixturePreferences: PreferenceBackend {
             try check(!softPanel.isVisible, "Preview fades out and removes its overlay after the gesture")
             softPreview.animate = false; softPreview.presentConflict(retarget)
             try check(softPanel.frame == DesktopCoordinates.appKit(retarget) && softPanel.alphaValue == 1, "Disabling motion applies preview geometry immediately")
+            softPreview.orderOut(nil)
+            softPreview.animate = true; previewReducedMotion = true
+            softPreview.presentConflict(retarget)
+            try check(softPanel.frame == DesktopCoordinates.appKit(retarget) && softPanel.alphaValue == 1, "Reduce Motion skips preview movement while preserving the destination")
             softPreview.orderOut(nil)
             // Render only our own preview views for visual review, never desktop pixels.
             let canvas = NSView(frame: NSRect(x: 0, y: 0, width: 1224, height: 500))

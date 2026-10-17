@@ -284,6 +284,8 @@ struct DesktopInput {
 // Separate click-through panels softly fill each affected slot without covering the
 // desktop in one opaque overlay. Their geometry comes from the committed candidate.
 @MainActor final class DestinationPanel {
+    private let reduceMotion: () -> Bool
+    init(reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) { self.reduceMotion = reduceMotion }
     private var panels: [PreviewSlotPanel] = []
     var animate = true
     private var motion: Timer?
@@ -301,7 +303,7 @@ struct DesktopInput {
             return Transition(panel: panel, from: panel.frame, to: destination, alpha: panel.alphaValue, targetAlpha: index < rectangles.count ? 1 : 0)
         }
         started = ProcessInfo.processInfo.systemUptime
-        if !animate || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { advance(progress: 1); return }
+        if !animate || reduceMotion() { advance(progress: 1); return }
         motion = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in
             MainActor.assumeIsolated {
                 guard let self else { timer.invalidate(); return }
@@ -316,8 +318,10 @@ struct DesktopInput {
         let t = progress * progress * (3 - 2 * progress)
         for item in transitions {
             func mix(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * t }
-            item.panel.setFrame(NSRect(x: mix(item.from.minX, item.to.minX), y: mix(item.from.minY, item.to.minY), width: mix(item.from.width, item.to.width), height: mix(item.from.height, item.to.height)), display: true)
-            item.panel.alphaValue = mix(item.alpha, item.targetAlpha)
+            let frame = NSRect(x: mix(item.from.minX, item.to.minX), y: mix(item.from.minY, item.to.minY), width: mix(item.from.width, item.to.width), height: mix(item.from.height, item.to.height))
+            if item.panel.frame != frame { item.panel.setFrame(frame, display: true) }
+            let alpha = mix(item.alpha, item.targetAlpha)
+            if item.panel.alphaValue != alpha { item.panel.alphaValue = alpha }
             if progress >= 1 && item.targetAlpha == 0 { item.panel.orderOut(nil) }
         }
     }
