@@ -11,7 +11,7 @@ import SwiftUI
     private let allowGlass: Bool
     private let transparencyOverride: Bool?
     private var observer: NSObjectProtocol?
-    var tint: NSColor? { didSet { applyTint() } }
+    var tint: NSColor? { didSet { if oldValue != tint { applyTint() } } }
     init(radius: CGFloat, allowGlass: Bool = true, reduceTransparency: Bool? = nil) {
         self.radius = radius; self.allowGlass = allowGlass; self.transparencyOverride = reduceTransparency
         super.init(frame: .zero)
@@ -66,20 +66,22 @@ struct BentoWindowBackdrop: NSViewRepresentable {
     func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
 
-struct BentoGlassSurface: View {
-    var radius: CGFloat = 18
-    var tint: Color = .clear
-    var prominent = false
+private struct BentoGlassModifier: ViewModifier {
+    var radius: CGFloat
+    var tint: Color
+    var prominent: Bool
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    var body: some View {
+    @ViewBuilder func body(content: Content) -> some View {
         if reduceTransparency {
-            RoundedRectangle(cornerRadius: radius).fill(prominent ? tint : BentoStyle.surface)
+            content.background(prominent ? tint : BentoStyle.surface, in: RoundedRectangle(cornerRadius: radius))
         } else if #available(macOS 26.0, *) {
-            RoundedRectangle(cornerRadius: radius).fill(.clear)
-                .glassEffect(.regular.tint(tint), in: RoundedRectangle(cornerRadius: radius))
+            // Apply to the content itself: a separate glass sibling can be
+            // elevated over text by GlassEffectContainer and blur the controls.
+            content.glassEffect(.regular.tint(tint), in: RoundedRectangle(cornerRadius: radius))
+        } else if prominent {
+            content.background(tint, in: RoundedRectangle(cornerRadius: radius))
         } else {
-            if prominent { RoundedRectangle(cornerRadius: radius).fill(tint) }
-            else { RoundedRectangle(cornerRadius: radius).fill(.regularMaterial) }
+            content.background(.regularMaterial, in: RoundedRectangle(cornerRadius: radius))
         }
     }
 }
@@ -99,6 +101,9 @@ struct BentoWindowSurface: View {
 }
 
 extension View {
+    func bentoGlass(radius: CGFloat = 18, tint: Color = .clear, prominent: Bool = false) -> some View {
+        modifier(BentoGlassModifier(radius: radius, tint: tint, prominent: prominent))
+    }
     @ViewBuilder func bentoGlassContainer() -> some View {
         if #available(macOS 26.0, *) { GlassEffectContainer(spacing: 12) { self } }
         else { self }

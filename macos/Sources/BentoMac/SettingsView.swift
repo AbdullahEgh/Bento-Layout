@@ -20,7 +20,7 @@ struct SettingsView: View {
                     Picker("Settings page", selection: $model.page) {
                         ForEach(pages, id: \.self) { Text($0).tag($0) }
                     }.labelsHidden().frame(maxWidth: 180)
-                }.padding(.horizontal, 16).padding(.top, 24).padding(.bottom, 12).background(BentoGlassSurface(radius: 18))
+                }.padding(.horizontal, 16).padding(.top, 24).padding(.bottom, 12).bentoGlass(radius: 18)
             }
             HStack(spacing: 0) {
             if !compact { VStack(alignment: .leading, spacing: 8) {
@@ -36,7 +36,7 @@ struct SettingsView: View {
                 }
                 Spacer()
                 Text("macOS · \(updater.version)").font(.system(size: 10)).foregroundStyle(BentoStyle.secondary)
-            }.padding(22).frame(width: 195).background(BentoGlassSurface(radius: 18)) }
+            }.padding(22).frame(width: 195).bentoGlass(radius: 18) }
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     Text(model.page).font(.system(size: 28, weight: .semibold)).tracking(-0.5)

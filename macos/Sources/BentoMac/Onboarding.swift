@@ -29,7 +29,7 @@ struct OnboardingView: View {
                 BentoSymbol(name: "Workspace", size: 26).foregroundStyle(BentoStyle.accent).padding(.bottom, 12)
                 Text("Your windows,\nnaturally arranged.").font(.system(size: 14, weight: .medium)).lineSpacing(4)
                 Text("Made for the way you work.").font(.system(size: 10)).foregroundStyle(BentoStyle.secondary).padding(.top, 9)
-            }.padding(28).frame(width: 222).background(BentoGlassSurface(radius: 22))
+            }.padding(28).frame(width: 222).bentoGlass(radius: 22)
             VStack(alignment: .leading, spacing: 0) {
                 HStack { Text("WELCOME TO A CALMER DESKTOP").font(.system(size: 9, weight: .semibold)).tracking(1.5).foregroundStyle(BentoStyle.accent); Spacer(); Text("\(step + 1) / 4").font(.system(size: 11, design: .monospaced)).foregroundStyle(BentoStyle.secondary) }.padding(.bottom, 22)
                 Group {

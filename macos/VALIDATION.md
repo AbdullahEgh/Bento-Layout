@@ -1,6 +1,6 @@
 # Glass surfaces and release history — 2026-10-17
 
-Compact bullet histories cover each published Mac release and the initial preview. Settings and onboarding use shared native glass surfaces on macOS 26 and native blur on macOS 15. Preview checks cover brighter directional splits, conflict precedence, native glass availability, blur fallback and Reduce Transparency, alongside the existing layout, motion and click-through checks. Both compatibility jobs and signed release builds explicitly select Xcode 26.3 so the published binary includes native glass support while retaining its macOS 15 deployment target.
+Compact bullet histories cover each published Mac release and the initial preview. Settings and onboarding use shared native glass surfaces on macOS 26 and native blur on macOS 15. Preview checks cover brighter directional splits, conflict precedence, native glass availability, blur fallback and Reduce Transparency, alongside the existing layout, motion and click-through checks. 137 native checks passed locally. Live CUA inspection caught glass siblings covering foreground content; glass now attaches directly to content, keeping labels and controls sharp. The expanded per-release bullet log was verified in that corrected live preview. Both compatibility jobs and signed release builds explicitly select Xcode 26.3 so the published binary includes native glass support while retaining its macOS 15 deployment target.
 
 # macOS 0.2.19 responsive work areas and coordinated motion — 2026-10-17
 

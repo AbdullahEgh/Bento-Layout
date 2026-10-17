@@ -73,7 +73,7 @@ struct PrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
             .padding(.horizontal, 20).padding(.vertical, 12)
-            .background(BentoGlassSurface(radius: 12, tint: BentoStyle.accent, prominent: true))
+            .bentoGlass(radius: 12, tint: BentoStyle.accent, prominent: true)
             .opacity(configuration.isPressed ? 0.8 : 1)
     }
 }
@@ -81,7 +81,7 @@ struct BentoCard<Content: View>: View {
     @ViewBuilder let content: Content
     var body: some View {
         content.frame(maxWidth: .infinity, alignment: .leading).padding(20)
-            .background(BentoGlassSurface(radius: 18))
+            .bentoGlass(radius: 18)
     }
 }
 
