@@ -120,6 +120,7 @@ struct MacSettings: Codable {
         if activation { pendingApplicationActivation = nil }
         if let focused, focused.id != lastFocusedWindow || activation {
             recordInteraction(focused)
+            if pinned && !busy && !activating && !interacting { onStateChange?() }
             // Bringing an already-visible floating app forward is admission intent,
             // even when its window identity and frame have not changed. Consume
             // that intent once; a permanently oversized app must not cause a loop.
@@ -795,7 +796,7 @@ struct MacSettings: Codable {
             throw error
         }
     }
-    private func alignNativeSeams(_ workspace: Workspace, displays: [DisplayArea]) async -> Workspace {
+    private func alignNativeSeams(_ workspace: Workspace, displays: [DisplayArea], affectedWindows: Set<UUID>? = nil) async -> Workspace {
         func frames() -> [UUID: Rect] {
             Dictionary(uniqueKeysWithValues: windows.compactMap { window in
                 system.frame(of: window.element).map { (window.id, $0) }
@@ -809,7 +810,7 @@ struct MacSettings: Codable {
             let score = NativeSeamAlignment.score(root, area: display.bounds, gap: layoutGap, frames: before)
             guard score != Int.max else { return workspace }
             oldScore += score
-            if let aligned = NativeSeamAlignment.proposal(root, area: display.bounds, gap: layoutGap, frames: before) {
+            if let aligned = NativeSeamAlignment.proposal(root, area: display.bounds, gap: layoutGap, frames: before, affectedWindows: affectedWindows) {
                 candidate.roots[display.id] = aligned
             }
         }
@@ -1069,7 +1070,15 @@ struct MacSettings: Codable {
             try await apply(resolved, displays: displays, animate: false)
         }
         if commit {
-            resolved = await alignNativeSeams(resolved, displays: displays)
+            var affected = Set<UUID>()
+            for display in displays {
+                let old = (try? LayoutEngine.calculate(history.current.roots[display.id], in: display.bounds, gap: layoutGap).regions) ?? []
+                let previous = Dictionary(uniqueKeysWithValues: old.map { ($0.window.windowID, $0.bounds) })
+                for region in (try? LayoutEngine.calculate(resolved.roots[display.id], in: display.bounds, gap: layoutGap).regions) ?? [] {
+                    if previous[region.window.windowID] != region.bounds { affected.insert(region.window.windowID) }
+                }
+            }
+            resolved = await alignNativeSeams(resolved, displays: displays, affectedWindows: affected)
             released.subtract(resolved.windows.map(\.windowID))
             areaLayout = nil; editedLayout = true; history.commit(resolved); message = nil
             trace?("interaction history committed windows=\(resolved.windows.count)")

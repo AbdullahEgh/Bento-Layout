@@ -45,6 +45,12 @@ import BentoCore
             "Cell-sized native windows align the shared divider and give spare pixels to their neighbor")
         system.nativeGrid.removeAll(); system.areaOverride = nil
         await model.arrange(preserving: true); await model.setPinned(true)
+        var pinRefreshes = 0
+        model.onStateChange = { pinRefreshes += 1 }
+        system.focused = first
+        model.applicationActivated(first.pid)
+        try check(pinRefreshes > 0, "Focusing a pinned app refreshes its dim layer without moving windows")
+        model.onStateChange = nil; system.focused = nil
         let pinned = model.history.current, incomingFrame = system.frame(of: incoming.element)
         system.undiscovered.removeAll(); system.writes.removeAll()
         await model.arrange(preserving: true)

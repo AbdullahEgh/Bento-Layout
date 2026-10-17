@@ -25,6 +25,8 @@ final class InteractionAndUpdateTests: XCTestCase {
             for rounded in [a.windowID, b.windowID] {
                 var frames = Dictionary(uniqueKeysWithValues: regions.map { ($0.window.windowID, $0.bounds) })
                 if axis == .horizontal { frames[rounded]!.width -= 14 } else { frames[rounded]!.height -= 14 }
+                XCTAssertNil(NativeSeamAlignment.proposal(root, area: area, gap: 8, frames: frames, affectedWindows: []),
+                    "A manual edit must not repair an unrelated divider")
                 let aligned = try XCTUnwrap(NativeSeamAlignment.proposal(root, area: area, gap: 8, frames: frames))
                 let result = try LayoutEngine.calculate(aligned, in: area, gap: 8)
                 XCTAssertEqual(aligned.windows.map(\.windowID), root.windows.map(\.windowID))

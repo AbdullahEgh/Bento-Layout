@@ -13,7 +13,7 @@ public enum NativeSeamAlignment {
         }
         return total
     }
-    public static func proposal(_ root: LayoutNode, area: Rect, gap: Int, frames: [UUID: Rect]) -> LayoutNode? {
+    public static func proposal(_ root: LayoutNode, area: Rect, gap: Int, frames: [UUID: Rect], affectedWindows: Set<UUID>? = nil) -> LayoutNode? {
         guard let layout = try? LayoutEngine.calculate(root, in: area, gap: gap), score(root, area: area, gap: gap, frames: frames) != Int.max else { return nil }
         var best: (Int, LayoutNode)?
         func visit(_ node: LayoutNode) {
@@ -21,6 +21,7 @@ public enum NativeSeamAlignment {
                   let divider = layout.dividers.first(where: { $0.id == id }) else { return }
             for (child, isFirst) in [(first, true), (second, false)] {
                 guard case let .window(leaf) = child,
+                      affectedWindows == nil || affectedWindows!.contains(leaf.windowID),
                       let slot = layout.regions.first(where: { $0.window.windowID == leaf.windowID })?.bounds,
                       let actual = frames[leaf.windowID] else { continue }
                 let slack = axis == .horizontal ? slot.width - actual.width : slot.height - actual.height
