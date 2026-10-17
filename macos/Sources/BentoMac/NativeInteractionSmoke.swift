@@ -898,9 +898,14 @@ private final class FixturePreferences: PreferenceBackend {
             await model.restore()
             try check(model.message == nil && system.records.map { DesktopCoordinates.engine($0.1.frame) } == initial, "Slow native restoration waits for the final frames")
             system.deferWrites = false; system.writeDelay = 0.04
-            reduceMotion = true; system.writes.removeAll()
+            reduceMotion = true; system.writes.removeAll(); system.motionAdjustmentDepths.removeAll()
             await model.arrange()
-            try check(system.writes.values.allSatisfy { $0 == 1 }, "Reduce Motion sends only final native frames")
+            // A late native frame may need the one bounded final-frame retry.
+            // Observe the animation channel directly instead of mistaking that
+            // recovery write for an intermediate animation sample.
+            try check(try system.motionAdjustmentDepths.isEmpty && !system.writes.isEmpty
+                && system.writes.values.allSatisfy { (1...2).contains($0) } && matchingGeometry(),
+                "Reduce Motion omits animation samples and reaches final geometry with bounded native retries")
             await model.restore(); reduceMotion = false
             let gripView = GripView(axis: .horizontal); gripView.animate = false
             try check(gripView.visibleInk == 0, "Idle grip is fully hidden")
