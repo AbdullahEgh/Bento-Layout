@@ -4,26 +4,28 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.16</title>
-            <pubDate>Sat, 17 Oct 2026 00:01:10 +0000</pubDate>
-            <sparkle:version>119</sparkle:version>
-            <sparkle:shortVersionString>0.2.16</sparkle:shortVersionString>
+            <title>0.2.17</title>
+            <pubDate>Sat, 17 Oct 2026 00:41:47 +0000</pubDate>
+            <sparkle:version>121</sparkle:version>
+            <sparkle:shortVersionString>0.2.17</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.16
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.17
 
 What’s new
 
-- Change Dock hiding, menu-bar hiding, and native snapping while Bento is running. Turning an option off restores its previous macOS setting immediately.
-- Adjust window gaps and desktop margins live, with matching grabber positions. Rapid edits are combined, and updates wait until a window drag ends.
-- Preserve edited slots when available desktop space changes.
-- Calculate a fitting arrangement for a new app before minimizing another app when an edited layout is too restrictive.
-- Adapt to persistent app size changes, protect the focused or newly opened app, and stop repeating unchanged failed arrangements.
-- Prevent Bento settings clicks and slider drags from grabbing windows underneath the settings panel.
+- Drag a tiled window to the outer screen edge to move its whole section. A large right slot can move left while the stacked left slots move right together, preserving their sizes and internal split.
+- Preview every affected slot before releasing a section move. Undo restores the original grouping and ratios.
+- Closing a window smoothly expands the remaining slots, respecting animation settings and Reduce Motion.
+- Keep gap grabbers below app windows and above the dark backdrop, visible only on hover or while held.
+- Keep normal window swaps and hold-to-split gestures inside the layout.
+- Show a dim outline menu-bar icon while Bento is off and a filled white icon while it is active.
+- Group the menu-bar right-click menu into Layout, Layout history, Desktop and Bento, with a combined Hide Dock & Menu Bar toggle.
+- Organize settings into Layout & spacing, Desktop, Appearance & motion, and General, with switches aligned to the far right.
 ]]></description>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.16/Bento-macos-universal.zip" length="3194216" type="application/octet-stream" sparkle:edSignature="0lnBMm6+32oXqaa/EzYyclem2pNfHYHZqzRD12FN6pTjD1Oww0WDH8M6oDOHB0fgLZqIxi9LC8wj4CuUpCITBA=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.17/Bento-macos-universal.zip" length="3257747" type="application/octet-stream" sparkle:edSignature="L9LEPJsgoKABfowm5OmOzSLhxMGtZJqy4x4LdqoQBXckSqielQKO0ISeUHREo9OgnaQpJpHoB2s+D22iu4D8Bg=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: ogHWH+qZwVrxezYGJ/5wsvgx6IE4SICmFV0DRCFxnOALi7q/TxsZIQnzOGXCzaDv7GVofgs6qcsQsfKurR/KAw==
-length: 1897
+edSignature: H2SgIKcPQTzhLZB+r5CdC3/55xzg2kUblutoUZJQWfm6l7bm9rdbFpjcgK6bwUh869ZND61S7LdX4I/orwqYDg==
+length: 2128
 -->
