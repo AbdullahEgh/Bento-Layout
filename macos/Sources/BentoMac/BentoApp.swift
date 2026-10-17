@@ -236,7 +236,7 @@ import Carbon.HIToolbox
         do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) } catch { exit(1) }
         Task { @MainActor in
             for width in [820, 360] {
-            for dark in [false, true] {
+            for dark in [true, false] {
                 for page in ["Workspace", "Gestures", "Updates", "What's New", "About"] {
                     model.page = page
                     let view = SettingsView(model: model, updater: updater, showOnboarding: {}).environment(\.colorScheme, dark ? .dark : .light)

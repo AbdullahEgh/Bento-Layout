@@ -1,6 +1,3 @@
-Bento for macOS 0.2.20
+Bento for macOS 0.2.21
 
-- Correct native title bar and a shorter menu-bar menu.
-- Gentle glass slot outlines, without blue indicators.
-- Explicit session saves keep windows in place when Bento turns off.
-- Dock and menu-bar hiding reset when Bento restarts.
+- Fix title-bar contrast in dark and light modes while keeping glass content.

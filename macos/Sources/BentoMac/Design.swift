@@ -146,7 +146,7 @@ struct DemoDesktop: View {
         if !onboarding { window.styleMask.insert(.resizable); window.contentMinSize = NSSize(width: 340, height: 420) }
         window.titleVisibility = .visible; window.titlebarAppearsTransparent = false
         window.titlebarSeparatorStyle = .none
-        window.isOpaque = false; window.backgroundColor = .clear
+        window.isOpaque = true; window.backgroundColor = .windowBackgroundColor
         updateAppearance(window, theme: theme)
     }
     static func updateAppearance(_ window: NSWindow, theme: String) {

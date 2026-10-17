@@ -410,6 +410,17 @@ private final class FixturePreferences: PreferenceBackend {
             BentoWindowChrome.configure(chrome, onboarding: false, theme: "Dark")
             try check(!chrome.styleMask.contains(.fullSizeContentView) && chrome.titleVisibility == .visible && !chrome.titlebarAppearsTransparent && chrome.appearance?.name == .darkAqua,
                 "Settings reserve a native title bar and match the selected appearance")
+            for appearance in ["Dark", "Light"] {
+                BentoWindowChrome.updateAppearance(chrome, theme: appearance)
+                var readable = false
+                chrome.effectiveAppearance.performAsCurrentDrawingAppearance {
+                    if let background = chrome.backgroundColor.usingColorSpace(.deviceRGB), let foreground = NSColor.labelColor.usingColorSpace(.deviceRGB) {
+                        func luminance(_ color: NSColor) -> CGFloat { 0.2126 * color.redComponent + 0.7152 * color.greenComponent + 0.0722 * color.blueComponent }
+                        readable = background.alphaComponent >= 0.99 && abs(luminance(background) - luminance(foreground)) >= 0.45
+                    }
+                }
+                try check(chrome.isOpaque && readable, "\(appearance) title bar retains an opaque background with readable native title contrast")
+            }
             if let close = chrome.standardWindowButton(.closeButton) {
                 let buttonFrame = close.convert(close.bounds, to: nil)
                 try check(buttonFrame.minY >= chrome.contentLayoutRect.maxY, "Window controls sit above settings content instead of overlapping the glass sidebar")
