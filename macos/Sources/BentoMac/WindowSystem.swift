@@ -25,6 +25,32 @@ enum DesktopCoordinates {
     static func pointer() -> Point { let p = NSEvent.mouseLocation; return Point(Int(p.x), Int(primaryTop - p.y)) }
 }
 
+private enum DockGeometry {
+    private static var cached: Rect?
+    private static var lastRead = -Double.infinity
+    static func current() -> Rect? {
+        let now = ProcessInfo.processInfo.systemUptime
+        if now - lastRead < 0.15 { return cached }
+        lastRead = now; cached = nil
+        guard AXIsProcessTrusted(), let dock = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first else { return nil }
+        func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
+            var value: CFTypeRef?
+            return AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success ? value : nil
+        }
+        let app = AXUIElementCreateApplication(dock.processIdentifier)
+        AXUIElementSetMessagingTimeout(app, 0.05)
+        guard let children = attribute(app, kAXChildrenAttribute) as? [AXUIElement],
+              let list = children.first(where: { attribute($0, kAXRoleAttribute) as? String == kAXListRole }),
+              let p = attribute(list, kAXPositionAttribute), let s = attribute(list, kAXSizeAttribute),
+              CFGetTypeID(p) == AXValueGetTypeID(), CFGetTypeID(s) == AXValueGetTypeID() else { return nil }
+        var point = CGPoint.zero, size = CGSize.zero
+        guard AXValueGetValue(p as! AXValue, .cgPoint, &point), AXValueGetValue(s as! AXValue, .cgSize, &size),
+              point.x.isFinite, point.y.isFinite, size.width.isFinite, size.height.isFinite else { return nil }
+        cached = Rect(Int(point.x.rounded()), Int(point.y.rounded()), Int(size.width.rounded()), Int(size.height.rounded()))
+        return cached
+    }
+}
+
 struct DisplayArea: Equatable {
     let id: String; let name: String; let bounds: Rect
     static func all(margin: Int, fullScreen: Bool = false) -> [DisplayArea] {
@@ -34,10 +60,11 @@ struct DisplayArea: Equatable {
         }
         let hideMenu = flag(kCFPreferencesAnyApplication, "_HIHideMenuBar")
         let hideDock = flag("com.apple.dock" as CFString, "autohide")
+        let dock = hideDock ? nil : DockGeometry.current()
         return NSScreen.screens.map { screen in
             let number = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
             let uuid = CGDisplayCreateUUIDFromDisplayID(number).takeRetainedValue()
-            return DisplayArea(id: CFUUIDCreateString(nil, uuid) as String, name: screen.localizedName, bounds: fullScreen ? DesktopCoordinates.engine(screen.frame).inset(margin) : DesktopWorkArea.calculate(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopCoordinates.engine(screen.visibleFrame), hideMenuBar: hideMenu, hideDock: hideDock, safeTop: Int(screen.safeAreaInsets.top.rounded(.up)), margin: margin))
+            return DisplayArea(id: CFUUIDCreateString(nil, uuid) as String, name: screen.localizedName, bounds: fullScreen ? DesktopCoordinates.engine(screen.frame).inset(margin) : DesktopWorkArea.calculate(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopWorkArea.correctingDock(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopCoordinates.engine(screen.visibleFrame), dock: dock), hideMenuBar: hideMenu && DesktopCoordinates.engine(screen.visibleFrame).y <= DesktopCoordinates.engine(screen.frame).y + Int(screen.safeAreaInsets.top.rounded(.up)), hideDock: hideDock, safeTop: Int(screen.safeAreaInsets.top.rounded(.up)), margin: margin))
         }
     }
 }
@@ -90,6 +117,29 @@ final class ManagedWindow {
         }
         if frame.x != previous.x || frame.y != previous.y {
             guard let value = AXValueCreate(.cgPoint, &point), AXUIElementSetAttributeValue(window.element, kAXPositionAttribute as CFString, value) == .success else { throw WindowFailure.rejected(window.title) }
+        }
+    }
+    /// Chromium's enhanced AX mode animates native frame writes independently.
+    /// Suspend it only for a Vivaldi transaction, preserve its previous value, and
+    /// never interrupt built-in assistive technology. This does not enable a web AX tree.
+    func beginFrameAdjustment(_ windows: [ManagedWindow]) -> () -> Void {
+        guard !NSWorkspace.shared.isVoiceOverEnabled, !NSWorkspace.shared.isSwitchControlEnabled else { return {} }
+        var restored: [AXUIElement] = [], seen = Set<pid_t>()
+        for window in windows where window.bundleID == "com.vivaldi.Vivaldi" || window.bundleID.hasPrefix("com.vivaldi.Vivaldi.") {
+            guard seen.insert(window.pid).inserted else { continue }
+            let app = AXUIElementCreateApplication(window.pid)
+            AXUIElementSetMessagingTimeout(app, 0.15)
+            if attribute(app, "AXEnhancedUserInterface") as? Bool == true,
+               AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanFalse) == .success { restored.append(app) }
+        }
+        return { for app in restored { _ = AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue) } }
+    }
+    func desktopSpaceReady() -> Bool {
+        let hideMenu = (CFPreferencesCopyValue("_HIHideMenuBar" as CFString, kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? NSNumber)?.boolValue ?? false
+        return NSScreen.screens.allSatisfy { screen in
+            let top = Int((screen.frame.maxY - screen.visibleFrame.maxY).rounded())
+            let safe = Int(screen.safeAreaInsets.top.rounded(.up))
+            return hideMenu ? top <= safe : top >= max(1, safe)
         }
     }
     func requestPermission() {
@@ -153,7 +203,21 @@ final class ManagedWindow {
         let retainedIDs = Set(known.map(\.id))
         known.append(contentsOf: found.filter { !retainedIDs.contains($0.id) })
         known.removeAll { !isAlive($0) }
-        return found
+        // WindowServer supplies front-to-back order. Unlike runningApplications,
+        // this gives a useful recent-use baseline before Bento has focus history.
+        func rank(_ window: ManagedWindow) -> Int {
+            visible.firstIndex { info in
+                guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == window.pid,
+                      (info[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
+                      let raw = info[kCGWindowBounds as String] as? [String: Any],
+                      let rect = CGRect(dictionaryRepresentation: raw as CFDictionary) else { return false }
+                return abs(rect.minX - CGFloat(window.frame.x)) <= 3 && abs(rect.minY - CGFloat(window.frame.y)) <= 3
+            } ?? Int.max
+        }
+        return found.enumerated().sorted {
+            let a = rank($0.element), b = rank($1.element)
+            return a == b ? $0.offset < $1.offset : a < b
+        }.map(\.element)
     }
     func isAlive(_ window: ManagedWindow) -> Bool {
         guard NSRunningApplication(processIdentifier: window.pid)?.isTerminated == false else { return false }
@@ -189,6 +253,11 @@ final class ManagedWindow {
         // size only when the move actually left it different from the requested size.
         if move, let actual = self.frame(of: window.element), actual.width != frame.width || actual.height != frame.height {
             guard AXUIElementSetAttributeValue(window.element, kAXSizeAttribute as CFString, s) == .success else { throw WindowFailure.rejected(window.title) }
+        }
+        // Resizing itself can shift the origin (notably Chromium/Vivaldi near
+        // the menu bar). Verify after the final size write, then place once more.
+        if let actual = self.frame(of: window.element), actual.x != frame.x || actual.y != frame.y {
+            guard AXUIElementSetAttributeValue(window.element, kAXPositionAttribute as CFString, p) == .success else { throw WindowFailure.rejected(window.title) }
         }
     }
     func accepted(_ window: ManagedWindow, _ wanted: Rect) -> Bool {

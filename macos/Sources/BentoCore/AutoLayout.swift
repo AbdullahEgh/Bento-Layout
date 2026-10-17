@@ -1,6 +1,42 @@
 import Foundation
 
 public enum AutoLayout {
+    /// Activation order is most-recent first. Give the primary window a large
+    /// pane, then solve the remaining group with the same constraint engine.
+    /// Eviction is bounded and happens in memory, oldest first, before any AX write.
+    public static func activating(_ windows: [WindowLeaf], in area: Rect, gap: Int = 8) throws -> LayoutNode? {
+        guard gap >= 0, Set(windows.map(\.windowID)).count == windows.count,
+              windows.allSatisfy({ $0.minimum.width > 0 && $0.minimum.height > 0 }) else { throw LayoutError.invalidInput }
+        var candidates = windows.filter { $0.minimum.width <= area.width && $0.minimum.height <= area.height }
+        while let primary = candidates.first {
+            if candidates.count == 1 { return .window(primary) }
+            let rest = Array(candidates.dropFirst())
+            let wide = area.width >= area.height
+            for horizontal in [wide, !wide] {
+                let length = (horizontal ? area.width : area.height) - gap
+                let minimum = horizontal ? primary.minimum.width : primary.minimum.height
+                guard length > minimum else { continue }
+                // Try a prominent pane first, then the minimum required primary
+                // pane. A constrained secondary app can legitimately need more.
+                for cut in [0.6, 0.55, 0.5].map({ max(minimum, Int(Double(length) * $0)) }) + [minimum] where cut < length {
+                    let secondary = horizontal
+                        ? Rect(area.x + cut + gap, area.y, length - cut, area.height)
+                        : Rect(area.x, area.y + cut + gap, area.width, length - cut)
+                    if let group = try? arrange(rest, in: secondary, gap: gap) {
+                        let root = LayoutNode.split(id: UUID(), axis: horizontal ? .horizontal : .vertical,
+                            ratio: Double(cut) / Double(length), first: .window(primary), second: group)
+                        _ = try LayoutEngine.calculate(root, in: area, gap: gap)
+                        return root
+                    }
+                }
+            }
+            // Try the full constraint solver before evicting an older app.
+            if let root = try? arrange(candidates, in: area, gap: gap) { return root }
+            candidates.removeLast()
+        }
+        return nil
+    }
+
     /// Retain a valid edited layout where possible. Priority admission tries a
     /// fitting arrangement for all usable apps before evicting idle windows.
     /// Only capacity errors are recoverable; invalid geometry still fails explicitly.

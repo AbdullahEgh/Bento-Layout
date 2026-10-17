@@ -15,7 +15,9 @@ import AppKit
             }
         }
         for (panel, screen) in zip(panels, NSScreen.screens) {
-            let color = NSColor.black.withAlphaComponent(CGFloat(darkness) / 100)
+            // Pure black at high opacity swallows the WindowServer's black drop
+            // shadows. Keep a neutral luminance floor so native shadows remain visible.
+            let color = NSColor(white: 0.12, alpha: CGFloat(darkness) / 100)
             if panel.backgroundColor != color { panel.backgroundColor = color }
             if panel.frame != screen.frame { panel.setFrame(screen.frame, display: true) }
             // Above the desktop, behind ordinary application windows; never activates.

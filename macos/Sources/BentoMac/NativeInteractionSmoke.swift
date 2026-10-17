@@ -122,6 +122,9 @@ private final class FixturePreferences: PreferenceBackend {
         do {
             await model.arrange(); interactions.synchronize()
             try check(model.active && matchingGeometry(), "Three disposable native windows arranged")
+            let activationRegions = try regions().1.regions
+            let primaryRegion = activationRegions.first { $0.window.windowID == system.records[0].0.id }!
+            try check(activationRegions.allSatisfy { $0.bounds.width * $0.bounds.height <= primaryRegion.bounds.width * primaryRegion.bounds.height }, "Most recent activation window receives the largest feasible slot")
             try check(system.writes.values.allSatisfy { $0 == 1 }, "Arrangement writes each native window once without intermediate resize animation")
             let writeCount = system.writes
             await model.arrange(preserving: true)
@@ -718,8 +721,16 @@ private final class FixturePreferences: PreferenceBackend {
             model.settings.minimizeOverflow = true; await model.applyLiveSettings()
             try check(system.isMinimized(oversized) && model.minimizedByBento.count == 1, "Turning overflow minimization on live minimizes only unplaced eligible windows")
             let overflowLayout = model.history.current
-            await model.restore(); await model.toggleLayout()
-            try check(try model.history.current == overflowLayout && system.isMinimized(oversized) && matchingGeometry(), "Toggle resume restores Dock overflow ownership without readmitting or moving other slots")
+            await model.restore()
+            let previousFocus = system.focused
+            let mostRecent = system.records.map(\.0).first { $0.id != oversized.id }!
+            system.focused = mostRecent; model.recordInteraction(mostRecent)
+            await model.toggleLayout()
+            let renewedRegions = try regions().1.regions
+            let recentSlot = renewedRegions.first { $0.window.windowID == mostRecent.id }!
+            try check(try Set(model.history.current.windows.map(\.windowID)) == Set(overflowLayout.windows.map(\.windowID)) && system.isMinimized(oversized) && matchingGeometry(), "Fresh activation retains overflow ownership and every fitting window")
+            try check(renewedRegions.allSatisfy { $0.bounds.width * $0.bounds.height <= recentSlot.bounds.width * recentSlot.bounds.height }, "Fresh activation updates the largest slot to the latest focused app")
+            system.focused = previousFocus
             oversized.minimum = Size(160, 120)
             try system.setMinimized(oversized, false)
             await model.arrange(preserving: true)

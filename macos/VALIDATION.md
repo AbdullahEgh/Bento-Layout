@@ -217,3 +217,11 @@ Local 0.2.15 verification: 40 core tests and 91 isolated native checks passed. T
 - 111 isolated native checks passed. New checks cover coalesced and single-point gap changes, live margins and grabber geometry, desktop-drag deferral, held settings controls, rollback after a refused spacing write, live Dock/menu-bar/snapping and overflow settings, automatic adaptation to persistent native size changes, and cancellation during desktop updates.
 - The planner tests cover reflowing fragmented slots before LRU eviction and excluding individually impossible apps before sacrificing usable windows.
 - Separate-process Accessibility checks include live gaps and margins; real desktop preference and installed OTA checks are performed after publication. Fixture preference backends and settings persistence remain isolated from user configuration.
+
+### 0.2.22 desktop space and activation reliability
+
+- 53 core tests passed, including recent-first activation, a largest feasible primary pane, oldest-first overflow, asymmetric minimum sizes, and stale Dock reservations after resizing or changing edges.
+- 151 disposable native interaction checks passed. Fresh reactivation updates the primary slot for the latest focused app while preserving fitting membership and overflow ownership. Explicit session saves and manually edited layouts retain their existing resume checks.
+- Desktop preference changes refresh their actual host: Dock for Dock/tiling, ControlCenter for menu-bar hiding. A bounded native work-area observation replaces the fixed delay; requested menu hiding no longer grants unconfirmed top space.
+- The real adapter uses current Dock AX geometry, verifies the final origin after resizing, and temporarily suspends Vivaldi's enhanced AX mode during a transaction while preserving its previous value and built-in assistive technology.
+- The dimming backdrop retains neutral luminance so native black shadows remain distinguishable. Third-party Vivaldi, desktop hiding, and signed OTA installation are checked on the installed build after publication; fixture results alone do not certify those desktop interactions.

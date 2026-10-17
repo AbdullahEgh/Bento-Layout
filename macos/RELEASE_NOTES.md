@@ -1,3 +1,5 @@
-Bento for macOS 0.2.21
+Bento for macOS 0.2.22
 
-- Fix title-bar contrast in dark and light modes while keeping glass content.
+- Dock and menu-bar changes reclaim desktop space automatically.
+- Recent apps get priority and a larger starting slot; idle apps make room.
+- More reliable Vivaldi resizing and visible native window shadows.

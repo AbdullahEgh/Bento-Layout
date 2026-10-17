@@ -112,6 +112,23 @@ public enum LayoutEngine {
 /// Desktop controls can briefly leave AppKit's visible frame stale while hiding.
 /// Reclaim only opted-out reservations, retaining the camera-safe top inset.
 public enum DesktopWorkArea {
+    /// Dock accessibility geometry updates when its size/edge changes, even when
+    /// NSScreen still reports the previous reservation. Ignore off-screen/invalid
+    /// data and keep the menu-bar boundary independent of the Dock.
+    public static func correctingDock(frame: Rect, visible: Rect, dock: Rect?) -> Rect {
+        guard let dock, dock.width > 0, dock.height > 0,
+              dock.right > frame.x, dock.x < frame.right, dock.bottom > frame.y, dock.y < frame.bottom else { return visible }
+        var left = frame.x, right = frame.right, bottom = frame.bottom
+        if dock.width >= dock.height, abs(frame.bottom - dock.bottom) <= 32, dock.height < frame.height / 3 {
+            bottom = max(visible.y, dock.y)
+        } else if dock.height > dock.width, abs(dock.x - frame.x) <= 32, dock.width < frame.width / 3 {
+            left = dock.right
+        } else if dock.height > dock.width, abs(frame.right - dock.right) <= 32, dock.width < frame.width / 3 {
+            right = dock.x
+        } else { return visible }
+        return Rect(left, visible.y, max(0, right - left), max(0, bottom - visible.y))
+    }
+
     public static func calculate(frame: Rect, visible: Rect, hideMenuBar: Bool, hideDock: Bool, safeTop: Int = 0, margin: Int = 0) -> Rect {
         let top = max(frame.y + safeTop, hideMenuBar ? frame.y : visible.y)
         let left = hideDock ? frame.x : max(frame.x, visible.x)

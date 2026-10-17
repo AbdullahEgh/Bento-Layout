@@ -107,6 +107,7 @@ struct MacSettings: Codable {
     private var timer: Timer?
     private var lastDisplays: [DisplayArea] = []
     private var released = Set<UUID>()
+    private var editedLayout = false
     private var lastBento: Workspace?
     private var lastReleased = Set<UUID>()
     private var lastMinimized = Set<UUID>()
@@ -134,7 +135,13 @@ struct MacSettings: Codable {
         if backgroundMonitoring {
             timer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in Task { @MainActor in self?.tick() } }
             activationObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.lastMembershipScan = 0 }
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.lastMembershipScan = 0
+                    // Keep recent-use history even while Bento is off. Settings
+                    // activation must not replace the last focused external app.
+                    if let current = try? self.system.discover() { self.observeFocus(in: current) }
+                }
             }
         }
     }
@@ -169,6 +176,23 @@ struct MacSettings: Codable {
         let desired = try settings.desktopOverrides()
         try desktopPreferences.activate(desired); appliedDesktopOptions = desired
         appliedMinimizeOverflow = settings.minimizeOverflow
+    }
+    private func settleDesktopSpace() async throws {
+        // A preference write is not proof that the host has applied its work area.
+        // Observe a stable native area while the restarted host comes back; keep
+        // polling bounded and never probe application windows for desktop geometry.
+        guard backgroundMonitoring else { return }
+        let started = ProcessInfo.processInfo.systemUptime
+        var previous = displayAreas(), stable = 0
+        repeat {
+            try await Task.sleep(for: .milliseconds(80))
+            let current = displayAreas()
+            stable = current == previous ? stable + 1 : 0
+            previous = current
+            let hostsReady = !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").isEmpty
+                && !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.controlcenter").isEmpty
+            if stable >= 2 && hostsReady && system.desktopSpaceReady() && ProcessInfo.processInfo.systemUptime - started >= 0.32 { return }
+        } while ProcessInfo.processInfo.systemUptime - started < 2
     }
     func saveSettings() {
         guard settings.shortcut.valid else { message = "Choose at least one modifier for the shortcut."; onSettingsChange?(); return }
@@ -214,7 +238,7 @@ struct MacSettings: Codable {
                 activating = true
                 do {
                     try desktopPreferences.update(desired); appliedDesktopOptions = desired
-                    try await Task.sleep(for: .milliseconds(500))
+                    try await settleDesktopSpace()
                     while desktopPointerPressed { try await Task.sleep(for: .milliseconds(50)) }
                 } catch { activating = false; appliedDesktopOptions = [:]; throw error }
                 guard active else { return }
@@ -340,7 +364,7 @@ struct MacSettings: Codable {
         catch { message = error.localizedDescription }
     }
     func toggle() { Task { await toggleLayout() } }
-    func toggleLayout() async { if active { await stop() } else { await arrange(resuming: lastBento != nil) } }
+    func toggleLayout() async { if active { await stop() } else { await arrange(resuming: lastBento != nil && (editedLayout || savedSessionLayout != nil || !lastReleased.isEmpty)) } }
     private func display(for window: ManagedWindow, displays: [DisplayArea]) -> DisplayArea? {
         displays.max { a, b in
             func overlap(_ r: Rect) -> Int { max(0, min(r.right, window.frame.right) - max(r.x, window.frame.x)) * max(0, min(r.bottom, window.frame.bottom) - max(r.y, window.frame.y)) }
@@ -372,7 +396,7 @@ struct MacSettings: Codable {
                 message = "Open an application window to begin."; return false
             }
             if !wasActive {
-                try activateDesktop(); try await Task.sleep(for: .milliseconds(500))
+                try activateDesktop(); try await settleDesktopSpace()
             }
             let displays = displayAreas()
             let previous = preserving ? history.current : resuming ? lastBento ?? Workspace() : Workspace()
@@ -380,21 +404,27 @@ struct MacSettings: Codable {
                 // Resume the edited tree itself. Native frames have just been restored
                 // to pre-Bento positions and cannot determine saved display ownership.
                 let next = previous.reconciled(with: current.map(\.leaf))
-                for (id, root) in next.roots {
-                    guard let area = displays.first(where: { $0.id == id }) else { throw LayoutError.missingTarget }
-                    _ = try LayoutEngine.calculate(root, in: area.bounds, gap: layoutGap)
+                let rememberedFits = next.roots.allSatisfy { id, root in
+                    guard let area = displays.first(where: { $0.id == id }) else { return false }
+                    return (try? LayoutEngine.calculate(root, in: area.bounds, gap: layoutGap)) != nil
                 }
-                try await apply(next, displays: displays)
-                for window in current where lastMinimized.contains(window.id) && !next.windows.contains(where: { $0.windowID == window.id }) {
-                    try? system.setMinimized(window, true)
-                    if system.isMinimized(window) { minimizedByBento[window.id] = window }
+                if rememberedFits {
+                    do {
+                        try await apply(next, displays: displays)
+                        for window in current where lastMinimized.contains(window.id) && !next.windows.contains(where: { $0.windowID == window.id }) {
+                            try? system.setMinimized(window, true)
+                            if system.isMinimized(window) { minimizedByBento[window.id] = window }
+                        }
+                        guard generation == activationGeneration else { return false }
+                        history.commit(next); lastDisplays = displays; reopenedWindows.removeAll()
+                        active = !next.windows.isEmpty || !minimizedByBento.isEmpty
+                        if !active { try desktopPreferences.restore() }
+                        message = nil; scheduleSettledValidation(); trace?("saved arrangement resumed without automatic placement")
+                        onStateChange?(); return true
+                    } catch WindowFailure.minimumSize {
+                        trace?("remembered layout needs updated native size constraints")
+                    }
                 }
-                guard generation == activationGeneration else { return false }
-                history.commit(next); lastDisplays = displays; reopenedWindows.removeAll()
-                active = !next.windows.isEmpty || !minimizedByBento.isEmpty
-                if !active { try desktopPreferences.restore() }
-                message = nil; scheduleSettledValidation(); trace?("saved arrangement resumed without automatic placement")
-                onStateChange?(); return true
             }
             // Plan with known constraints first. An unknown native minimum gets one
             // correction, never a per-window series of visible layout attempts.
@@ -414,11 +444,20 @@ struct MacSettings: Codable {
                         // Already minimized overflow gives up space before visible apps.
                         let a = minimizedByBento[$0.element.id] != nil ? -1 : lastInteraction[$0.element.id] ?? 0
                         let b = minimizedByBento[$1.element.id] != nil ? -1 : lastInteraction[$1.element.id] ?? 0
-                        return a == b ? $0.offset < $1.offset : a < b
+                        return a == b ? $0.offset > $1.offset : a < b
                     }.map { $0.element.id }
-                    let priority = reopenedWindows.isEmpty
-                        ? Set(system.focusedWindow(in: members).map { [$0.id] } ?? []) : reopenedWindows
-                    next.roots[area.id] = try AutoLayout.fitting(members.map(\.leaf), in: area.bounds, gap: layoutGap, preserving: previous.roots[area.id], prioritizing: priority, leastRecentlyUsed: oldestFirst)
+                    let focused = system.focusedWindow(in: members)
+                    let recentFocus = members.first { $0.id == lastFocusedWindow }
+                    let primary = focused ?? recentFocus ?? members.first
+                    var priority = reopenedWindows
+                    if priority.isEmpty, let primary { priority.insert(primary.id) }
+                    if previous.roots[area.id] == nil {
+                        let rank = Dictionary(uniqueKeysWithValues: oldestFirst.enumerated().map { ($0.element, $0.offset) })
+                        let recent = members.sorted { (rank[$0.id] ?? 0) > (rank[$1.id] ?? 0) }
+                        next.roots[area.id] = try AutoLayout.activating(recent.map(\.leaf), in: area.bounds, gap: layoutGap)
+                    } else {
+                        next.roots[area.id] = try AutoLayout.fitting(members.map(\.leaf), in: area.bounds, gap: layoutGap, preserving: previous.roots[area.id], prioritizing: priority, leastRecentlyUsed: oldestFirst)
+                    }
                 }
                 if automatic && system.pointerPressed {
                     windows = previousWindows; trace?("automatic arrangement deferred: pointer pressed during discovery")
@@ -443,6 +482,7 @@ struct MacSettings: Codable {
                 minimizeOverflow(included: included, current: current.filter { !released.contains($0.id) })
                 trace?("arrangement committed attempt=\(attempt + 1) tiled=\(included.count) overflow=\(current.count - included.count)")
                 reopenedWindows.removeAll(); failedAutomaticInput = nil
+                if !preserving && !resuming { editedLayout = false }
                 lastDisplays = displays; history.commit(next); active = !included.isEmpty || !minimizedByBento.isEmpty
                 if !active { try desktopPreferences.restore() }
                 message = active ? nil : "No windows fit on this display. Your windows were left in their original positions."
@@ -463,6 +503,8 @@ struct MacSettings: Codable {
     }
     func apply(_ workspace: Workspace, displays: [DisplayArea], allowSkipping: Bool = false, liveResize: Bool = false, animate: Bool = true) async throws {
         guard !busy else { throw LayoutError.invalidInput }; busy = true; defer { busy = false }
+        let restoreAXMode = system.beginFrameAdjustment(windows)
+        defer { restoreAXMode() }
         func write(_ window: ManagedWindow, frame: Rect) throws {
             do { try system.write(window, frame: frame) }
             catch WindowFailure.rejected where allowSkipping { throw ArrangementFailure.window(window.id) }
@@ -545,11 +587,12 @@ struct MacSettings: Codable {
         var constrained = Set<String>()
         for (window, wanted) in rejected {
             guard let actual = system.frame(of: window.element) else { continue }
-            if actual.width > wanted.width + 2 || actual.height > wanted.height + 2 {
-                if actual.width > wanted.width + 2 { window.minimum.width = max(window.minimum.width, actual.width) }
-                if actual.height > wanted.height + 2 { window.minimum.height = max(window.minimum.height, actual.height) }
-                constrained.insert(window.application)
+            var learned = false
+            if actual.width > wanted.width + 2 { window.minimum.width = max(window.minimum.width, actual.width); learned = true }
+            if abs(actual.y - wanted.y) <= 2, actual.height > wanted.height + 2 {
+                window.minimum.height = max(window.minimum.height, actual.height); learned = true
             }
+            if learned { constrained.insert(window.application) }
         }
         if !constrained.isEmpty { throw WindowFailure.minimumSize(constrained.sorted().joined(separator: ", ")) }
         if let first = rejected.first {
@@ -654,7 +697,7 @@ struct MacSettings: Codable {
         let next = history.current.removing(window.id)
         do {
             try await apply(next, displays: displayAreas())
-            released.insert(window.id); history.commit(next)
+            released.insert(window.id); editedLayout = true; history.commit(next)
             message = "Window excluded from automatic layout. Choose Arrange All Windows to include it again."; scheduleSettledValidation(); onStateChange?()
         } catch { message = error.localizedDescription }
     }
@@ -667,7 +710,7 @@ struct MacSettings: Codable {
             windows = try discoverWindows()
             if !wasActive {
                 for window in windows where originals[window.id] == nil { originals[window.id] = (window, window.frame) }
-                try activateDesktop(); try await Task.sleep(for: .milliseconds(500))
+                try activateDesktop(); try await settleDesktopSpace()
             }
             guard generation == activationGeneration else { return }
             let displays = displayAreas()
@@ -698,7 +741,7 @@ struct MacSettings: Codable {
         var candidate = history; let next = redo ? candidate.redo() : candidate.undo()
         do {
             windows = try system.discover()
-            if !wasActive && !next.windows.isEmpty { try activateDesktop(); try await Task.sleep(for: .milliseconds(500)) }
+            if !wasActive && !next.windows.isEmpty { try activateDesktop(); try await settleDesktopSpace() }
             guard generation == activationGeneration else { return }
             try await apply(next, displays: displayAreas())
             guard generation == activationGeneration else { return }
@@ -726,7 +769,7 @@ struct MacSettings: Codable {
         }
         if commit {
             released.subtract(resolved.windows.map(\.windowID))
-            history.commit(resolved); message = nil
+            editedLayout = true; history.commit(resolved); message = nil
             trace?("interaction history committed windows=\(resolved.windows.count)")
         }
         message = nil

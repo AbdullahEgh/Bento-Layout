@@ -19,6 +19,37 @@ final class LayoutTests: XCTestCase {
             }
         }
     }
+    func testRecentActivationPrimaryAndOldestOverflow() throws {
+        for count in 2...12 {
+            let recent = (0..<count).map { _ in window(120, 100) }
+            let root = try AutoLayout.activating(recent, in: area, gap: 14)
+            let result = try LayoutEngine.calculate(root, in: area, gap: 14)
+            assertValid(result, in: area, count: count)
+            let primary = try XCTUnwrap(result.regions.first { $0.window.windowID == recent[0].windowID })
+            XCTAssertTrue(result.regions.allSatisfy { $0.bounds.width * $0.bounds.height <= primary.bounds.width * primary.bounds.height })
+        }
+        let recent = [window(600, 500), window(600, 500), window(600, 500)]
+        let small = Rect(0, 0, 1000, 600)
+        let root = try AutoLayout.activating(recent, in: small)
+        XCTAssertEqual(root?.windows.map(\.windowID), [recent[0].windowID])
+    }
+    func testRecentActivationHonorsAsymmetricLimitsAndImpossibleApps() throws {
+        let recent = [window(3000, 2000), window(750, 300), window(200, 200)]
+        let bounds = Rect(0, 0, 1000, 800)
+        let result = try LayoutEngine.calculate(AutoLayout.activating(recent, in: bounds, gap: 14), in: bounds, gap: 14)
+        assertValid(result, in: bounds, count: 2)
+        XCTAssertFalse(result.regions.contains { $0.window.windowID == recent[0].windowID })
+        XCTAssertThrowsError(try AutoLayout.activating([window(0, 20)], in: bounds))
+    }
+    func testLiveDockGeometryReplacesStaleReservation() {
+        let frame = Rect(0, 0, 1280, 800), stale = Rect(0, 30, 1280, 707)
+        XCTAssertEqual(DesktopWorkArea.correctingDock(frame: frame, visible: stale, dock: Rect(300, 710, 680, 90)), Rect(0, 30, 1280, 680))
+        XCTAssertEqual(DesktopWorkArea.correctingDock(frame: frame, visible: stale, dock: Rect(300, 760, 680, 40)), Rect(0, 30, 1280, 730))
+        XCTAssertEqual(DesktopWorkArea.correctingDock(frame: frame, visible: stale, dock: Rect(0, 100, 60, 600)), Rect(60, 30, 1220, 770))
+        XCTAssertEqual(DesktopWorkArea.correctingDock(frame: frame, visible: stale, dock: Rect(1220, 100, 60, 600)), Rect(0, 30, 1220, 770))
+        XCTAssertEqual(DesktopWorkArea.correctingDock(frame: frame, visible: stale, dock: Rect(-500, 0, 40, 500)), stale)
+        XCTAssertEqual(DesktopWorkArea.correctingDock(frame: frame, visible: stale, dock: nil), stale)
+    }
     func testSharedWindowsGeometryFixtures() throws {
         struct Pack: Decodable { let version: Int; let cases: [Fixture] }
         struct Fixture: Decodable {

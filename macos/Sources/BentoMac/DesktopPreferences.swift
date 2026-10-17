@@ -24,10 +24,13 @@ final class DesktopPreferenceBackend: PreferenceBackend {
         if keys.contains(where: { $0.name == "_HIHideMenuBar" }) {
             DistributedNotificationCenter.default().postNotificationName(NSNotification.Name("AppleInterfaceMenuBarHidingChangedNotification"), object: nil, userInfo: nil, deliverImmediately: true)
         }
-        // Dock hosts both the Dock and native tiling. Restart only when an opted-in
-        // override changed; no security setting, service or launch agent is modified.
-        if keys.contains(where: { $0.domain == "com.apple.dock" || $0.domain == "com.apple.WindowManager" || $0.name == "_HIHideMenuBar" }) {
-            let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/killall"); process.arguments = ["Dock"]
+        // The menu bar is hosted by ControlCenter. Restarting Dock alone changes
+        // its stored preference but leaves AppKit constraining windows below it.
+        var hosts: [String] = []
+        if keys.contains(where: { $0.domain == "com.apple.dock" || $0.domain == "com.apple.WindowManager" }) { hosts.append("Dock") }
+        if keys.contains(where: { $0.name == "_HIHideMenuBar" }) { hosts.append("ControlCenter") }
+        for host in hosts {
+            let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/killall"); process.arguments = [host]
             process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
             try process.run(); process.waitUntilExit()
             guard process.terminationStatus == 0 || process.terminationStatus == 1 else { throw CocoaError(.executableRuntimeMismatch) }
