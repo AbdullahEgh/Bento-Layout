@@ -85,7 +85,11 @@ private final class FixturePreferences: PreferenceBackend {
         model.cancelInteraction = { await interactions.finish(cancel: true) }
         var passed: [String] = []
         func check(_ value: Bool, _ title: String) throws {
-            guard value else { throw NSError(domain: "BentoNativeSmoke", code: 1, userInfo: [NSLocalizedDescriptionKey: title]) }
+            guard value else {
+                print(modelTrace.suffix(16).joined(separator: "\n"))
+                for (record, _) in system.records { print("Fixture \(record.id): minimum=\(record.minimum), actual=\(String(describing: system.frame(of: record.element)))") }
+                throw NSError(domain: "BentoNativeSmoke", code: 1, userInfo: [NSLocalizedDescriptionKey: title])
+            }
             passed.append(title)
         }
         func matchingGeometry() throws -> Bool {
@@ -127,8 +131,14 @@ private final class FixturePreferences: PreferenceBackend {
             let fourthRecord = ManagedWindow(element: AXUIElementCreateApplication(-1003), pid: ProcessInfo.processInfo.processIdentifier, title: fourth.title, application: "Bento Fixture", bundleID: "com.abdullahegh.bento.fixture", frame: DesktopCoordinates.engine(fourth.frame))
             system.records.append((fourthRecord, fourth))
             let normalAreas = model.displayAreas()
-            system.areaOverride = [DisplayArea(id: normalAreas[0].id, name: normalAreas[0].name, bounds: Rect(8, 38, 1264, 687))]
-            let realLimits = [Size(500, 400), Size(480, 600), Size(336, 242), Size(336, 242)]
+            let hostArea = normalAreas[0].bounds
+            let capacityArea = Rect(hostArea.x, hostArea.y, min(1264, hostArea.width), min(687, hostArea.height))
+            system.areaOverride = [DisplayArea(id: normalAreas[0].id, name: normalAreas[0].name, bounds: capacityArea)]
+            // Keep fixture windows inside smaller CI displays; the pure engine
+            // separately tests these exact unscaled third-party app dimensions.
+            let realLimits = [Size(500, 400), Size(480, 600), Size(336, 242), Size(336, 242)].map {
+                Size($0.width * capacityArea.width / 1264, $0.height * capacityArea.height / 687)
+            }
             for (index, pair) in system.records.enumerated() {
                 pair.0.minimum = realLimits[index]; system.nativeMinimum[pair.0.id] = realLimits[index]
                 try system.write(pair.0, frame: Rect(40 + index * 70, 60 + index * 40, max(420, realLimits[index].width), max(342, realLimits[index].height)))
@@ -140,11 +150,16 @@ private final class FixturePreferences: PreferenceBackend {
             await model.arrange(preserving: true)
             try check(model.history.current == fullCapacity && system.writes == capacityWrites, "A full constrained workspace stays still on routine reconciliation")
             await model.restore()
+            system.records.forEach { $0.0.minimum = Size(160, 120) }
+            await model.arrange()
+            try check(try model.active && model.history.current.windows.count == 4 && system.minimized.isEmpty && matchingGeometry(), "Independent unknown native limits are learned without sacrificing a fitting app")
+            try check(system.records[0].0.minimum.height == 120 && model.history.current.windows.first { $0.windowID == system.records[0].0.id }?.minimum.height == 120, "A preferred native primary size never becomes a stored size restriction")
+            await model.restore()
             system.records.removeLast(); fourth.close(); system.areaOverride = nil; system.nativeMinimum.removeAll()
             for (index, pair) in system.records.enumerated() { pair.0.minimum = Size(160, 120); try system.write(pair.0, frame: initial[index]) }
             // Real apps can clamp height first and hide a minimum width that was
             // not exercised by the initial target. Reproduce that without probing
-            // any third-party windows. A final verified-size fallback is bounded.
+            // any third-party windows. Corrections stay bounded.
             let constraintArea = model.displayAreas()[0].bounds
             let constraintPrimary = system.records[0].0, constraintSecondary = system.records[1].0, constraintOldest = system.records[2].0
             system.nativeMinimum[constraintPrimary.id] = Size(Int(Double(constraintArea.width) * 0.39), 120)
@@ -163,7 +178,7 @@ private final class FixturePreferences: PreferenceBackend {
             model.settings.minimizeOverflow = true
             await model.arrange()
             try check(try model.active && matchingGeometry() && model.history.current.windows.count >= 2, "Unknown native limits end in a usable layout within the bounded correction budget")
-            try check(modelTrace.contains(where: { $0.contains("arrangement committed attempt=") }) && !modelTrace.contains(where: { $0.contains("arrangement committed attempt=4") }), "Unknown axis limits finish with at most two plans and one verified-size fallback")
+            try check(modelTrace.contains(where: { $0.contains("arrangement committed attempt=") }) && !modelTrace.contains(where: { $0.contains("arrangement committed attempt=4") }), "Unknown axis limits finish within three coordinated plans")
             try check(constraintPrimary.minimum.height == 120, "A large accepted height never becomes a false permanent minimum")
             let stableActivation = model.history.current
             await model.arrange(preserving: true)

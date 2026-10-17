@@ -384,7 +384,6 @@ struct MacSettings: Codable {
         let generation = activationGeneration
         let wasActive = active
         var attemptedInput: ArrangementInput?
-        var safeCorrection = false
         trace?("arrangement start preserving=\(preserving) resuming=\(resuming) active=\(wasActive)")
         do {
             if !preserving { released = resuming ? lastReleased : [] }
@@ -428,13 +427,14 @@ struct MacSettings: Codable {
                     }
                 }
             }
-            // Two plans may learn independent native axis limits. The last plan
-            // uses verified sizes only; never probe each app in a visible loop.
+            // Learn independent axis limits in bounded batches. Stop after two
+            // corrections; never invent limits from accepted frame dimensions.
             let attemptLimit = 2
             var excluded = Set<UUID>()
             for attempt in 0...attemptLimit {
                 guard generation == activationGeneration else { return false }
                 var next = Workspace()
+                var usesSizePreference = false
                 for area in displays {
                     let members = current.filter { window in
                         guard !released.contains(window.id), !excluded.contains(window.id) else { return false }
@@ -458,21 +458,41 @@ struct MacSettings: Codable {
                     let primary = focused ?? recentFocus ?? members.first
                     var priority = reopenedWindows
                     if priority.isEmpty, let primary { priority.insert(primary.id) }
-                    func planningLeaf(_ window: ManagedWindow) -> WindowLeaf {
-                        var leaf = window.leaf
-                        if safeCorrection, let floor = window.verifiedSize {
-                            leaf.minimum.width = max(leaf.minimum.width, floor.width)
-                            leaf.minimum.height = max(leaf.minimum.height, floor.height)
-                        }
-                        return leaf
-                    }
                     if previous.roots[area.id] == nil {
                         let rank = Dictionary(uniqueKeysWithValues: oldestFirst.enumerated().map { ($0.element, $0.offset) })
                         let recent = members.sorted { (rank[$0.id] ?? 0) > (rank[$1.id] ?? 0) }
-                        let leaves = recent.map(planningLeaf)
-                        next.roots[area.id] = try AutoLayout.activating(leaves, in: area.bounds, gap: layoutGap)
+                        let leaves = recent.map(\.leaf)
+                        let base = try AutoLayout.activating(leaves, in: area.bounds, gap: layoutGap)
+                        next.roots[area.id] = base
+                        var preferredGroup = leaves
+                        for index in recent.indices {
+                            let native = originals[recent[index].id]?.1 ?? recent[index].frame
+                            preferredGroup[index].minimum.width = max(preferredGroup[index].minimum.width, native.width)
+                            preferredGroup[index].minimum.height = max(preferredGroup[index].minimum.height, native.height)
+                        }
+                        let selectedIDs = Set((base?.windows ?? []).map(\.windowID))
+                        if let candidate = try AutoLayout.activating(preferredGroup, in: area.bounds, gap: layoutGap),
+                           Set(candidate.windows.map(\.windowID)) == selectedIDs {
+                            next.roots[area.id] = candidate; usesSizePreference = true
+                        } else if let first = recent.first {
+                            // Accepted dimensions are independent preferences.
+                            // A wide old frame must not block a useful tall pane.
+                            // Try both axes, then each alone, without losing apps.
+                            let native = originals[first.id]?.1 ?? first.frame
+                            let hints = [Size(native.width, native.height), Size(first.minimum.width, native.height), Size(native.width, first.minimum.height)]
+                            let selected = Set((base?.windows ?? []).map(\.windowID))
+                            for hint in hints {
+                                var preferred = leaves
+                                preferred[0].minimum.width = max(preferred[0].minimum.width, hint.width)
+                                preferred[0].minimum.height = max(preferred[0].minimum.height, hint.height)
+                                if let candidate = try AutoLayout.activating(preferred, in: area.bounds, gap: layoutGap),
+                                   Set(candidate.windows.map(\.windowID)) == selected {
+                                    next.roots[area.id] = candidate; usesSizePreference = true; break
+                                }
+                            }
+                        }
                     } else {
-                        next.roots[area.id] = try AutoLayout.fitting(members.map(planningLeaf), in: area.bounds, gap: layoutGap, preserving: previous.roots[area.id], prioritizing: priority, leastRecentlyUsed: oldestFirst)
+                        next.roots[area.id] = try AutoLayout.fitting(members.map(\.leaf), in: area.bounds, gap: layoutGap, preserving: previous.roots[area.id], prioritizing: priority, leastRecentlyUsed: oldestFirst)
                     }
                 }
                 if automatic && system.pointerPressed {
@@ -482,16 +502,14 @@ struct MacSettings: Codable {
                 attemptedInput = arrangementInput(current, areas: displays)
                 // One coordinated transition for normal actions; corrections are
                 // bounded final-frame transactions, never repeated visible probing.
-                do { try await apply(next, displays: displays, allowSkipping: true, animate: attempt == 0) }
+                do { try await apply(next, displays: displays, allowSkipping: true, animate: attempt == 0, validateIndividually: wasActive) }
                 catch ArrangementFailure.window(let id) where attempt == 0 && skipRefusingWindows {
                     excluded.insert(id); continue
                 }
                 catch WindowFailure.minimumSize where attempt < attemptLimit {
-                    // Learn only refused dimensions. If both exploratory plans
-                    // encounter different limits, finish with verified native sizes
-                    // once; do not repeat uncertain probes or inflate saved minima.
-                    safeCorrection = attempt == 1
-                    if safeCorrection { trace?("using verified sizes for final bounded correction") }
+                    // Fresh activation validates the whole batch, so one app's
+                    // refusal does not postpone learning the others' axis limits.
+                    trace?("native axis limits updated; bounded correction=\(attempt + 1)")
                     continue
                 }
                 guard generation == activationGeneration else { return false }
@@ -511,9 +529,7 @@ struct MacSettings: Codable {
                 trace?("arrangement committed attempt=\(attempt + 1) tiled=\(included.count) overflow=\(current.count - included.count)")
                 reopenedWindows.removeAll(); failedAutomaticInput = nil
                 if !preserving && !resuming { editedLayout = false }
-                // Verified-size fallback is temporary. Keep genuine axis limits
-                // for future gestures instead of turning a large frame into a minimum.
-                let committed = safeCorrection ? next.reconciled(with: current.map(\.leaf)) : next
+                let committed = usesSizePreference ? next.reconciled(with: current.map(\.leaf)) : next
                 lastDisplays = displays; history.commit(committed); active = !included.isEmpty || !minimizedByBento.isEmpty
                 if !active { try desktopPreferences.restore() }
                 message = active ? (floatingForSize.isEmpty ? nil : "A restored app stays outside Bento because it cannot use a slot on this display.") : "No windows fit on this display. Your windows were left in their original positions."
@@ -532,7 +548,7 @@ struct MacSettings: Codable {
         }
         return false
     }
-    func apply(_ workspace: Workspace, displays: [DisplayArea], allowSkipping: Bool = false, liveResize: Bool = false, animate: Bool = true) async throws {
+    func apply(_ workspace: Workspace, displays: [DisplayArea], allowSkipping: Bool = false, liveResize: Bool = false, animate: Bool = true, validateIndividually: Bool = true) async throws {
         guard !busy else { throw LayoutError.invalidInput }; busy = true; defer { busy = false }
         let restoreAXMode = system.beginFrameAdjustment(windows)
         defer { restoreAXMode() }
@@ -568,7 +584,7 @@ struct MacSettings: Codable {
             if originals[window.id] == nil { originals[window.id] = (window, frame) }
         }
         do {
-            if allowSkipping && !animate {
+            if allowSkipping && !animate && validateIndividually {
                 // Validate the incoming/shrinking windows first at their final size.
                 // A refusal stops this transaction before moving unrelated neighbors.
                 let priorityIDs = reopenedWindows
@@ -616,7 +632,6 @@ struct MacSettings: Codable {
         let rejected = plan.filter { window, wanted in
             guard let actual = system.frame(of: window.element) else { return true }
             frames[window.id] = actual
-            window.verifiedSize = Size(actual.width, actual.height)
             return abs(actual.x - wanted.x) > 2 || abs(actual.y - wanted.y) > 2 || abs(actual.width - wanted.width) > 2 || abs(actual.height - wanted.height) > 2
         }
         if CommandLine.arguments.contains("--fixture-pid") {
@@ -630,7 +645,7 @@ struct MacSettings: Codable {
             let heightClamped = abs(actual.y - wanted.y) <= 2 && actual.height > wanted.height + 2
             if widthClamped || heightClamped {
                 // A clamp proves a minimum only on that axis. The accepted
-                // other dimension is a safe fallback size, not a permanent limit.
+                // other dimension is not a permanent limit.
                 if widthClamped { window.minimum.width = max(window.minimum.width, actual.width) }
                 if heightClamped { window.minimum.height = max(window.minimum.height, actual.height) }
                 constrained.insert(window.application)

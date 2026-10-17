@@ -74,7 +74,6 @@ final class ManagedWindow {
     var frame: Rect
     // AX has no universal minimum-size attribute. Start small enough for narrow
     // displays, then learn actual app constraints from verified native writes.
-    var verifiedSize: Size?
     var minimum = Size(160, 120)
     init(id: UUID = UUID(), element: AXUIElement, pid: pid_t, title: String, application: String, bundleID: String, frame: Rect) {
         self.id = id; self.element = element; self.pid = pid; self.title = title; self.application = application; self.bundleID = bundleID; self.frame = frame
