@@ -4,19 +4,21 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.21</title>
-            <pubDate>Sat, 17 Oct 2026 02:45:05 +0000</pubDate>
-            <sparkle:version>131</sparkle:version>
-            <sparkle:shortVersionString>0.2.21</sparkle:shortVersionString>
+            <title>0.2.22</title>
+            <pubDate>Sat, 17 Oct 2026 03:29:01 +0000</pubDate>
+            <sparkle:version>133</sparkle:version>
+            <sparkle:shortVersionString>0.2.22</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.21
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.22
 
-- Fix title-bar contrast in dark and light modes while keeping glass content.
+- Dock and menu-bar changes reclaim desktop space automatically.
+- Recent apps get priority and a larger starting slot; idle apps make room.
+- More reliable Vivaldi resizing and visible native window shadows.
 ]]></description>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.21/Bento-macos-universal.zip" length="3700270" type="application/octet-stream" sparkle:edSignature="WN3VVFSJaJR3mKD3GcsdKfTMr/elUtYq/Mk5GAN4hh1cXUqESuw5bjrycjqg1OWW25iMOme1IJj7p2PsDGv6CQ=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.22/Bento-macos-universal.zip" length="3776288" type="application/octet-stream" sparkle:edSignature="IV5RKn0JMICaIc+GCnSE3jF5Vv/BXvMfgyGhi6fh2yZBWK4/aGJQ+9Madixccqfpa4djou9uHLbblo6FMMsaAQ=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: LwMsqwqsOKSsQj882yIkb01RFdLQaCsLTNnibe+vkqWkcVjAm85XvOn3lM7p9Dwyd/yitJNM4NrvKLFlQXxIBg==
-length: 1243
+edSignature: Dg44tadAvpPPATyDCg1rJ/+ybzDkr3TUyLwLy1Y5Xx4cunwkAHZLgLUdJexFqrwk6F8i/fSQfNskKd0fKAFGBQ==
+length: 1374
 -->
