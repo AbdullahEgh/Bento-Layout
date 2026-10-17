@@ -46,10 +46,12 @@ import BentoCore
         return records.first { CFEqual($0.0.element, element) }.map { DesktopCoordinates.engine($0.1.frame) }
     }
     override func isAlive(_ window: ManagedWindow) -> Bool { !deadWindows.contains(window.id) && records.contains { $0.0.id == window.id } }
+    var areaChangeOnWrite: [DisplayArea]?
     var areaOverride: [DisplayArea]?
     override func displayAreas(margin: Int) -> [DisplayArea] { areaOverride ?? super.displayAreas(margin: margin) }
     override func writeMotionFrame(_ window: ManagedWindow, frame: Rect, previous: Rect) throws { try write(window, frame: frame) }
     override func write(_ window: ManagedWindow, frame: Rect) throws {
+        if let areaChangeOnWrite { areaOverride = areaChangeOnWrite; self.areaChangeOnWrite = nil }
         writes[window.id, default: 0] += 1
         if rejectAlways == window.id || rejectedWindows.contains(window.id) { throw WindowFailure.rejected(window.title) }
         if rejectOnce == window.id { rejectOnce = nil; throw WindowFailure.rejected(window.title) }
@@ -131,6 +133,21 @@ private final class FixturePreferences: PreferenceBackend {
             model.tick(); await Task.yield(); model.tick(); await Task.yield()
             try check(system.writes == areaWrites, "Settled work-area changes do not queue repeated native transitions")
             model.settings.animate = false
+            let changingAreas = originalAreas.map { DisplayArea(id: $0.id, name: $0.name, bounds: Rect($0.bounds.x, $0.bounds.y, $0.bounds.width, $0.bounds.height - 45)) }
+            system.areaChangeOnWrite = changingAreas
+            system.rejectedWindows = Set(system.records.map { $0.0.id })
+            // Native drift makes an unchanged-membership arrangement write frames.
+            let raceWindow = system.records[0].0
+            system.rejectedWindows.remove(raceWindow.id)
+            let raceFrame = system.frame(of: raceWindow.element)!
+            try system.write(raceWindow, frame: Rect(raceFrame.x + 12, raceFrame.y, raceFrame.width, raceFrame.height))
+            system.areaOverride = nil; system.areaChangeOnWrite = changingAreas
+            system.rejectedWindows = Set(system.records.map { $0.0.id })
+            await model.arrange(preserving: true, automatic: true)
+            system.rejectedWindows.removeAll()
+            model.tick(); await Task.yield(); await settle()
+            try check(try matchingGeometry() && model.history.current.windows.count == 3, "A Dock change during a rejected transaction is retried for the new area instead of being cached as failed")
+            system.areaOverride = nil; model.tick(); await Task.yield(); await settle()
             let reboundTree = model.history.current
             model.scheduleSettledValidation(force: true)
             let lateWindow = system.records[0].0

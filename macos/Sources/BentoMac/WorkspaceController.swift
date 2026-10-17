@@ -101,10 +101,10 @@ struct SavedWorkspace: Codable {
     private var reconciliationQueued = false
     private var pendingDrift: [Rect]?
     private var driftSamples = 0
-    private func arrangementInput(_ current: [ManagedWindow]) -> ArrangementInput {
+    private func arrangementInput(_ current: [ManagedWindow], areas: [DisplayArea]? = nil) -> ArrangementInput {
         let ordered = current.sorted { $0.id.uuidString < $1.id.uuidString }
         return ArrangementInput(ids: ordered.map(\.id), minima: ordered.map(\.minimum), frames: ordered.map(\.frame),
-            displays: displayAreas(), gap: layoutGap)
+            displays: areas ?? displayAreas(), gap: layoutGap)
     }
     private let backgroundMonitoring: Bool
     private var lastMembershipScan = 0.0
@@ -364,6 +364,7 @@ struct SavedWorkspace: Codable {
         let previousWindows = windows
         let generation = activationGeneration
         let wasActive = active
+        var attemptedInput: ArrangementInput?
         trace?("arrangement start preserving=\(preserving) resuming=\(resuming) active=\(wasActive)")
         do {
             if !preserving { released = resuming ? lastReleased : [] }
@@ -429,6 +430,7 @@ struct SavedWorkspace: Codable {
                     windows = previousWindows; trace?("automatic arrangement deferred: pointer pressed during discovery")
                     return false
                 }
+                attemptedInput = arrangementInput(current, areas: displays)
                 // One coordinated transition for normal actions; corrections are
                 // bounded final-frame transactions, never repeated visible probing.
                 do { try await apply(next, displays: displays, allowSkipping: true, animate: attempt == 0) }
@@ -454,9 +456,13 @@ struct SavedWorkspace: Codable {
             }
         } catch {
             trace?("arrangement stopped error=\(String(reflecting: type(of: error)))")
-            failedAutomaticInput = arrangementInput(windows)
-            reopenedWindows.removeAll()
-            message = error.localizedDescription
+            // Cache only the area actually attempted. A Dock/display change
+            // during an AX transaction must remain eligible for a fresh plan.
+            failedAutomaticInput = attemptedInput ?? arrangementInput(windows)
+            let areaChanged = attemptedInput.map { $0.displays != displayAreas() } ?? false
+            if !areaChanged { reopenedWindows.removeAll() }
+            message = wasActive && areaChanged ? nil : error.localizedDescription
+            if areaChanged { trace?("desktop area changed during transaction; new input remains eligible") }
             if !wasActive { do { try desktopPreferences.restore() } catch { message = "\(message ?? "") \(error.localizedDescription)" } }
         }
         return false

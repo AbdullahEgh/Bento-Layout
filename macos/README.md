@@ -122,3 +122,5 @@ Normal actions use a shared eased batch transition, including swaps, splits, aut
 Drop previews use retargetable 120 ms position/opacity transitions and translucent gradient fills. Hold progress changes fill strength; impossible destinations use a muted amber fill. No visible outlines, labels, badges or symbols are drawn. Reduce Motion and the animation preference disable preview movement. The menu's Stop Arranging Selected Window action excludes the selected app window; Arrange All Windows includes it again. Its remembered selection survives opening Bento's own settings.
 
 A one-shot check 320 ms after a committed transition catches delayed native rebounds. It repairs only drifted geometry in the committed tree, with no automatic repacking. Changed history, display bounds, activation state, an active gesture or another transaction invalidates the check.
+
+Failed automatic arrangements cache the display bounds they actually attempted. If the Dock changes during a rejected transaction, the new area is retried and newly opened-window priority is retained.
