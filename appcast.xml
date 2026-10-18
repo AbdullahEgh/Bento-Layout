@@ -4,20 +4,22 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.36</title>
-            <pubDate>Sun, 18 Oct 2026 08:44:24 +0000</pubDate>
-            <sparkle:version>152</sparkle:version>
-            <sparkle:shortVersionString>0.2.36</sparkle:shortVersionString>
+            <title>0.2.37</title>
+            <pubDate>Sun, 18 Oct 2026 09:53:34 +0000</pubDate>
+            <sparkle:version>154</sparkle:version>
+            <sparkle:shortVersionString>0.2.37</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.36
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.37
 
-- Local grips respond nearby; the rest of the divider moves the full joined row or column.
-- Snap cues highlight the full universal grip.
+- Larger local grip targets and full-length straight grips.
+- Pause starts with every window dimmed; one click brings an app forward.
+- Hide Dock & Menu Bar now sits above Undo.
+- Grips stay above dimmed background windows and below floating apps.
 ]]></description>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.36/Bento-macos-universal.zip" length="4373099" type="application/octet-stream" sparkle:edSignature="6gKxnC5kLjr8vNxtdPKkewjDZ/h/lXC+2nWMpabYLcPN7yOU0sKlUi13rdlCPO0aeA3dzgIT24Y+EI0/+uDNAg=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.37/Bento-macos-universal.zip" length="4402323" type="application/octet-stream" sparkle:edSignature="YsgAqMMWtuF3LW4eusA4zjkC1ngP0yi8wq7u7PgvdqUbjloWIBUt/g1PMwWpLDiTmXlnjdPrEJUkzzz/ca/pCA=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: T015A2P4WtMY95kGz2ScnZVrjxjMulZgIPx67E7z8vMlqY7YPhdF8b2okqeKrfQLyJ0YXNywO6v/60G9k33iAA==
-length: 1303
+edSignature: KV6W0CrKC5OdcqCl0zqDwfnyJFJVgHNk3WSw/7L3WahTx88l8vbgmnRbPdFpHI8iT2jDEgpziR7biy2dy+nMBA==
+length: 1413
 -->
