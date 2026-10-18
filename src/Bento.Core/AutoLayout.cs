@@ -4,31 +4,65 @@ namespace Bento.Core;
 public static class AutoLayout
 {
     public static LayoutNode? Fitting(IReadOnlyList<WindowNode> windows, PixelRect area, int gap = 8,
-        LayoutNode? previous = null, IReadOnlySet<long>? priority = null)
+        LayoutNode? previous = null, IReadOnlySet<long>? priority = null, IReadOnlyList<long>? leastRecentlyUsed = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(gap);
+        if (area.Width < 0 || area.Height < 0 || windows.Any(w => w.Minimum.Width <= 0 || w.Minimum.Height <= 0))
+            throw new ArgumentException("Window minima and available area must be valid.");
         if (windows.Select(w => w.WindowId).Distinct().Count() != windows.Count)
             throw new ArgumentException("A window can appear only once.");
         var ids = windows.Select(w => w.WindowId).ToHashSet();
-        if (priority?.Count > 0) previous = null;
         foreach (var leaf in LayoutEngine.Windows(previous).ToArray())
             previous = ids.Contains(leaf.WindowId)
                 ? LayoutEngine.Replace(previous!, leaf.Id, leaf with { Minimum = windows.First(w => w.WindowId == leaf.WindowId).Minimum })
                 : LayoutEngine.Remove(previous, leaf.WindowId);
         try { LayoutEngine.Calculate(previous, area, gap); }
         catch (LayoutConstraintException) { previous = null; }
-        if (previous is null && !(priority?.Count > 0))
+        var feasible = windows.Where(w => w.Minimum.Width <= area.Width && w.Minimum.Height <= area.Height).ToArray();
+        if (feasible.Length == 0) return null;
+        var admission = feasible.Where(w => priority?.Contains(w.WindowId) == true).Select(w => w.WindowId).ToHashSet();
+        var candidates = feasible.OrderByDescending(w => admission.Contains(w.WindowId)).ToList();
+        var oldest = (leastRecentlyUsed ?? []).Select((id, index) => (id, index)).ToDictionary(p => p.id, p => p.index);
+        var eviction = candidates.Where(w => !admission.Contains(w.WindowId)).OrderBy(w => oldest.GetValueOrDefault(w.WindowId, -1)).Select(w => w.WindowId).ToArray();
+        for (int attempt = 0; ; attempt++)
         {
-            try { return Arrange(windows, area, gap); }
+            // When one admitted app fits exactly in one evicted idle slot,
+            // retain that slot and every unrelated custom split.
+            if (attempt > 0 && previous is not null)
+            {
+                var leaves = LayoutEngine.Windows(previous).ToArray();
+                var removed = leaves.Where(w => !candidates.Any(c => c.WindowId == w.WindowId)).ToArray();
+                var incoming = candidates.Where(w => !leaves.Any(old => old.WindowId == w.WindowId)).ToArray();
+                if (removed.Length == 1 && incoming.Length == 1)
+                {
+                    var replacement = LayoutEngine.Replace(previous, removed[0].Id, incoming[0] with { Id = removed[0].Id });
+                    try { LayoutEngine.Calculate(replacement, area, gap); return replacement; }
+                    catch (LayoutConstraintException) { }
+                }
+            }
+            LayoutNode? retained = previous;
+            foreach (var leaf in LayoutEngine.Windows(retained).Where(w => !candidates.Any(c => c.WindowId == w.WindowId)).ToArray())
+                retained = LayoutEngine.Remove(retained, leaf.WindowId);
+            try
+            {
+                foreach (var window in candidates) retained = Insert(retained, window, area, gap);
+                if (LayoutEngine.Windows(retained).Count() == candidates.Count) return retained;
+            }
             catch (LayoutConstraintException) { }
+            var planned = CapacityPlanner.Plan(candidates, area, gap);
+            if (planned is not null) return planned;
+            if (admission.Count == 0)
+            {
+                planned = CapacityPlanner.Plan(candidates, area, gap, all: false);
+                if (planned is not null) return planned;
+            }
+            if (attempt >= eviction.Length) break;
+            candidates.RemoveAll(w => w.WindowId == eviction[attempt]);
         }
-        foreach (var window in windows.OrderByDescending(w => priority?.Contains(w.WindowId) == true)
-                     .ThenBy(w => (long)w.Minimum.Width * w.Minimum.Height))
-        {
-            try { previous = Insert(previous, window, area, gap); }
-            catch (LayoutConstraintException) { }
-        }
-        return previous;
+        // Multiple priority apps may themselves exceed capacity. Keep the most
+        // recent feasible subset; an impossible app never evicts usable members.
+        return CapacityPlanner.Plan(candidates, area, gap, all: false)
+            ?? (candidates.Count > 0 ? candidates[0] : null);
     }
 
     public static LayoutNode? Arrange(IReadOnlyList<WindowNode> windows, PixelRect area, int gap = 8)
