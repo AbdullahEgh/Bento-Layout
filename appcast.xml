@@ -4,20 +4,22 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.31</title>
-            <pubDate>Sat, 17 Oct 2026 21:38:33 +0000</pubDate>
-            <sparkle:version>147</sparkle:version>
-            <sparkle:shortVersionString>0.2.31</sparkle:shortVersionString>
+            <title>0.2.32</title>
+            <pubDate>Sun, 18 Oct 2026 05:44:26 +0000</pubDate>
+            <sparkle:version>148</sparkle:version>
+            <sparkle:shortVersionString>0.2.32</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.31
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.32
 
-- Dock changes preserve your layout using actual available space.
-- Stronger Pin dimming; restored apps rejoin Bento after Unpin.
+- Resize whole rows or columns, or just the section you hover.
+- Keep joined boundaries aligned when Dock and menu-bar space changes.
+- Use the shown menu bar’s actual bounds; stop repeated failed reflows.
+- System Settings and Bento Settings stay outside the layout.
 ]]></description>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.31/Bento-macos-universal.zip" length="4184542" type="application/octet-stream" sparkle:edSignature="b+9V0ireUO+Tuy20DhbbEGZL454A4CHAON76eaq2+GzXg3tOBb84lWohkoPcJ0t3V25jCxO8tPX6RZSpMH+3Dg=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.32/Bento-macos-universal.zip" length="4284940" type="application/octet-stream" sparkle:edSignature="EDgPiSJEPJ8aQi0SbqpPYkoiGvSQpMNFL6tNHYWlLuYvpqzys8TggierNRCGlu9zAOpLxdU+x95Y0X2zyXLJAg=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: VN0iVfPc51xlOsxdNC5f4rf236llJFvWj6y6X2gsdwwf6yVPDFDhezq/xxgVhieFZ37IU/yvXhKyUUuHVd2vAw==
-length: 1295
+edSignature: TQIsjcoKaBJPXZmFWbzfjh4jUgr9OLQ+ALXau13gyjLbYlDLSLcKL/thxWpjNrE3/S2LQWmQNLQHHT5yflbyAA==
+length: 1435
 -->
