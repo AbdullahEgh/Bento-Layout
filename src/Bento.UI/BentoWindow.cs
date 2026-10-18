@@ -151,12 +151,17 @@ public sealed class BentoWindow : Window
         pendingSave = true; feedback.Text = "Saving…";
         autoSave.Stop(); autoSave.Start();
     }
-    private bool Save()
+    internal void FlushSettingsForShutdown()
+    {
+        autoSave.Stop();
+        if (pendingSave) Save(apply: false);
+    }
+    private bool Save(bool apply = true)
     {
         try
         {
             if (!string.IsNullOrWhiteSpace(draft.UpdateRepository)) draft = draft with { UpdateRepository = UpdateService.NormalizeRepository(draft.UpdateRepository) };
-            if (!controller.UpdateSettings(draft)) { feedback.Text = controller.Status; return false; }
+            if (!(apply ? controller.UpdateSettings(draft) : controller.SaveSettingsOnShutdown(draft))) { feedback.Text = controller.Status; return false; }
             if (draftStartAtLogin is bool startAtLogin) { LoginStartup.SetEnabled(startAtLogin); draftStartAtLogin = null; }
             pendingSave = false; feedback.Text = "Saved automatically"; return true;
         }
@@ -164,30 +169,41 @@ public sealed class BentoWindow : Window
     }
     private void RefreshWorkspaceStatus()
     {
-        status.Text = controller.Automatic ? "Bento is active" : "Bento is paused";
+        status.Text = controller.Automatic ? "Bento is active" : "Bento is off";
         count.Text = $"{controller.ManagedCount} arranged · {controller.MinimizedCount} minimized";
-        string caption = controller.Automatic ? "Pause" : "Resume";
+        string caption = controller.Automatic ? "Turn off" : "Turn on";
         if (pause is not null && AutomationProperties.GetName(pause) != caption)
         {
             pause.Content = Symbols.Caption(caption, caption);
             AutomationProperties.SetName(pause, caption);
         }
     }
+    private Button SessionAction(string label, Action action)
+    {
+        var button = new Button { Content = label };
+        button.Click += (_, _) => { action(); feedback.Text = controller.Status; RefreshWorkspaceStatus(); };
+        return button;
+    }
     private void Workspace()
     {
         status = new(); count = new();
         Heading("Your workspace", "A little structure. More room to focus.");
-        var hero = Card(); status.Text = controller.Automatic ? "Bento is active" : "Bento is paused"; status.FontSize = 18; status.FontWeight = FontWeights.SemiBold;
+        var hero = Card(); status.Text = controller.Automatic ? "Bento is active" : "Bento is off"; status.FontSize = 18; status.FontWeight = FontWeights.SemiBold;
         count.Text = $"{controller.ManagedCount} arranged · {controller.MinimizedCount} minimized"; count.SetResourceReference(TextBlock.ForegroundProperty, "Secondary"); count.Margin = new Thickness(0, 4, 0, 16);
         var intro = new StackPanel { Margin = new Thickness(2, 16, 2, 15) }; intro.Children.Add(status); intro.Children.Add(count);
         var actions = new WrapPanel { Orientation = Orientation.Horizontal };
         var arrange = new Button { Content = Symbols.Caption("Arrange windows", "Workspace"), Style = (Style)FindResource("Primary"), Margin = new Thickness(0, 0, 8, 0) };
         AutomationProperties.SetName(arrange, "Arrange windows");
         arrange.Click += (_, _) => { controller.AutoArrangeAll(); feedback.Text = controller.Status; };
-        pause = new Button { Content = Symbols.Caption(controller.Automatic ? "Pause" : "Resume", controller.Automatic ? "Pause" : "Resume") };
-        AutomationProperties.SetName(pause, controller.Automatic ? "Pause" : "Resume");
+        pause = new Button { Content = Symbols.Caption(controller.Automatic ? "Turn off" : "Turn on", controller.Automatic ? "Turn off" : "Turn on") };
+        AutomationProperties.SetName(pause, controller.Automatic ? "Turn off" : "Turn on");
         pause.Click += (_, _) => { controller.ToggleBento(); RefreshWorkspaceStatus(); };
         actions.Children.Add(arrange); actions.Children.Add(pause); intro.Children.Add(actions); hero.Children.Add(intro);
+        var session = Card("Layout memory");
+        Row(session, "Save for This Session", "Keep this layout until Bento quits. Turning Bento off keeps saved window positions.", SessionAction("Save", controller.SaveBento));
+        Row(session, "Use Session Save", "Restore the saved layout for windows still open in this session.", SessionAction("Use", controller.UseSessionSave));
+        Row(session, "Clear Session Save", "Turning Bento off will restore original positions again.", SessionAction("Clear", controller.ClearSessionSave));
+        Row(session, "Restore Window Positions", "Return to original positions even when a session save exists.", SessionAction("Restore", controller.RestoreAll));
         var layout = Card("Layout");
         Row(layout, "Space between windows", "Physical pixels", Range(draft.Gap, 4, 32, 2, " px", n => draft = draft with { Gap = n }));
         Row(layout, "Desktop margin", "Keep a little room around the edges", Range(draft.Margin, 0, 64, 2, " px", n => draft = draft with { Margin = n }));

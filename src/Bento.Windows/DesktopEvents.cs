@@ -17,9 +17,9 @@ public sealed class DesktopEvents : IDisposable
             if (type == 3) { ForegroundChanged?.Invoke(); return; }
             if (hwnd != 0) NativeDrag?.Invoke(hwnd.ToInt64(), type == 0x000A);
         };
-        hook = Native.SetWinEventHook(0x000A, 0x000B, 0, callback, 0, 0, 2);
+        hook = Native.SetWinEventHook(0x000A, 0x000B, 0, callback, 0, 0, 0);
         if (hook == 0) throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to watch window drags.");
-        foregroundHook = Native.SetWinEventHook(3, 3, 0, callback, 0, 0, 2);
+        foregroundHook = Native.SetWinEventHook(3, 3, 0, callback, 0, 0, 0);
     }
     public void Dispose() { if (hook != 0) Native.UnhookWinEvent(hook); if (foregroundHook != 0) Native.UnhookWinEvent(foregroundHook); GC.KeepAlive(callback); }
 }

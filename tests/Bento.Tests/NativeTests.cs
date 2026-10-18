@@ -413,7 +413,7 @@ internal static class NativeTests
                 controller.FinishDrag(new(divider.ParentBounds.X + (int)(divider.ParentBounds.Width * .6), divider.ParentBounds.Y + 200)); Pump();
                 VerifyBounds(controller.Layout(monitor), native);
             });
-            Run("Divider drag resizes applications live with a longer same-width grabber and cancellation restores them", () =>
+            Run("Divider drag resizes applications live with an 80-DIP same-width grabber and cancellation restores them", () =>
             {
                 var before = fixtures.Select(w => native.VisibleBounds(w.Id)).ToArray();
                 var boundary = controller.Layout(monitor).Dividers.First();
@@ -423,26 +423,26 @@ internal static class NativeTests
                 Check(!Application.Current!.Windows.OfType<DropPreviewWindow>().Any(w => w.IsVisible));
                 var active = Application.Current.Windows.OfType<DesktopDividerWindow>().Single(w => w.IsVisible);
                 var grip = (Border)((Grid)active.Content).Children[0];
-                Equal(104d, Math.Max((double)grip.GetAnimationBaseValue(FrameworkElement.WidthProperty), (double)grip.GetAnimationBaseValue(FrameworkElement.HeightProperty)));
+                Equal(80d, Math.Max((double)grip.GetAnimationBaseValue(FrameworkElement.WidthProperty), (double)grip.GetAnimationBaseValue(FrameworkElement.HeightProperty)));
                 Equal(2d, Math.Min(grip.Width, grip.Height)); Equal(1d, (double)grip.GetAnimationBaseValue(UIElement.OpacityProperty));
                 Equal(controller.Layout(monitor).Dividers.Single(d => d.SplitId == boundary.SplitId).Bounds, native.VisibleBounds(new System.Windows.Interop.WindowInteropHelper(active).Handle.ToInt64()));
                 VerifyBounds(controller.Layout(monitor), native);
                 Check(fixtures.Where((w, i) => native.VisibleBounds(w.Id) != before[i]).Any());
-                controller.CancelDrag(); Equal(40d, Math.Max((double)grip.GetAnimationBaseValue(FrameworkElement.WidthProperty), (double)grip.GetAnimationBaseValue(FrameworkElement.HeightProperty)));
+                controller.CancelDrag(); Equal(80d, Math.Max((double)grip.GetAnimationBaseValue(FrameworkElement.WidthProperty), (double)grip.GetAnimationBaseValue(FrameworkElement.HeightProperty)));
                 for (int i = 0; i < fixtures.Length; i++) Equal(before[i], native.VisibleBounds(fixtures[i].Id));
                 Equal(boundary.Bounds, native.VisibleBounds(new System.Windows.Interop.WindowInteropHelper(active).Handle.ToInt64()));
             });
-            Run("Grabber finishes its quick length animation and retains its window on release", () =>
+            Run("Grabber retains its fixed specific length and retains its window on release", () =>
             {
                 var boundary = controller.Layout(monitor).Dividers.First();
                 var point = new PixelPoint(boundary.Bounds.X + boundary.Bounds.Width / 2, boundary.Bounds.Y + boundary.Bounds.Height / 2);
                 var handle = Application.Current!.Windows.OfType<DesktopDividerWindow>().Single(w => w.SplitId == boundary.SplitId);
                 controller.BeginDivider(monitor, boundary, point); Pump(); Pump();
                 var grip = (Border)((Grid)handle.Content).Children[0];
-                Equal(104d, Math.Max(grip.Width, grip.Height)); Equal(2d, Math.Min(grip.Width, grip.Height));
+                Equal(80d, Math.Max(grip.Width, grip.Height)); Equal(2d, Math.Min(grip.Width, grip.Height));
                 controller.FinishDrag(point); Pump(); Pump();
                 Check(ReferenceEquals(handle, Application.Current.Windows.OfType<DesktopDividerWindow>().Single(w => w.SplitId == boundary.SplitId)));
-                Equal(40d, Math.Max(grip.Width, grip.Height));
+                Equal(80d, Math.Max(grip.Width, grip.Height));
             });
             Run("Turning Bento off restores the pre-Bento positions and on resumes the edited split", () =>
             {
@@ -547,6 +547,20 @@ internal static class NativeTests
                 overflow.RestoreAll(); Pump(); Check(!WindowCatalog.IsMinimized(fixtures[0].Id));
                 native.Minimize(fixtures[0].Id); overflow.AutoArrangeAll(); overflow.RestoreAll(); Pump();
                 Check(WindowCatalog.IsMinimized(fixtures[0].Id)); native.Restore(originals[0]);
+            });
+            Run("Session save keeps Off geometry; explicit Restore still restores originals", () =>
+            {
+                using var session = new BentoController(() => WindowCatalog.Discover(includeMinimized: false)
+                    .Where(w => fixtures.Any(f => f.Id == w.Id)).ToArray(), new BentoSettings(Animate: false, ShortcutEnabled: false));
+                session.AutoArrangeAll(); Pump(); session.SaveBento(); Check(session.HasSessionSave);
+                var saved = fixtures.Select(w => native.VisibleBounds(w.Id)).ToArray();
+                session.SetAutomatic(false); Pump(); Check(!session.Automatic);
+                Check(saved.SequenceEqual(fixtures.Select(w => native.VisibleBounds(w.Id))));
+                session.UseSessionSave(); Pump(); Check(session.Automatic);
+                Check(saved.SequenceEqual(fixtures.Select(w => native.VisibleBounds(w.Id))));
+                session.SetAutomatic(false); session.RestoreAll(); Pump();
+                foreach (var original in originals) Equal(original.VisibleBounds, native.VisibleBounds(original.WindowId));
+                session.ClearSessionSave(); Check(!session.HasSessionSave);
             });
             foreach (bool liveResize in new[] { false, true })
                 Run($"Quit preserves native frames and overflow (live resize: {liveResize})", () =>

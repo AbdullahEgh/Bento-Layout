@@ -21,20 +21,24 @@ On Windows 11 x64 with the **.NET 10 Desktop Runtime**:
 
 The built executable is `src/Bento.UI/bin/Release/net10.0-windows/Bento.exe`. A portable, framework-dependent release can be produced with `build.ps1 -Publish`; distribute the whole `artifacts/Bento` folder or `artifacts/Bento-win-x64.zip`. No administrator rights, service, Electron, cloud connection, telemetry, or third-party runtime dependencies. Run outside a restricted development sandbox to allow global shortcut registration.
 
+## Local Windows parity development
+
+This branch contains an uncompiled local port of Mac 0.2.40 behavior. See [current evidence and remaining gaps](docs/windows-parity/LOCAL-PORT-STATUS.md). The Windows changes below require Windows build and interactive validation; they are not a released parity build.
+
 ## Automatic Bento layout
 
 1. Open your applications. Launch Bento. Press **Ctrl+Alt+B** to toggle between Bento and your previous window positions; change or disable this shortcut in Gestures. Eligible visible, non-minimized application windows are immediately moved and resized on their existing monitors.
 2. Use the applications normally. Bento leaves their content exposed and keeps the active application focused.
 3. Drag a real window by its title bar onto another window's region to swap them. **Hold near its left, right, top or bottom edge for 900 ms** to split it instead. A text-free frosted highlight divides the existing target slot when ready. The hold delay is configurable from 0 to 2000 ms.
-4. Drag a small grip in a gap to resize neighboring regions. The grip smoothly extends to 104 DIPs while held, with 120 ms fade and length transitions; no full-length guide covers your windows. Resizing a native window's inner border also adjusts the corresponding split when released.
+4. Drag a small grip in a gap to resize neighboring regions. Specific grips are 80 DIPs long and two DIPs thick. Joined rows and columns expose segmented shared grips, with local pills and a longer group target. Resizing a native window's inner border also adjusts the corresponding split when released.
 
-Workspace → **Background darkness** dims the area beneath the layout, visible in gaps around grabbers and desktop margins. It defaults to 50% and ranges from clear (0%) to black (100%). The backdrop stays behind application windows, passes input through, and disappears when Bento pauses. Grabbers appear only on hover or while grabbed, below application windows and above the dimmer. They account for wallpaper color and dimming. Icons illustrate each setting and main action.
+Workspace → **Background darkness** dims the area beneath the layout, visible in gaps around grabbers and desktop margins. It defaults to 50% and ranges from clear (0%) to black (100%). The backdrop stays behind application windows, passes input through, and disappears when Bento turns off. Grabbers appear only on hover or while grabbed, below application windows and above the dimmer. They account for wallpaper color and dimming. Icons illustrate each setting and main action.
 
 Newly opened and restored windows join automatically; minimized and closed windows leave the tree and their neighbors expand. Membership is checked once per second. Unchanged membership preserves customized splits and does not repeatedly resize native windows. New windows split the largest feasible region; a complete reflow is used when necessary to satisfy constraints.
 
 The middle half of a region is its center zone. A drop in a gap or outside a monitor snaps a managed native window back into its committed region. Windows stay represented during swaps and splits. Minimum sizes can prevent a split or automatic arrangement; Bento reports the failure and retains the previous layout instead of silently omitting a window.
 
-Bento opens a compact interface with Workspace, Gestures, Updates and What's New pages. What's New shows only the latest release; its nested Update Log contains older releases and installation history. The desktop itself has no blueprint or full-monitor interaction layer. A temporary, text-free acrylic box highlights the existing destination slot and follows Windows appearance (a solid tint is used when the backdrop is unavailable). Gaps contain 40-DIP resize grips, revealed individually on hover or touch. Their black or white ink follows the dimmed wallpaper color. Grabbers stay above the dimmer and below settings; dragging extends their length while retaining the same 2-DIP thickness. Preview and grip windows do not activate. Divider dragging resizes neighboring application windows live; cancellation restores their starting geometry. Window drop gestures change native geometry once per commit. DWM window copies animate the transition for 180 ms by default; protected or unsupported thumbnails fall back to direct placement. Reduced motion follows Windows and can also be selected in Bento.
+Bento opens a compact interface with Workspace, Gestures, Updates and What's New pages. What's New shows only the latest release; its nested Update Log contains older releases and installation history. The desktop itself has no blueprint. A temporary input-transparent black dim covers the destination display beneath its slot preview. A temporary, text-free acrylic box highlights the existing destination slot and follows Windows appearance (a solid tint is used when the backdrop is unavailable). Gaps contain 80-DIP specific grips and segmented group seams, revealed individually on hover or touch. Their black or white ink follows the dimmed wallpaper color. Grabbers stay above the dimmer and below settings; local pills remain fully opaque while shared lines use 45% opacity, at the same 2-DIP thickness. Preview and grip windows do not activate. Divider dragging resizes neighboring application windows live; cancellation restores their starting geometry. Window drop gestures change native geometry once per commit. DWM window copies animate the transition for 140 ms by default (existing saved durations are retained); protected or unsupported thumbnails fall back to direct placement. Reduced motion follows Windows and can also be selected in Bento.
 
 | Action | Control |
 | --- | --- |
@@ -47,14 +51,15 @@ Bento opens a compact interface with Workspace, Gestures, Updates and What's New
 | Release window and expand neighbor | Tray → Release active window |
 | Undo / redo | Tray → Undo / Redo |
 | Cancel a native move or resize | Windows' normal Esc gesture |
-| Keep settings and the current layout | Saved automatically |
+| Keep settings | Saved automatically |
+| Save/use/clear a layout until quit | Workspace → Layout memory |
 | Change shortcut or window gap | Tray → Settings |
 | Return managed windows to original positions | Click the tray icon, or Tray → Turn Bento off |
 | Quit | Tray → Quit Bento |
 
 Windows that do not fit minimize to the taskbar by default. Reopening one prioritizes it in the split layout; turning Bento off restores only the windows it minimized. Settings save automatically after each change.
 
-**Release active window** keeps that window floating until **Arrange all windows**. **Restore all windows** restores the originals and pauses automatic management until Bento is activated again. Quit and Install and Restart preserve current window positions and minimized states, including an in-progress grip resize. Turn Bento off or Restore all windows explicitly returns windows to their captured positions. Settings are stored locally in `%LOCALAPPDATA%/Bento/settings.json`; the current layout is saved automatically in saved-layout.json, matching application paths and window titles on later launches; undo history and the pre-activation snapshot are session-only. Changing the shortcut requires at least one modifier and a letter/digit key. A registration failure is reported with its Windows error; the tray remains available.
+**Release active window** keeps that window floating until **Arrange all windows**. **Restore all windows** restores the originals and pauses automatic management until Bento is activated again. Quit and Install and Restart preserve current window positions and minimized states, including an in-progress grip resize. Turn Bento off restores captured positions unless Save for This Session is active. Restore Window Positions always restores originals. Settings are stored locally in `%LOCALAPPDATA%/Bento/settings.json`; layout memory, undo history and original-position snapshots are session-only. Legacy saved-layout.json files are left untouched and are no longer loaded or overwritten. Changing the shortcut requires at least one modifier and a letter/digit key. A registration failure is reported with its Windows error; the tray remains available.
 
 **Let Bento handle edge snapping**, under Gestures, temporarily disables the Windows window-arrangement setting for all applications while Bento is active. It is off by default. Pausing, restoring windows or exiting restores the previous value. A journal recovers an interrupted session on the next launch; Windows sign-out also resets this session-only setting. It does not change security settings.
 
@@ -66,7 +71,7 @@ The release source is [AbdullahEgh/Bento-Layout](https://github.com/AbdullahEgh/
 
 What's New shows the latest release; its nested Update Log holds older releases and the last ten installation results. **Install and restart** validates all package file hashes, retains a backup and restores replaced files if copying or startup fails. Settings remain in Local AppData. GitHub downloads also require the release asset's SHA-256 digest. Checksums detect corruption, not publisher identity; local packages must come from your trusted Bento release source. This development release is not code-signed.
 
-Publish `Bento-win-x64.zip` as a GitHub release asset with a tag matching the application version, for example `v0.3.4`. `build.ps1 -Publish` generates the required `bento-release.json` manifest. The updater is a small separate .NET process so it can replace files after Bento exits. It does not elevate privileges; use a writable portable installation folder.
+Publish `Bento-win-x64.zip` and `Bento-windows-release.json` as GitHub release assets with a tag matching the application version, for example `v0.3.4`. `build.ps1 -Publish` generates the package manifest and Windows metadata sidecar. New clients read the release list and use the sidecar’s actual Windows version and ZIP digest for shared Mac-tagged releases. Legacy clients still need the Windows-tagged bootstrap described in the parity handoff; this branch does not publish it. The updater is a small separate .NET process so it can replace files after Bento exits. It does not elevate privileges; use a writable portable installation folder.
 
 ## Build and test
 
@@ -76,6 +81,12 @@ Requires a **.NET 10 SDK** on Windows. The workspace-local SDK under `.tools/dot
 .\build.ps1                       # Release build + deterministic engine/geometry tests
 .\build.ps1 -NativeTests          # Also tests disposable external windows and lifecycle changes
 .\build.ps1 -NativeTests -Publish # Validate and create portable release
+```
+
+The new pure C# parity regressions can also run on a non-Windows host with .NET 10:
+
+```sh
+dotnet run --project tests/Bento.Core.Tests/Bento.Core.Tests.csproj -c Release
 ```
 
 Equivalent explicit commands:
@@ -108,6 +119,6 @@ Original app artwork is in `src/Bento.UI/Assets`: an SVG master, a 1024 px PNG a
 
 ## MVP scope and validation
 
-See [VALIDATION.md](VALIDATION.md) for actual results and remaining hardware checks. This is a runnable first milestone, with no installer, startup registration, persistent workspace profiles, virtual-desktop integration, or application grouping. Physical title-bar tests confirmed center swap and left-edge splitting with three fixture windows. Other directions, border/grip input, mixed-DPI physical monitors, docking changes, elevated apps, and the hotkey gesture need broader interactive validation. App-specific size restrictions can reject a placement; the previous layout is retained.
+See [VALIDATION.md](VALIDATION.md) for historical results and [local port status](docs/windows-parity/LOCAL-PORT-STATUS.md) for this branch’s unverified changes. Per-user startup registration exists; virtual-desktop isolation, Pause semantics, fullscreen reservations and taskbar hiding remain incomplete. Physical title-bar tests confirmed center swap and left-edge splitting with three fixture windows. Other directions, border/grip input, mixed-DPI physical monitors, docking changes, elevated apps, and the hotkey gesture need broader interactive validation. App-specific size restrictions can reject a placement; the previous layout is retained.
 
 Product reference: MindSpace’s Bento Smart Layout concepts as described in the project brief and follow-up request. Its connected capabilities tool returned an internal error twice, so exact parity with its private layout rules has not been verified. Implementation uses Microsoft's [SetWindowPos](https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-setwindowpos), [DWM frame bounds](https://learn.microsoft.com/windows/win32/api/dwmapi/ne-dwmapi-dwmwindowattribute), and [Per-Monitor DPI awareness](https://learn.microsoft.com/windows/win32/hidpi/setting-the-default-dpi-awareness-for-a-process).

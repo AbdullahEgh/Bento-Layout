@@ -5,7 +5,10 @@ using Bento.Core;
 namespace Bento.Windows;
 
 public sealed record AppWindow(long Id, uint ProcessId, string Title, PixelSize Minimum, string MonitorId = "", double DpiScale = 1);
-public sealed record DesktopMonitor(string Id, PixelRect WorkArea, double Scale);
+public sealed record DesktopMonitor(string Id, PixelRect WorkArea, double Scale, PixelRect? ScreenBounds = null)
+{
+    public PixelRect Bounds => ScreenBounds ?? WorkArea;
+}
 
 public static class WindowCatalog
 {
@@ -65,7 +68,7 @@ public static class WindowCatalog
             if (Native.GetMonitorInfo(handle, ref info))
             {
                 Native.GetDpiForMonitor(handle, 0, out uint x, out _);
-                monitors.Add(new(info.Device, Geometry.FromNative(info.Work), Math.Max(96, x) / 96d));
+                monitors.Add(new(info.Device, Geometry.FromNative(info.Work), Math.Max(96, x) / 96d, Geometry.FromNative(info.Monitor)));
             }
             return true;
         }, 0);

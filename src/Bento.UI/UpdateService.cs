@@ -43,29 +43,55 @@ public sealed class UpdateService
     {
         string repo = NormalizeRepository(repository);
         using var client = Client();
-        using var response = await client.GetAsync($"https://api.github.com/repos/{repo}/releases/latest", cancellation);
+        using var response = await client.GetAsync($"https://api.github.com/repos/{repo}/releases?per_page=100", cancellation);
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             throw new InvalidOperationException("No public release is available yet. For a private repository, download its update package from GitHub.");
         response.EnsureSuccessStatusCode();
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellation));
-        return ParseRelease(document.RootElement, CurrentVersion);
+        var candidates = new List<WindowsReleaseCandidate?>();
+        var failures = new List<string>();
+        foreach (var release in document.RootElement.EnumerateArray())
+        {
+            if (release.GetProperty("draft").GetBoolean() || release.GetProperty("prerelease").GetBoolean()) continue;
+            WindowsReleaseMetadata? metadata = null;
+            var sidecar = release.GetProperty("assets").EnumerateArray().FirstOrDefault(a => a.GetProperty("name").GetString() == WindowsReleaseCatalog.MetadataAsset);
+            try
+            {
+                if (sidecar.ValueKind != JsonValueKind.Undefined)
+                {
+                    string url = sidecar.GetProperty("browser_download_url").GetString() ?? "";
+                    string digest = sidecar.TryGetProperty("digest", out var d) ? d.GetString() ?? "" : "";
+                    if (!url.StartsWith($"https://github.com/{repo}/releases/download/", StringComparison.OrdinalIgnoreCase) ||
+                        !Regex.IsMatch(digest, @"^sha256:[0-9a-fA-F]{64}$"))
+                        throw new InvalidDataException("Windows release metadata needs a verified GitHub asset.");
+                    using var download = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellation);
+                    download.EnsureSuccessStatusCode();
+                    await using var input = await download.Content.ReadAsStreamAsync(cancellation);
+                    using var bytes = new MemoryStream();
+                    byte[] buffer = new byte[4096]; int count;
+                    while ((count = await input.ReadAsync(buffer, cancellation)) > 0)
+                    {
+                        if (bytes.Length + count > 16 * 1024) throw new InvalidDataException("Windows release metadata is too large.");
+                        bytes.Write(buffer, 0, count);
+                    }
+                    if (!Convert.ToHexString(SHA256.HashData(bytes.ToArray())).Equals(digest[7..], StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidDataException("Windows release metadata failed its checksum.");
+                    metadata = JsonSerializer.Deserialize<WindowsReleaseMetadata>(System.Text.Encoding.UTF8.GetString(bytes.ToArray()).TrimStart('\uFEFF'))
+                        ?? throw new InvalidDataException("Windows release metadata is empty.");
+                }
+                candidates.Add(WindowsReleaseCatalog.Parse(release, CurrentVersion, metadata));
+            }
+            catch (Exception ex) when (ex is InvalidDataException or JsonException or HttpRequestException)
+            { failures.Add(ex.Message); }
+        }
+        var best = WindowsReleaseCatalog.Latest(candidates);
+        if (best is null && failures.Count > 0) throw new InvalidDataException(string.Join(" ", failures.Distinct()));
+        return best is null ? null : new(best.Version, best.Notes, best.PageUrl, best.DownloadUrl, best.Digest);
     }
     public static AvailableUpdate? ParseRelease(JsonElement release, string currentVersion)
     {
-        string version = (release.GetProperty("tag_name").GetString() ?? "").TrimStart('v', 'V');
-        if (!Version.TryParse(version, out var next) || next <= Version.Parse(currentVersion) ||
-            release.GetProperty("draft").GetBoolean() || release.GetProperty("prerelease").GetBoolean()) return null;
-        foreach (var asset in release.GetProperty("assets").EnumerateArray())
-        {
-            if (asset.GetProperty("name").GetString() != "Bento-win-x64.zip") continue;
-            string url = asset.GetProperty("browser_download_url").GetString() ?? "";
-            string digest = asset.TryGetProperty("digest", out var d) ? d.GetString() ?? "" : "";
-            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "https" || uri.Host != "github.com" ||
-                !Regex.IsMatch(digest, @"^sha256:[0-9a-fA-F]{64}$"))
-                throw new InvalidDataException("This release needs a GitHub asset with a SHA-256 digest.");
-            return new(version, release.GetProperty("body").GetString() ?? "", release.GetProperty("html_url").GetString() ?? "", url, digest[7..]);
-        }
-        throw new InvalidDataException("The latest release has no Bento-win-x64.zip update package.");
+        var candidate = WindowsReleaseCatalog.Parse(release, currentVersion);
+        return candidate is null ? null : new(candidate.Version, candidate.Notes, candidate.PageUrl, candidate.DownloadUrl, candidate.Digest);
     }
     public async System.Threading.Tasks.Task<string> DownloadAsync(AvailableUpdate update, System.Threading.CancellationToken cancellation = default)
     {
@@ -89,6 +115,16 @@ public sealed class UpdateService
         using var file = File.OpenRead(path);
         if (!Convert.ToHexString(SHA256.HashData(file)).Equals(update.Digest, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("The download could not be verified. Try checking for updates again.");
+        using (var archive = System.IO.Compression.ZipFile.OpenRead(path))
+        {
+            var entry = archive.GetEntry(UpdatePackage.ManifestName) ?? throw new InvalidDataException("The update has no Windows manifest.");
+            if (entry.Length > 64 * 1024) throw new InvalidDataException("The update manifest is too large.");
+            using var reader = new StreamReader(entry.Open());
+            var manifest = JsonSerializer.Deserialize<PackageManifest>(reader.ReadToEnd());
+            if (manifest is null || manifest.AppId != "Bento.Windows" || manifest.Platform != "win-x64" ||
+                !Version.TryParse(manifest.Version, out var actual) || actual != Version.Parse(update.Version))
+                throw new InvalidDataException("The downloaded package does not match the selected Windows release.");
+        }
         return path;
     }
     public static (string Directory, PackageManifest Manifest) Stage(string package)
