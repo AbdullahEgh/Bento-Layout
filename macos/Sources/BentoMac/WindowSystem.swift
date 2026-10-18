@@ -102,6 +102,11 @@ final class ManagedWindow {
     init(id: UUID = UUID(), element: AXUIElement, pid: pid_t, title: String, application: String, bundleID: String, frame: Rect) {
         self.id = id; self.element = element; self.pid = pid; self.title = title; self.application = application; self.bundleID = bundleID; self.frame = frame
     }
+    func reconcileObservedMinimum(_ observed: Rect? = nil) {
+        let frame = observed ?? self.frame
+        guard frame.width > 0, frame.height > 0 else { return }
+        minimum = Size(min(minimum.width, frame.width), min(minimum.height, frame.height))
+    }
     var leaf: WindowLeaf { WindowLeaf(windowID: id, minimum: minimum) }
 }
 
@@ -280,6 +285,10 @@ enum WindowParticipation {
         }
         for window in found {
             if let minimum = reportedMinimum(window.element) { window.minimum = minimum }
+            // A real smaller frame is stronger evidence than an earlier refused
+            // write (which may have been a transient animation or content state).
+            // Never raise a minimum from an observation of a larger frame.
+            window.reconcileObservedMinimum()
         }
         // Minimized/hidden/off-Space windows retain their session identity so a later
         // return cannot overwrite the original activation snapshot with tiled bounds.

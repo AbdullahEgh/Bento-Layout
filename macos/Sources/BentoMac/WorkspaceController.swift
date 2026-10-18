@@ -314,15 +314,20 @@ struct MacSettings: Codable {
         // polling bounded and never probe application windows for desktop geometry.
         guard backgroundMonitoring else { return }
         let started = ProcessInfo.processInfo.systemUptime
-        var previous = displayAreas(), stable = 0
+        var previous = displayAreas()
+        var stableSince = started
         repeat {
             try await Task.sleep(for: .milliseconds(40))
             let current = displayAreas()
-            stable = current == previous ? stable + 1 : 0
+            if current != previous { stableSince = ProcessInfo.processInfo.systemUptime }
             previous = current
             let hostsReady = !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").isEmpty
                 && !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.controlcenter").isEmpty
-            if stable >= 2 && hostsReady && system.desktopSpaceReady() { return }
+            // Dock can pause at an intermediate reservation for multiple samples.
+            // Require a quiet interval and allow its slide to finish before the
+            // first app transaction, rather than correcting a visible first fit.
+            let now = ProcessInfo.processInfo.systemUptime
+            if now - started >= 0.35 && now - stableSince >= 0.16 && hostsReady && system.desktopSpaceReady() { return }
         } while ProcessInfo.processInfo.systemUptime - started < 2
     }
     func saveSettings() {

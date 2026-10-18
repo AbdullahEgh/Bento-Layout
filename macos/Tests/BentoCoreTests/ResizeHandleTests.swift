@@ -95,4 +95,43 @@ final class ResizeHandleTests: XCTestCase {
         XCTAssertEqual(DesktopWorkArea.correctingMenu(frame: area, visible: area, bars: [Rect(1200, 0, 1200, 30)]), area)
         XCTAssertEqual(DesktopWorkArea.correctingMenu(frame: area, visible: area, bars: []), area)
     }
+    func testNearbyRowsSnapAndRestorePerpendicularLocalHandles() throws {
+        let root = split(.horizontal, split(.vertical, leaf(), leaf()),
+                         split(.vertical, split(.horizontal, leaf(), leaf()), leaf(), ratio: 0.55))
+        let before = try frames(root)
+        let handles = try ResizeHandles.calculate(root, in: area, gap: gap)
+        let local = try XCTUnwrap(handles.first { $0.divider.axis == .vertical && $0.divider.parent.x > 0 })
+        let at = Point(1000, local.divider.bounds.y + 5)
+        let next = try InteractionGeometry.resize(Workspace(roots: ["s": local.root]), display: "s", divider: local.divider,
+            pointer: Point(1000, 404), area: area, gap: gap, grabbedAt: at)
+        let joined = try XCTUnwrap(next.roots["s"])
+        let after = try frames(joined)
+        for (id, frame) in before where frame.x == 0 { XCTAssertEqual(after[id], frame) }
+        XCTAssertEqual(Set(after.values.filter { $0.y > 0 }.map(\.y)), [405])
+        let options = try ResizeHandles.calculate(joined, in: area, gap: gap)
+        XCTAssertTrue(options.contains { $0.divider.axis == .horizontal && $0.divider.bounds.y == 405 })
+        XCTAssertTrue(options.contains { $0.divider.axis == .vertical && $0.shared })
+        // Same held gesture can pull away again; no sticky tree replacement.
+        let separated = try InteractionGeometry.resize(Workspace(roots: ["s": local.root]), display: "s", divider: local.divider,
+            pointer: Point(1000, 350), area: area, gap: gap, grabbedAt: at)
+        XCTAssertNotEqual(try frames(XCTUnwrap(separated.roots["s"])), after)
+    }
+    func testNearbyColumnsSnapSymmetrically() throws {
+        let root = split(.vertical, split(.horizontal, leaf(), leaf()), split(.horizontal, leaf(), leaf(), ratio: 0.506))
+        let layout = try LayoutEngine.calculate(root, in: area, gap: gap)
+        let local = try XCTUnwrap(layout.dividers.first { $0.axis == .horizontal && $0.parent.y > 0 })
+        let joined = try InteractionGeometry.snappingSeam(root, divider: local.id, area: area, gap: gap)
+        let seams = try LayoutEngine.calculate(joined, in: area, gap: gap).dividers.filter { $0.axis == .horizontal }
+        XCTAssertEqual(Set(seams.map { $0.bounds.x }), [595])
+        XCTAssertTrue(try ResizeHandles.calculate(joined, in: area, gap: gap).contains { $0.shared && $0.divider.axis == .horizontal })
+    }
+    func testSnapRespectsMinimumAndLeavesDistantSeamsAlone() throws {
+        let root = split(.horizontal, split(.vertical, leaf(), leaf()), split(.vertical, leaf(100, 402), leaf()))
+        let local = try XCTUnwrap(LayoutEngine.calculate(root, in: area, gap: gap).dividers.first { $0.axis == .vertical && $0.parent.x > 0 })
+        XCTAssertEqual(try InteractionGeometry.snappingSeam(root, divider: local.id, area: area, gap: gap), root)
+        let far = split(.horizontal, split(.vertical, leaf(), leaf()), split(.vertical, leaf(), leaf(), ratio: 0.7))
+        let d = try XCTUnwrap(LayoutEngine.calculate(far, in: area, gap: gap).dividers.first { $0.axis == .vertical && $0.parent.x > 0 })
+        XCTAssertEqual(try InteractionGeometry.snappingSeam(far, divider: d.id, area: area, gap: gap), far)
+    }
+
 }

@@ -1,6 +1,5 @@
-Bento for macOS 0.2.32
+Bento for macOS 0.2.33
 
-- Resize whole rows or columns, or just the section you hover.
-- Keep joined boundaries aligned when Dock and menu-bar space changes.
-- Use the shown menu bar’s actual bounds; stop repeated failed reflows.
-- System Settings and Bento Settings stay outside the layout.
+- Snap nearby split sections into continuous rows and columns.
+- Separate joined sections again with the local grips.
+- Recover smaller window sizes and let Dock changes settle before fitting.

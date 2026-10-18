@@ -41,12 +41,44 @@ public enum InteractionGeometry {
         }
         let candidate = root.resizing(divider.id, ratio: max(0, min(1, Double(position) / Double(length))))
         _ = try LayoutEngine.calculate(candidate, in: area, gap: gap)
-        var next = workspace; next.roots[display] = candidate; return next
+        var next = workspace; next.roots[display] = try snappingSeam(candidate, divider: divider.id, area: area, gap: gap); return next
+    }
+    /// Snap only adjoining, parallel sections. The inactive section stays fixed;
+    /// exact alignment lets ResizeHandles derive the perpendicular local cuts.
+    /// Each sample starts from the gesture snapshot, so pulling away breaks the join.
+    public static func snappingSeam(_ root: LayoutNode, divider id: UUID, area: Rect, gap: Int, distance: Int = 12) throws -> LayoutNode {
+        let layout = try LayoutEngine.calculate(root, in: area, gap: gap)
+        guard let moving = layout.dividers.first(where: { $0.id == id }) else { return root }
+        let h = moving.axis == .horizontal
+        let position = h ? moving.bounds.x : moving.bounds.y
+        let neighbors = layout.dividers.filter { other in
+            guard other.id != id, other.axis == moving.axis else { return false }
+            let adjacent = h
+                ? abs(other.bounds.bottom - moving.bounds.y) <= gap || abs(moving.bounds.bottom - other.bounds.y) <= gap
+                : abs(other.bounds.right - moving.bounds.x) <= gap || abs(moving.bounds.right - other.bounds.x) <= gap
+            return adjacent && abs((h ? other.bounds.x : other.bounds.y) - position) <= distance
+        }.sorted { a, b in
+            let x = h ? a.bounds.x : a.bounds.y, y = h ? b.bounds.x : b.bounds.y
+            return abs(x - position) == abs(y - position) ? x < y : abs(x - position) < abs(y - position)
+        }
+        for neighbor in neighbors {
+            let target = h ? neighbor.bounds.x : neighbor.bounds.y
+            let start = h ? moving.parent.x : moving.parent.y
+            let length = (h ? moving.parent.width : moving.parent.height) - gap
+            guard length > 0 else { continue }
+            let candidate = root.resizing(id, ratio: Double(target - start) / Double(length))
+            let result = try LayoutEngine.calculate(candidate, in: area, gap: gap)
+            // A min-size clamp must never pretend that the seams joined.
+            if let actual = result.dividers.first(where: { $0.id == id }),
+               (h ? actual.bounds.x : actual.bounds.y) == target { return candidate }
+        }
+        return root
     }
     public static func resizeWindow(_ root: LayoutNode, windowID: UUID, requested: Rect, area: Rect, gap: Int) throws -> LayoutNode {
         let original = try LayoutEngine.calculate(root, in: area, gap: gap)
         guard let leaf = original.regions.first(where: { $0.window.windowID == windowID }) else { return root }
         var result = root
+        var resized = Set<UUID>()
         for divider in original.dividers {
             let horizontal = divider.axis == .horizontal
             let trailing = horizontal ? leaf.bounds.right == divider.bounds.x : leaf.bounds.bottom == divider.bounds.y
@@ -60,7 +92,13 @@ public enum InteractionGeometry {
             let length = (horizontal ? current.parent.width : current.parent.height) - gap
             guard length > 0 else { throw LayoutError.invalidInput }
             let start = horizontal ? current.parent.x : current.parent.y
+            resized.insert(divider.id)
             result = result.resizing(divider.id, ratio: max(0, min(1, Double(newEdge - start - (leading ? gap : 0)) / Double(length))))
+        }
+        for divider in original.dividers where resized.contains(divider.id) {
+            if let updated = try LayoutEngine.calculate(result, in: area, gap: gap).dividers.first(where: { $0.id == divider.id }), updated.bounds != divider.bounds {
+                result = try snappingSeam(result, divider: divider.id, area: area, gap: gap)
+            }
         }
         _ = try LayoutEngine.calculate(result, in: area, gap: gap)
         return result

@@ -7,6 +7,11 @@ struct ReleaseNotes: Identifiable {
 
     // Keep newest first; ship the log with the app so it also works offline.
     static let history: [ReleaseNotes] = [
+        .init(version: "0.2.33", points: [
+            "Snap nearby split sections into continuous rows and columns.",
+            "Separate joined sections again with the local grips.",
+            "Recover smaller window sizes and let Dock changes settle before fitting.",
+        ]),
         .init(version: "0.2.32", points: [
             "Resize whole rows or columns, or just the section you hover.",
             "Keep joined boundaries aligned when Dock and menu-bar space changes.",

@@ -1,3 +1,11 @@
+# Reversible seam snapping and accepted size evidence — 0.2.33, 2026-10-18
+
+Nearby adjoining parallel sections snap within 12 points, on either axis. Only the dragged section changes; exact alignment exposes equivalent shared/perpendicular local handles. Each pointer sample uses the gesture snapshot, so moving away separates the sections again. Minimum-size clamping must reach the exact target before a join is accepted. Native border resizing uses the same snapping, restricted to directly edited dividers.
+
+Discovery lowers stale learned minima when a smaller native frame provides contrary evidence. Native manual resizing reconciles that evidence before calculating the candidate, preventing the old minimum from immediately undoing a size the app accepted. Larger observations never raise limits. Dock/menu preference changes wait at least 350 ms and for 160 ms of unchanged available area before the first transaction (bounded at two seconds); this avoids reacting to short pauses during the Dock slide. Real app size refusals still require validation and may need a bounded correction.
+
+79 core tests passed, including five-pane joining with perpendicular local handle recovery, symmetric column snapping, pull-away separation, and constrained/distant seams. 224 disposable native-window checks passed, including native pointer split/rejoin, perpendicular handle recovery, lower observed limits, and retaining a manual resize below a stale limit. The optimized app built successfully. Evidence is in ignored `artifacts/macos/seam-snap-qa/`. Signed release and live verification follow.
+
 # Local/shared resize handles, joined reflow and settings exclusion — 0.2.32, 2026-10-18
 
 Resize handles derive equivalent slicing trees from current pane geometry, verifying identical window rectangles before exposing a choice. A short section grip changes only that applicable section; the longer center grip selects an aligned shared row or column. Both axes use the same algorithm, including middle rows in a three-row grid. Native input resolves current geometry at mouse-down, captures one tree for the gesture, and restores the original tree on cancel/Undo. Grip styling otherwise remains unchanged.

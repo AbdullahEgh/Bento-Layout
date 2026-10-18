@@ -13,6 +13,13 @@ import BentoCore
         extra.isReleasedWhenClosed = false; extra.title = "Bento independent seam fixture"; extra.orderFrontRegardless()
         let record = ManagedWindow(element: AXUIElementCreateApplication(-1005), pid: ProcessInfo.processInfo.processIdentifier,
             title: extra.title, application: "Bento Fixture", bundleID: "com.abdullahegh.bento.fixture", frame: DesktopCoordinates.engine(extra.frame))
+        record.minimum = Size(600, 641)
+        record.reconcileObservedMinimum()
+        try check(record.minimum == Size(record.frame.width, record.frame.height),
+            "Observed smaller native dimensions remove stale learned constraints on both axes")
+        record.minimum = Size(160, 120)
+        record.reconcileObservedMinimum()
+        try check(record.minimum == Size(160, 120), "A larger observed frame never raises a window minimum")
         system.records.append((record, extra))
         defer { system.records.removeLast(); extra.close() }
         var settings = MacSettings(); settings.animate = false
@@ -60,6 +67,34 @@ import BentoCore
         input.pressed = false; interactions.sample()
         try check(model.history.current == grid && system.records.map { system.frame(of: $0.0.element)! } == before,
             "Cancelling a local grip restores the original tree and all native frames")
+        input.point = Point(x, bottomY); input.pressed = true; interactions.sample()
+        input.point.x -= 35; interactions.sample()
+        await interactions.finish(cancel: false)
+        input.pressed = false; interactions.sample()
+        input.point = Point(x - 35, bottomY); input.pressed = true; interactions.sample()
+        input.point.x = x - 6; interactions.sample()
+        await interactions.finish(cancel: false)
+        input.pressed = false; interactions.sample()
+        try check(system.records.map { system.frame(of: $0.0.element)! } == before,
+            "Dragging a separated section near its neighbor snaps the native panes into one continuous boundary")
+        let snappedHandles = try ResizeHandles.calculate(model.history.current.roots[display.id]!, in: area, gap: model.layoutGap)
+        try check(snappedHandles.contains { $0.divider.axis == .vertical && $0.divider.parent.x > area.x },
+            "Joining column sections restores the perpendicular local row grip")
+        let nativeWindow = system.records[0].0
+        let priorPointed = system.pointed
+        system.pointed = nativeWindow
+        let nativeBefore = system.frame(of: nativeWindow.element)!
+        nativeWindow.minimum.height = nativeBefore.height
+        input.point = Point(nativeBefore.x + 80, nativeBefore.bottom - 1)
+        input.pressed = true; interactions.sample()
+        let smaller = Rect(nativeBefore.x, nativeBefore.y, nativeBefore.width, nativeBefore.height - 30)
+        try system.write(nativeWindow, frame: smaller)
+        input.point.y -= 30; interactions.sample()
+        await interactions.finish(cancel: false)
+        input.pressed = false; interactions.sample()
+        try check(system.frame(of: nativeWindow.element)?.height == smaller.height && nativeWindow.minimum.height == smaller.height,
+            "A native resize below a stale limit is retained instead of being clamped back by Bento")
+        system.pointed = priorPointed
         await model.stopAllDesktops(); interactions.synchronize()
         let originalRecords = system.records
         for bundle in ["com.apple.systempreferences", "com.abdullahegh.bento"] {

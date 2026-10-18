@@ -236,7 +236,12 @@ struct DesktopInput {
         } catch { candidate = nil; preview.orderOut(nil) }
     }
     private func updateNativeResize(window: ManagedWindow, frame: Rect) {
-        guard var next = snapshot else { return }
+        guard let original = snapshot else { return }
+        // The user has already made this native window smaller. Reconcile that
+        // evidence before calculating its boundary, otherwise an old clamp makes
+        // Bento undo the accepted resize and leaves the local seam blocked.
+        window.reconcileObservedMinimum(frame)
+        var next = original.reconciled(with: model.windows.map(\.leaf))
         for (display, root) in next.roots where root.windows.contains(where: { $0.windowID == window.id }) {
             guard let area = areas()[display] else { continue }
             do { next.roots[display] = try InteractionGeometry.resizeWindow(root, windowID: window.id, requested: frame, area: area, gap: model.layoutGap); candidate = next }
