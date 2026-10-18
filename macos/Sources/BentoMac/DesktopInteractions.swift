@@ -78,10 +78,13 @@ struct DesktopInput {
         } else { pinnedTint.hide() }
     }
     private func areas() -> [String: Rect] { if let gestureAreas { return gestureAreas }; return Dictionary(uniqueKeysWithValues: model.displayAreas().map { ($0.id, $0.bounds) }) }
-    private func removeHelpers() { resizeHandles.removeAll(); pinnedTint.hide(); grips.values.forEach { $0.orderOut(nil) }; grips.removeAll(); preview.orderOut(nil); backdrop.hide(animated: model.settings.animate) }
+    private func removeHelpers() { model.system.dividerWindowNumbers.removeAll(); resizeHandles.removeAll(); pinnedTint.hide(); grips.values.forEach { $0.orderOut(nil) }; grips.removeAll(); preview.orderOut(nil); backdrop.hide(animated: model.settings.animate) }
     private func updateGrips(_ workspace: Workspace) {
         hoverNeedsUpdate = true
-        backdrop.show(darkness: model.settings.backgroundDarkness, animated: model.settings.animate)
+        let ids = Set(workspace.windows.map(\.windowID))
+        let visible = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        let anchor = BentoWindowStack.anchor(windows: model.windows.filter { ids.contains($0.id) }, visible: visible)
+        backdrop.show(darkness: model.settings.backgroundDarkness, animated: model.settings.animate, belowWindow: anchor)
         resizeHandles = resizeHandles.filter { workspace.roots[$0.key] != nil }
         let displays = areas(); var retained = Set<UUID>()
         for (display, root) in workspace.roots {
@@ -118,10 +121,13 @@ struct DesktopInput {
                 let lightInk = true
                 if panel.gripView.lightInk != lightInk { panel.gripView.lightInk = lightInk; panel.gripView.needsDisplay = true }
                 panel.gripView.dragging = grip?.divider.id == divider.id
-                if !panel.isVisible { panel.orderFrontRegardless() }
+                panel.level = anchor == nil ? NSWindow.Level(rawValue: -1) : .normal
+                if let anchor { panel.order(.below, relativeTo: anchor) }
+                else if !panel.isVisible { panel.orderFrontRegardless() }
             }
         }
         for id in Array(grips.keys) where !retained.contains(id) { grips[id]?.orderOut(nil); grips.removeValue(forKey: id) }
+        model.system.dividerWindowNumbers = Set(grips.values.map(\.windowNumber))
     }
     func sample() {
         let state = input(), pressed = state.pressed
@@ -482,7 +488,7 @@ struct DesktopInput {
         gripView = GripView(axis: axis)
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isReleasedWhenClosed = false; isOpaque = false; backgroundColor = .clear
-        // Above the dimming panel (-2), below ordinary app windows (0).
+        // Synchronization places this above the backdrop and below Bento members.
         // App content and shadows cover both the input surface and the grip ink.
         hasShadow = false; level = NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue - 1); hidesOnDeactivate = false
         ignoresMouseEvents = false; acceptsMouseMovedEvents = true

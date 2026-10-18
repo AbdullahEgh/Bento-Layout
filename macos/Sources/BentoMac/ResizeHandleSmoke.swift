@@ -130,6 +130,41 @@ import BentoCore
             await model.stopAllDesktops()
             system.records = originalRecords
         }
+        // Real WindowServer ordering with disposable surfaces, independent of AX.
+        let stackRect = NSRect(x: 100, y: 100, width: 200, height: 150)
+        let under = NSPanel(contentRect: stackRect, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        let tiled = NSPanel(contentRect: stackRect, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        let floating = NSPanel(contentRect: stackRect, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        for panel in [under, tiled, floating] { panel.isReleasedWhenClosed = false; panel.animationBehavior = .none; panel.level = .normal; panel.orderFrontRegardless() }
+        let background = DesktopBackdrop()
+        background.show(darkness: 30, animated: false, belowWindow: tiled.windowNumber)
+        let handle = GapPanel(axis: .horizontal)
+        handle.setFrame(stackRect, display: true); handle.level = .normal
+        handle.order(.below, relativeTo: tiled.windowNumber)
+        defer { background.hide(animated: false); for panel in [under, tiled, floating, handle] { panel.close() } }
+        try? await Task.sleep(for: .milliseconds(40))
+        let ordered = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        let numbers = ordered.compactMap { ($0[kCGWindowNumber as String] as? NSNumber)?.intValue }
+        let order = [floating.windowNumber, tiled.windowNumber, handle.windowNumber, under.windowNumber]
+        let positions = order.compactMap { numbers.firstIndex(of: $0) }
+        try check(positions.count == order.count && zip(positions, positions.dropFirst()).allSatisfy { $0 < $1 }
+            && background.windowNumbers.allSatisfy { number in
+                guard let i = numbers.firstIndex(of: number), let h = numbers.firstIndex(of: handle.windowNumber), let u = numbers.firstIndex(of: under.windowNumber) else { return false }
+                return h < i && i < u
+            },
+            "Grips stack above dimmed underlying windows and below Bento members and floating apps: positions=\(positions), backdrop=\(background.windowNumbers.compactMap { numbers.firstIndex(of: $0) })")
+        let rect = DesktopCoordinates.engine(stackRect), point = Point(rect.x + 30, rect.y + 30)
+        let fixtureNumbers = Set(order + background.windowNumbers)
+        func fixtureStack() -> [[String: Any]] {
+            let entries = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+            return entries.filter { fixtureNumbers.contains(($0[kCGWindowNumber as String] as? NSNumber)?.intValue ?? -1) }
+        }
+        try check(!MacWindowSystem.dividerIsExposed(at: point, visible: fixtureStack(), dividerWindowNumbers: [handle.windowNumber]),
+            "A floating app covering a grip prevents divider input")
+        floating.orderOut(nil); tiled.orderOut(nil)
+        try? await Task.sleep(for: .milliseconds(40))
+        try check(MacWindowSystem.dividerIsExposed(at: point, visible: fixtureStack(), dividerWindowNumbers: [handle.windowNumber]),
+            "An underlying normal window does not block the exposed grip above it")
         return passed
     }
 }

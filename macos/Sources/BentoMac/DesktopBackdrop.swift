@@ -2,10 +2,11 @@ import AppKit
 
 @MainActor final class DesktopBackdrop {
     private var panels: [NSPanel] = []
+    var windowNumbers: [Int] { panels.map(\.windowNumber) }
     private var fade: Timer?
     private var target = 0.0
     private(set) var opacity = 0.0
-    func show(darkness: Int, animated: Bool = true) {
+    func show(darkness: Int, animated: Bool = true, belowWindow: Int? = nil) {
         guard darkness > 0 else { hide(animated: animated); return }
         if panels.count != NSScreen.screens.count {
             hide(animated: false)
@@ -21,7 +22,9 @@ import AppKit
         }
         for (panel, screen) in zip(panels, NSScreen.screens) {
             if panel.frame != screen.frame { panel.setFrame(screen.frame, display: true) }
-            if !panel.isVisible { panel.orderBack(nil) }
+            panel.level = belowWindow == nil ? NSWindow.Level(rawValue: -2) : .normal
+            if let belowWindow { panel.order(.below, relativeTo: belowWindow) }
+            else if !panel.isVisible { panel.orderBack(nil) }
         }
         transition(to: Double(darkness) / 100, animated: animated)
     }
@@ -81,5 +84,24 @@ import AppKit
             panel.order(.above, relativeTo: number.intValue)
         }
         for id in Array(panels.keys) where !retained.contains(id) { panels[id]?.orderOut(nil); panels.removeValue(forKey: id) }
+    }
+}
+
+// WindowServer lists front to back. Anchor helpers below the lowest Bento member,
+// preserving every floating window above the workspace and covering windows below it.
+@MainActor enum BentoWindowStack {
+    static func anchor(windows: [ManagedWindow], visible: [[String: Any]]) -> Int? {
+        visible.last(where: { info in
+            guard (info[kCGWindowLayer as String] as? NSNumber)?.intValue == 0 else { return false }
+            let number = (info[kCGWindowNumber as String] as? NSNumber)?.intValue
+            return windows.contains { window in
+                if let known = window.serverNumber { return known == number }
+                guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == window.pid,
+                      let raw = info[kCGWindowBounds as String] as? [String: Any],
+                      let rect = CGRect(dictionaryRepresentation: raw as CFDictionary) else { return false }
+                return abs(rect.minX - Double(window.frame.x)) <= 3 && abs(rect.minY - Double(window.frame.y)) <= 3
+                    && abs(rect.width - Double(window.frame.width)) <= 3 && abs(rect.height - Double(window.frame.height)) <= 3
+            }
+        }).flatMap { ($0[kCGWindowNumber as String] as? NSNumber)?.intValue }
     }
 }
