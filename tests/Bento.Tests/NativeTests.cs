@@ -518,6 +518,20 @@ internal static class NativeTests
             });
             Run("Restored window automatically rejoins the layout", () =>
             { native.Restore(fourthPlacement!); WaitForCount(controller, monitor, 4); VerifyBounds(controller.Layout(monitor), native); });
+            Run("Closing a sibling invalidates an incoming drag proposal", () =>
+            {
+                controller.BeginDrag(fixtures[0].Id);
+                var target = controller.Layout(monitor).Regions.Single(r => r.Window.WindowId == fixtures[1].Id).Bounds;
+                var point = new PixelPoint(target.X + 2, target.Y + target.Height / 2);
+                controller.PreviewDrag(point);
+                extra!.CloseMainWindow(); extra.WaitForExit(2000); Pump();
+                controller.PreviewDrag(point); controller.FinishDrag(point); WaitForCount(controller, monitor, 3);
+                Check(controller.DisplayState.Windows.All(w => w.WindowId != fourth!.Id)); VerifyBounds(controller.Layout(monitor), native);
+                var info = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true };
+                info.ArgumentList.Add("--fixture"); info.ArgumentList.Add($"{prefix} 4");
+                extra = Process.Start(info)!; processes.Add(extra); WaitForCount(controller, monitor, 4);
+                fourth = controller.Windows.Single(w => w.Title == $"{prefix} 4");
+            });
             Run("Closing a dragged window clears preview and expands its neighbors", () =>
             {
                 controller.BeginDrag(fourth!.Id);

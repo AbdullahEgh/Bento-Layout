@@ -138,7 +138,7 @@ public sealed partial class BentoController
             desktopEnvironment.Contains(desktop, id) && !LooksFullscreen(id));
     private bool LooksFullscreen(long id)
     {
-        if (desktopEnvironment is null || !WindowCatalog.Exists(id) || WindowCatalog.IsMinimized(id) || WindowCatalog.IsMaximized(id)) return false;
+        if (id == completingNativeGesture || desktopEnvironment is null || !WindowCatalog.Exists(id) || WindowCatalog.IsMinimized(id) || WindowCatalog.IsMaximized(id)) return false;
         var screen = WindowCatalog.ScreenBounds(id);
         if (screen is null) return desktopEnvironment.Fullscreen(id);
         try
@@ -176,8 +176,11 @@ public sealed partial class BentoController
         }
         if (!known) return;
         native.ForgetWindow(id); CancelSettled();
+        dropProposals.Clear(); dragIntent.Reset(); preview = null; previewDestination = null; validPreview = false; dropPreview?.Hide();
         if (incoming?.WindowId == id || nativeResizeWindow == id || activeNativeDrag == id)
         { ClearDrag(restoreLive: false); activeNativeDrag = 0; nativeStartBounds = null; }
+        else if (divider is not null || nativeResizeWindow != 0)
+        { ClearDrag(restoreLive: false); CloseJoinCues(); }
         RequestMembershipRefresh();
     }
     private bool CurrentMember(long id) => desktopEnvironment is null || sessions.Desktop is { } desktop && desktopEnvironment.Contains(desktop, id);
@@ -440,10 +443,12 @@ public sealed partial class BentoController
             UpdateJoinCue(monitor, root, moving.Divider); break;
         }
     }
-    private WorkspaceState AlignNativeSeams(WorkspaceState state)
+    private WorkspaceState AlignNativeSeams(WorkspaceState state, DesktopSession owner)
     {
         if (reflowing || Paused || session.Fullscreen.Count > 0) return state;
-        var frames = state.Windows.Where(w => WindowCatalog.Exists(w.WindowId)).ToDictionary(w => w.WindowId, w => native.VisibleBounds(w.WindowId));
+        Dictionary<long, PixelRect> frames;
+        try { frames = state.Windows.Where(w => WindowCatalog.Exists(w.WindowId)).ToDictionary(w => w.WindowId, w => native.VisibleBounds(w.WindowId)); }
+        catch (InvalidOperationException ex) { Status = ex.Message; return state; }
         var candidate = state; long oldScore = 0;
         foreach (var monitor in monitors)
             if (state.Roots.GetValueOrDefault(monitor.Id) is { } root)
@@ -456,7 +461,7 @@ public sealed partial class BentoController
         if (ReferenceEquals(candidate, state)) return state;
         try
         {
-            Apply(state, candidate, restoreRemoved: false, animate: false);
+            Apply(state, candidate, restoreRemoved: false, animate: false, expectedOwner: owner);
             var after = candidate.Windows.ToDictionary(w => w.WindowId, w => native.VisibleBounds(w.WindowId)); long score = 0;
             foreach (var monitor in monitors)
                 if (candidate.Roots.GetValueOrDefault(monitor.Id) is { } root)
@@ -464,7 +469,10 @@ public sealed partial class BentoController
             if (score < oldScore) return candidate;
         }
         catch (Exception ex) { Status = ex.Message; }
-        Apply(candidate, state, restoreRemoved: false, animate: false); // At most one proposal and one rollback.
+        if (!ReferenceEquals(owner, session)) throw new InvalidOperationException("Desktop changed during seam validation.");
+        try { Apply(candidate, state, restoreRemoved: false, animate: false, expectedOwner: owner); }
+        catch (Exception ex) when (ex is InvalidOperationException or LayoutConstraintException or System.ComponentModel.Win32Exception)
+        { Status = ex.Message; } // Settled verification makes at most one further same-tree repair.
         return state;
     }
 }

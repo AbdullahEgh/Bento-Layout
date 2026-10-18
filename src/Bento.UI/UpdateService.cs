@@ -147,6 +147,7 @@ public sealed class UpdateService
         var info = new ProcessStartInfo(Path.Combine(helper, "Bento.Updater.exe")) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = helper };
         info.ArgumentList.Add(job);
         using var helperProcess = Process.Start(info) ?? throw new IOException("The updater could not start. Bento is still running.");
-        Application.Current.Shutdown();
+        if (Application.Current is App app) app.ShutdownKeepingWindows();
+        else Application.Current.Shutdown();
     }
 }

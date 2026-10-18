@@ -45,6 +45,16 @@ public partial class App : Application
         }
         catch { /* Offline startup stays quiet; explicit checks display actionable errors. */ }
     }
+    public void ShutdownKeepingWindows()
+    {
+        controller?.Dispose(); // Run before WPF closes Settings and flushes its draft.
+        Shutdown();
+    }
+    protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
+    {
+        base.OnSessionEnding(e);
+        if (!e.Cancel) controller?.Dispose();
+    }
     protected override void OnExit(ExitEventArgs e)
     {
         controller?.Dispose();

@@ -10,6 +10,23 @@ internal static class PlatformParityTests
     private sealed class Session { public bool Active; public readonly List<long> Windows = new(); }
     public static void RunAll()
     {
+        Run("Gesture proposals invalidate successes and failures when the workspace changes", () =>
+        {
+            var cache = new GestureProposalCache<string, object>(); var first = new object(); var next = new object(); var proposal = new object();
+            Check(cache.Use(first)); cache["valid"] = proposal; cache["invalid"] = null;
+            Check(!cache.Use(first)); Check(cache.TryGetValue("valid", out var value) && ReferenceEquals(value, proposal));
+            Check(cache.TryGetValue("invalid", out value) && value is null);
+            Check(cache.Use(next)); Check(!cache.TryGetValue("valid", out _)); Check(!cache.TryGetValue("invalid", out _));
+            cache.Clear(); Check(cache.Use(next));
+        });
+        Run("Fullscreen inference excludes Bento geometry until frame or style changes", () =>
+        {
+            var screen = new PixelRect(0, 0, 1920, 1080);
+            Check(!FullscreenGeometry.Reserve(screen, screen, false, false, screen, false));
+            Check(FullscreenGeometry.Reserve(screen, screen, false, false, screen, true));
+            Check(FullscreenGeometry.Reserve(screen, screen, false, false, screen with { Width = 960 }, false));
+            Check(!FullscreenGeometry.Reserve(screen, screen, true, false, null, null));
+        });
         Run("Unchanged overflow retains the edited tree instead of rebuilding every sample", () =>
         {
             var a = WindowNode.Create(1, new(300, 300)); var b = WindowNode.Create(2, new(300, 300)); var overflow = WindowNode.Create(3, new(300, 300));

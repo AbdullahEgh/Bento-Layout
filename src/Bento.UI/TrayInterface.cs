@@ -13,12 +13,13 @@ internal sealed class TrayInterface : IDisposable
     private readonly StatusPress press = new();
     private readonly List<Drawing.Image> menuImages = new();
     private Drawing.Icon? image;
+    private bool disposed;
     private (bool Active, bool Paused, bool Suspended, bool Dark, bool TaskbarDark)? appearance;
 
     public TrayInterface(BentoController controller, Action rememberActive, Func<long> activeWindow)
     {
         this.controller = controller;
-        void Run(Action action) => Application.Current.Dispatcher.BeginInvoke(action);
+        void Run(Action action) => Application.Current.Dispatcher.BeginInvoke(new Action(() => { if (!disposed) action(); }));
         Forms.ToolStripMenuItem Item(string text, Action action)
         {
             var item = new Forms.ToolStripMenuItem(text);
@@ -31,21 +32,24 @@ internal sealed class TrayInterface : IDisposable
         undo = Item("Undo Layout Change", controller.Undo);
         Item("Settings…", () => controller.ShowInterface());
         menu.Items.Add(new Forms.ToolStripSeparator());
-        Item("Quit Bento", () => Application.Current.Shutdown());
+        Item("Quit Bento", controller.QuitKeepingWindows);
         menu.Opening += (_, _) => { press.Cancel(); pressTimer.Stop(); controller.CheckDesktopContext(); rememberActive(); Refresh(); };
         Icon = new Forms.NotifyIcon { ContextMenuStrip = menu, Visible = true };
         Icon.MouseDown += (_, e) =>
         {
+            if (disposed) return;
             if (e.Button != Forms.MouseButtons.Left) { press.Cancel(); pressTimer.Stop(); return; }
             Run(controller.CheckDesktopContext); press.Begin(Environment.TickCount64); pressTimer.Start();
         };
         Icon.MouseUp += (_, e) =>
         {
+            if (disposed) return;
             if (e.Button != Forms.MouseButtons.Left) return;
             pressTimer.Stop(); if (press.End()) Run(controller.TrayClick);
         };
         pressTimer.Tick += (_, _) =>
         {
+            if (disposed) return;
             if (WindowCatalog.EscapeDown || !WindowCatalog.LeftButtonDown) { press.Cancel(); pressTimer.Stop(); return; }
             if (controller.Automatic && press.Hold(Environment.TickCount64)) Run(controller.TrayHold);
         };
@@ -53,6 +57,7 @@ internal sealed class TrayInterface : IDisposable
     }
     public void Refresh()
     {
+        if (disposed) return;
         bool active = controller.Automatic, paused = controller.Paused, dark = AppTheme.SystemDark;
         bool taskbarDark = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "SystemUsesLightTheme", 0) is int light && light == 0;
         pause.Text = paused ? "Resume Bento" : "Pause Bento"; pause.Checked = paused;
@@ -99,6 +104,7 @@ internal sealed class TrayInterface : IDisposable
     }
     public void Dispose()
     {
+        if (disposed) return; disposed = true;
         press.Cancel(); pressTimer.Stop(); pressTimer.Dispose(); Icon.Visible = false; Icon.Dispose(); menu.Dispose(); image?.Dispose();
         foreach (var icon in menuImages) icon.Dispose(); menuImages.Clear();
     }

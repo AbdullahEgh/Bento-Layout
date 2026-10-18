@@ -7,6 +7,8 @@ public sealed class DesktopEvents : IDisposable
 {
     private readonly Native.WinEventProc callback;
     private readonly List<nint> hooks = new();
+    private bool disposed;
+    public event Action<Exception>? ObserverFailed;
     public event Action<long, bool>? NativeDrag;
     public event Action? ForegroundChanged;
     public event Action? WindowsChanged;
@@ -17,6 +19,9 @@ public sealed class DesktopEvents : IDisposable
     {
         callback = (_, type, hwnd, objectId, childId, _, _) =>
         {
+            if (disposed) return;
+            try
+            {
             if (type == 3) { ForegroundChanged?.Invoke(); return; }
             if (type is 0x14 or 0x15) { OverviewChanged?.Invoke(type == 0x14); return; }
             if (type == 0x20) { DesktopChanged?.Invoke(); return; }
@@ -28,6 +33,8 @@ public sealed class DesktopEvents : IDisposable
             }
             if (type is 0x16 or 0x17) { WindowsChanged?.Invoke(); return; }
             if (hwnd != 0 && type is 0xA or 0xB) NativeDrag?.Invoke(hwnd.ToInt64(), type == 0xA);
+            }
+            catch (Exception ex) { try { ObserverFailed?.Invoke(ex); } catch { /* Never unwind into Win32. */ } }
         };
         void Watch(uint first, uint last, uint flags = 0)
         {
@@ -44,6 +51,7 @@ public sealed class DesktopEvents : IDisposable
     }
     public void Dispose()
     {
+        if (disposed) return; disposed = true;
         foreach (var hook in hooks) Native.UnhookWinEvent(hook);
         hooks.Clear(); GC.KeepAlive(callback);
     }

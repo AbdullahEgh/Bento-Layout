@@ -53,20 +53,22 @@ public sealed class DesktopEnvironment : IDesktopEnvironment
                 nint fresh = CreateWindowEx(0x00080000 | 0x08000000 | 0x00000080 | 0x00000020,
                     "STATIC", "Bento desktop identity", unchecked((int)0x80000000), -32000, -32000, 1, 1, 0, 0, 0, 0);
                 if (fresh == 0) { suspended = true; return new(null, true, "Could not identify the current Windows desktop."); }
-                SetLayeredWindowAttributes(fresh, 0, 0, 2); Native.ShowWindow(fresh, 4);
-                if (manager.GetWindowDesktopId(fresh, out Guid id) < 0 || id == Guid.Empty ||
-                    manager.IsWindowOnCurrentVirtualDesktop(fresh, out bool current) < 0 || !current)
+                try
                 {
-                    DestroyWindow(fresh); suspended = true;
-                    return new(null, true, "Windows did not identify the current desktop; arrangement deferred.");
+                    if (!SetLayeredWindowAttributes(fresh, 0, 0, 2)) { suspended = true; return new(null, true, "Desktop identity window could not be prepared."); }
+                    Native.ShowWindow(fresh, 4);
+                    if (manager.GetWindowDesktopId(fresh, out Guid id) < 0 || id == Guid.Empty ||
+                        manager.IsWindowOnCurrentVirtualDesktop(fresh, out bool current) < 0 || !current)
+                    { suspended = true; return new(null, true, "Windows did not identify the current desktop; arrangement deferred."); }
+                    if (identity is { } previous && previous != id && oldCurrent)
+                    {
+                        suspended = true; ambiguousIdentity = true;
+                        return new(null, true, "Shared or changing desktop identity. Wait for the shell, or unpin Bento from all desktops.");
+                    }
+                    if (probe != 0) DestroyWindow(probe);
+                    probe = fresh; fresh = 0; identity = id; lastProbe = now; ambiguousIdentity = false;
                 }
-                if (identity is { } previous && previous != id && oldCurrent)
-                {
-                    DestroyWindow(fresh); suspended = true; ambiguousIdentity = true;
-                    return new(null, true, "Shared or changing desktop identity. Wait for the shell, or unpin Bento from all desktops.");
-                }
-                if (probe != 0) DestroyWindow(probe);
-                probe = fresh; identity = id; lastProbe = now; ambiguousIdentity = false;
+                finally { if (fresh != 0) DestroyWindow(fresh); }
             }
             return new(identity, false);
         }
@@ -121,9 +123,11 @@ public sealed class DesktopEnvironment : IDesktopEnvironment
     }
     public void Dispose()
     {
+        unavailable = true; suspended = true; identity = null;
         if (probe != 0) { DestroyWindow(probe); probe = 0; }
-        if (manager is not null) { Marshal.FinalReleaseComObject(manager); manager = null; }
-        identity = null; unavailable = true;
+        var connection = manager; manager = null;
+        if (connection is not null)
+            try { Marshal.FinalReleaseComObject(connection); } catch (InvalidComObjectException) { /* Explorer already disconnected. */ }
     }
     [DllImport("shell32.dll")] private static extern int SHQueryUserNotificationState(out int state);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern nint CreateWindowEx(int extended, string className, string title, int style, int x, int y, int width, int height, nint parent, nint menu, nint instance, nint parameter);

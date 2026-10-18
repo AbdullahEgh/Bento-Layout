@@ -25,10 +25,12 @@ public sealed class BentoWindow : Window
     private bool busy;
     private bool? draftStartAtLogin;
     private readonly System.Threading.CancellationTokenSource lifetime = new();
+    private readonly System.Threading.CancellationToken cancellation;
+    private bool closed;
 
     public BentoWindow(BentoController controller)
     {
-        this.controller = controller; draft = controller.Settings;
+        this.controller = controller; draft = controller.Settings; cancellation = lifetime.Token;
         Title = "Bento"; Icon = AppIcons.Image; Width = 850; Height = 650; MinWidth = 360; MinHeight = 420; Topmost = false;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         SetResourceReference(BackgroundProperty, "Page");
@@ -83,7 +85,7 @@ public sealed class BentoWindow : Window
         autoSave.Tick += (_, _) => { autoSave.Stop(); if (pendingSave) Save(); };
         Closing += (_, _) => { autoSave.Stop(); if (pendingSave) Save(); };
         refresh.Tick += (_, _) => RefreshWorkspaceStatus();
-        refresh.Start(); Closed += (_, _) => { refresh.Stop(); lifetime.Cancel(); };
+        refresh.Start(); Closed += (_, _) => { closed = true; refresh.Stop(); autoSave.Stop(); lifetime.Cancel(); lifetime.Dispose(); };
         SelectPage("Workspace");
     }
     public void SelectPage(string name)
@@ -334,7 +336,8 @@ public sealed class BentoWindow : Window
             busy = true; check.IsEnabled = false; result.Text = "Checking GitHub…";
             try
             {
-                var update = await new UpdateService().CheckAsync(draft.UpdateRepository, lifetime.Token);
+                var update = await new UpdateService().CheckAsync(draft.UpdateRepository, cancellation);
+                if (closed) return;
                 if (update is null) result.Text = "You're up to date.";
                 else
                 {
@@ -343,17 +346,17 @@ public sealed class BentoWindow : Window
                     AutomationProperties.SetName(install, $"Download {update.Version}");
                     install.Click += async (_, _) =>
                     {
-                        if (busy) return; busy = true; install.IsEnabled = false; result.Text = "Downloading and verifying…";
-                        try { string path = await new UpdateService().DownloadAsync(update, lifetime.Token); PrepareInstall(path, result, updates); }
-                        catch (Exception ex) { result.Text = ex.Message; }
-                        finally { busy = false; install.IsEnabled = true; }
+                        if (busy || closed) return; busy = true; install.IsEnabled = false; result.Text = "Downloading and verifying…";
+                        try { string path = await new UpdateService().DownloadAsync(update, cancellation); if (!closed) PrepareInstall(path, result, updates); }
+                        catch (Exception ex) { if (!closed) result.Text = ex.Message; }
+                        finally { busy = false; if (!closed) install.IsEnabled = true; }
                     };
                     updates.Children.Add(install);
                 }
             }
-            catch (OperationCanceledException) { result.Text = "Update check cancelled."; }
-            catch (Exception ex) { result.Text = ex.Message; }
-            finally { busy = false; check.IsEnabled = true; }
+            catch (OperationCanceledException) { if (!closed) result.Text = "Update check cancelled."; }
+            catch (Exception ex) { if (!closed) result.Text = ex.Message; }
+            finally { busy = false; if (!closed) check.IsEnabled = true; }
         };
         local.Click += (_, _) =>
         {

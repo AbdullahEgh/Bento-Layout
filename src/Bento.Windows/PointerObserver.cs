@@ -10,6 +10,7 @@ public sealed class PointerObserver : IDisposable
 {
     private readonly Hook callback;
     private nint handle;
+    private bool disposed;
     public event Action<PixelPoint>? Pressed;
     public PointerObserver()
     {
@@ -17,7 +18,7 @@ public sealed class PointerObserver : IDisposable
         {
             try
             {
-                if (code >= 0 && message.ToInt64() is 0x0201 or 0x0204 or 0x0207)
+                if (!disposed && code >= 0 && message.ToInt64() is 0x0201 or 0x0204 or 0x0207)
                 {
                     var value = Marshal.PtrToStructure<MouseData>(data);
                     Pressed?.Invoke(new(value.Point.X, value.Point.Y));
@@ -29,7 +30,7 @@ public sealed class PointerObserver : IDisposable
         handle = SetWindowsHookEx(14, callback, GetModuleHandle(null), 0);
         if (handle == 0) throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not observe paused-window clicks.");
     }
-    public void Dispose() { if (handle != 0) { UnhookWindowsHookEx(handle); handle = 0; } GC.KeepAlive(callback); }
+    public void Dispose() { disposed = true; if (handle != 0) { UnhookWindowsHookEx(handle); handle = 0; } GC.KeepAlive(callback); }
     private delegate nint Hook(int code, nint message, nint data);
     [StructLayout(LayoutKind.Sequential)] private struct MouseData { public Native.Point Point; public uint Mouse, Flags, Time; public nuint Extra; }
     [DllImport("user32.dll", SetLastError = true)] private static extern nint SetWindowsHookEx(int type, Hook callback, nint module, uint thread);
