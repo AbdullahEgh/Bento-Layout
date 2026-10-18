@@ -49,26 +49,33 @@ public enum ResizeHandles {
         }
         // Every original subtree is also considered: local alternatives must not
         // require rotating an unrelated ancestor or changing an unrelated slot.
-        func visit(_ node: LayoutNode, _ rect: Rect) throws {
+        var visited = Set<[Int]>()
+        func visit(_ node: LayoutNode, _ rect: Rect, base: LayoutNode) throws {
             let layout = try LayoutEngine.calculate(node, in: rect, gap: gap)
-            for axis in [Axis.horizontal, .vertical] {
-                for cut in cuts(layout.regions, rect, axis) {
-                    guard let alternate = build(layout.regions, rect, forced: (axis, cut), preferred: axis) else { continue }
-                    let candidate = root.replacing(node.id, with: alternate)
-                    let geometry = try LayoutEngine.calculate(candidate, in: area, gap: gap)
-                    guard geometry.regions.allSatisfy({ region in original.regions.contains { $0.window.windowID == region.window.windowID && $0.bounds == region.bounds } }) else { continue }
-                    for divider in geometry.dividers where !result.contains(where: { $0.divider.bounds == divider.bounds && $0.divider.axis == divider.axis && $0.divider.parent == divider.parent }) {
-                        result.append(ResizeHandle(divider: divider, root: candidate))
+            if visited.insert([rect.x, rect.y, rect.width, rect.height]).inserted {
+                for axis in [Axis.horizontal, .vertical] {
+                    for cut in cuts(layout.regions, rect, axis) {
+                        guard let alternate = build(layout.regions, rect, forced: (axis, cut), preferred: axis) else { continue }
+                        let candidate = base.replacing(node.id, with: alternate)
+                        let geometry = try LayoutEngine.calculate(candidate, in: area, gap: gap)
+                        guard geometry.regions.allSatisfy({ region in original.regions.contains { $0.window.windowID == region.window.windowID && $0.bounds == region.bounds } }) else { continue }
+                        for divider in geometry.dividers where !result.contains(where: { $0.divider.bounds == divider.bounds && $0.divider.axis == divider.axis && $0.divider.parent == divider.parent }) {
+                            result.append(ResizeHandle(divider: divider, root: candidate))
+                        }
+                        // Rotating an ancestor can create a new rectangular group
+                        // (e.g. the left two of three columns). Explore its children
+                        // too; original-tree subgroups alone miss the joined grip.
+                        try visit(alternate, rect, base: candidate)
                     }
                 }
             }
             if case let .split(_, axis, _, a, b) = node, let divider = layout.dividers.first {
                 let d = divider.bounds
-                try visit(a, axis == .horizontal ? Rect(rect.x, rect.y, d.x - rect.x, rect.height) : Rect(rect.x, rect.y, rect.width, d.y - rect.y))
-                try visit(b, axis == .horizontal ? Rect(d.right, rect.y, rect.right - d.right, rect.height) : Rect(rect.x, d.bottom, rect.width, rect.bottom - d.bottom))
+                try visit(a, axis == .horizontal ? Rect(rect.x, rect.y, d.x - rect.x, rect.height) : Rect(rect.x, rect.y, rect.width, d.y - rect.y), base: base)
+                try visit(b, axis == .horizontal ? Rect(d.right, rect.y, rect.right - d.right, rect.height) : Rect(rect.x, d.bottom, rect.width, rect.bottom - d.bottom), base: base)
             }
         }
-        try visit(root, area)
+        try visit(root, area, base: root)
         func movable(_ node: LayoutNode, _ divider: Divider) -> Bool {
             guard case let .split(id, axis, _, a, b) = node else { return false }
             if id != divider.id { return movable(a, divider) || movable(b, divider) }

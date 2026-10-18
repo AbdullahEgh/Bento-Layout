@@ -86,6 +86,7 @@ struct DesktopInput {
         let displays = areas(); var retained = Set<UUID>()
         for (display, root) in workspace.roots {
             guard let area = displays[display], let handles = try? ResizeHandles.calculate(root, in: area, gap: model.layoutGap) else { continue }
+            let previous = resizeHandles[display] ?? []
             resizeHandles[display] = handles
             for handle in handles {
                 let divider = handle.divider
@@ -107,6 +108,9 @@ struct DesktopInput {
                 }
                 let frame = DesktopCoordinates.appKit(divider.bounds)
                 if panel.frame != frame { panel.setFrame(frame, display: true) }
+                if handle.shared && !previous.isEmpty && !previous.contains(where: { $0.shared && $0.divider.id == divider.id }) {
+                    panel.gripView.showJoinCue()
+                }
                 panel.gripView.shared = handle.shared
                 panel.gripView.animate = model.settings.animate
                 panel.gripView.duration = Double(model.settings.animationMS) / 1000
@@ -502,6 +506,23 @@ struct DesktopInput {
     var visibleInk: Double { displayedAlpha }
     private var animation: Timer?
     private var tracking: NSTrackingArea?
+    private var joinCue: Timer?
+    private var joinAlpha = 0.0
+    var visibleJoinCue: Double { joinAlpha }
+    func showJoinCue() {
+        joinCue?.invalidate()
+        let start = ProcessInfo.processInfo.systemUptime
+        joinCue = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in
+            MainActor.assumeIsolated {
+                guard let self else { timer.invalidate(); return }
+                let progress = min(1, (ProcessInfo.processInfo.systemUptime - start) / 0.65)
+                self.joinAlpha = 0.48 * sin(progress * .pi)
+                self.needsDisplay = true
+                if progress >= 1 { self.joinAlpha = 0; timer.invalidate() }
+            }
+        }
+        RunLoop.main.add(joinCue!, forMode: .common)
+    }
     init(axis: Axis) { self.axis = axis; super.init(frame: .zero); setAccessibilityElement(true); setAccessibilityRole(.splitter); setAccessibilityLabel("Resize neighboring windows") }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override var acceptsFirstResponder: Bool { true }
@@ -540,6 +561,13 @@ struct DesktopInput {
         // A fully transparent WindowServer surface is click-through. Keep a
         // one-alpha input surface across the gap, independently of the hidden ink.
         NSColor.black.withAlphaComponent(1.0 / 255).setFill(); dirtyRect.fill(using: .copy)
+        if joinAlpha > 0 {
+            let rect = axis == .horizontal
+                ? NSRect(x: bounds.midX - 1, y: 4, width: 2, height: max(0, bounds.height - 8))
+                : NSRect(x: 4, y: bounds.midY - 1, width: max(0, bounds.width - 8), height: 2)
+            NSColor.white.withAlphaComponent(joinAlpha).setFill()
+            NSBezierPath(roundedRect: rect, xRadius: 1, yRadius: 1).fill()
+        }
         guard displayedAlpha > 0 else { return }
         let length = min(displayedLength, axis == .horizontal ? bounds.height : bounds.width)
         let rect = axis == .horizontal ? NSRect(x: bounds.midX - 2, y: bounds.midY - length / 2, width: 4, height: length) : NSRect(x: bounds.midX - length / 2, y: bounds.midY - 2, width: length, height: 4)

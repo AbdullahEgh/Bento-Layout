@@ -80,13 +80,14 @@ struct DisplayArea: Equatable {
         let hideDock = flag("com.apple.dock" as CFString, "autohide")
         let hideMenu = flag(kCFPreferencesAnyApplication, "_HIHideMenuBar")
         let menuBars = hideMenu ? [] : MenuBarGeometry.current()
+        let menuActuallyHidden = hideMenu && !NSMenu.menuBarVisible()
         // Preferences describe intent, not the space WindowServer currently accepts.
         // Reclaim hidden areas only when native visible geometry has expanded.
         let dock = hideDock ? nil : DockGeometry.current()
         return NSScreen.screens.map { screen in
             let number = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
             let uuid = CGDisplayCreateUUIDFromDisplayID(number).takeRetainedValue()
-            return DisplayArea(id: CFUUIDCreateString(nil, uuid) as String, name: screen.localizedName, bounds: fullScreen ? DesktopCoordinates.engine(screen.frame).inset(margin) : DesktopWorkArea.calculate(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopWorkArea.correctingDock(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopWorkArea.correctingMenu(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopCoordinates.engine(screen.visibleFrame), bars: menuBars), dock: dock), hideMenuBar: false, hideDock: false, safeTop: Int(screen.safeAreaInsets.top.rounded(.up)), margin: margin))
+            return DisplayArea(id: CFUUIDCreateString(nil, uuid) as String, name: screen.localizedName, bounds: fullScreen ? DesktopCoordinates.engine(screen.frame).inset(margin) : DesktopWorkArea.calculate(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopWorkArea.correctingDock(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopWorkArea.correctingMenu(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopCoordinates.engine(screen.visibleFrame), bars: menuBars), dock: dock), hideMenuBar: menuActuallyHidden, hideDock: false, safeTop: Int(screen.safeAreaInsets.top.rounded(.up)), margin: margin))
         }
     }
 }
@@ -114,6 +115,17 @@ enum WindowParticipation {
     static func allows(_ bundleID: String?) -> Bool {
         guard let bundleID else { return true }
         return !["com.apple.systempreferences", "com.apple.systemsettings", "com.abdullahegh.bento"].contains(bundleID)
+    }
+}
+
+/// Immutable snapshot for one animation sample. AX calls for the same process
+/// remain ordered; independent app processes can respond concurrently.
+struct MotionWrite: @unchecked Sendable {
+    let id: UUID, element: AXUIElement, pid: pid_t, title: String
+    let frame: Rect, previous: Rect
+    init(_ window: ManagedWindow, frame: Rect, previous: Rect) {
+        id = window.id; element = window.element; pid = window.pid; title = window.title
+        self.frame = frame; self.previous = previous
     }
 }
 
@@ -158,18 +170,45 @@ enum WindowParticipation {
             return bounds.insetBy(dx: -0.5, dy: -0.5).contains(CGPoint(x: point.x, y: point.y))
         }
     }
+    func hasMissingVisibleWindows(_ windows: [ManagedWindow]) -> Bool {
+        let numbers = Set(windows.compactMap(\.serverNumber))
+        guard !numbers.isEmpty,
+              let entries = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return false }
+        let visible = Set(entries.compactMap { ($0[kCGWindowNumber as String] as? NSNumber)?.intValue })
+        return !numbers.isSubset(of: visible)
+    }
     func displayAreas(margin: Int) -> [DisplayArea] { DisplayArea.all(margin: margin) }
     /// Intermediate samples do not query AX geometry or wait on slow clients.
     /// The final write and settled verification still use the normal adapter path.
+    func writeMotionFrames(_ requests: [MotionWrite]) async -> Set<UUID> {
+        await withTaskGroup(of: [UUID].self) { group in
+            for batch in Dictionary(grouping: requests, by: \.pid).values {
+                group.addTask {
+                    var failed: [UUID] = []
+                    for request in batch {
+                        do { try Self.sendMotionFrame(request) } catch { failed.append(request.id) }
+                    }
+                    return failed
+                }
+            }
+            var failed = Set<UUID>()
+            for await ids in group { failed.formUnion(ids) }
+            return failed
+        }
+    }
     func writeMotionFrame(_ window: ManagedWindow, frame: Rect, previous: Rect) throws {
-        AXUIElementSetMessagingTimeout(window.element, 0.025)
-        defer { AXUIElementSetMessagingTimeout(window.element, 0.15) }
+        try Self.sendMotionFrame(MotionWrite(window, frame: frame, previous: previous))
+    }
+    nonisolated private static func sendMotionFrame(_ request: MotionWrite) throws {
+        let element = request.element, frame = request.frame, previous = request.previous
+        AXUIElementSetMessagingTimeout(element, 0.025)
+        defer { AXUIElementSetMessagingTimeout(element, 0.15) }
         var size = CGSize(width: frame.width, height: frame.height), point = CGPoint(x: frame.x, y: frame.y)
         if frame.width != previous.width || frame.height != previous.height {
-            guard let value = AXValueCreate(.cgSize, &size), AXUIElementSetAttributeValue(window.element, kAXSizeAttribute as CFString, value) == .success else { throw WindowFailure.rejected(window.title) }
+            guard let value = AXValueCreate(.cgSize, &size), AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, value) == .success else { throw WindowFailure.rejected(request.title) }
         }
         if frame.x != previous.x || frame.y != previous.y {
-            guard let value = AXValueCreate(.cgPoint, &point), AXUIElementSetAttributeValue(window.element, kAXPositionAttribute as CFString, value) == .success else { throw WindowFailure.rejected(window.title) }
+            guard let value = AXValueCreate(.cgPoint, &point), AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, value) == .success else { throw WindowFailure.rejected(request.title) }
         }
     }
     /// Enhanced AX mode can animate frame writes independently of Bento (including

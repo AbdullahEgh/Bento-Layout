@@ -66,6 +66,20 @@ public enum LayoutError: Error, LocalizedError {
     }
 }
 public enum LayoutEngine {
+    /// Record actual divider positions after constraint clamping. Removing
+    /// temporary planning preferences must not alter the geometry just applied.
+    public static func measuredRatios(_ root: LayoutNode, in area: Rect, gap: Int) throws -> LayoutNode {
+        let layout = try calculate(root, in: area, gap: gap)
+        var result = root
+        for d in layout.dividers {
+            let h = d.axis == .horizontal
+            let length = (h ? d.parent.width : d.parent.height) - gap
+            guard length > 0 else { continue }
+            let offset = h ? d.bounds.x - d.parent.x : d.bounds.y - d.parent.y
+            result = result.resizing(d.id, ratio: Double(offset) / Double(length))
+        }
+        return result
+    }
     public static func minimum(_ node: LayoutNode, gap: Int) -> Size {
         switch node {
         case .window(let w): return w.minimum

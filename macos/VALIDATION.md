@@ -1,3 +1,15 @@
+# Local resize groups, join cues, removal latency and coordinated motion — 0.2.34, 2026-10-18
+
+The shared-grip search now explores equivalent rectangular subgroups, not only original-tree descendants. This covers the reported five-pane arrangement with joined splits in the first two columns beside a full-height third column. Every equivalent tree still verifies identical pane geometry. Newly shared grips briefly draw a gentle full-length cue in their existing gap panel; hit testing and panel rectangles are unchanged. Native border resizes select the smallest applicable equivalent section for each changed edge, preserving unrelated rows/columns.
+
+Pause Bento replaces Pin/Unpin labels with Pause/Resume, appears first in the status menu, uses a pause status icon and a right-aligned settings switch. Existing floating-app/minimization semantics remain unchanged. Hidden menu space can be reclaimed when both the autohide preference and native menu visibility confirm it is hidden, even while visibleFrame is stale; safe-area limits remain respected.
+
+A lightweight WindowServer visibility check accelerates departure discovery at 150 ms cadence while normal full scans retain their 0.9-second interval. Confirmed minimization and invalid windows bypass the second missing-membership confirmation; uncertain disappearances still require confirmation and interruption retention. Effective fitted ratios are recorded before removing temporary preferences, so committed geometry cannot drift simply from lowering those artificial constraints.
+
+Animation uses immutable AX requests, grouped sequentially per app process and concurrently across independent processes, off the main actor. All requests in a sample share one interpolation time. Each batch completes before the next sample or final verification, preventing stale queued writes; slow/refusing clients fall back to final writes. Reduce Motion and final frame validation remain in place. Physical frame rate still depends on native app AX responsiveness. Per-motion sample counts and elapsed time are logged for live measurement.
+
+83 core tests and 226 disposable native-window checks passed. New regressions cover the first-two-columns shared grip beside a full-height third pane, native local width/height edits, exact geometry after removing planning preferences, a non-interactive full-length cue that fades, and minimization reconciliation after one tick. The optimized app built successfully. Evidence is retained in ignored `artifacts/macos/local-motion-qa/`. Signed release and live validation follow.
+
 # Reversible seam snapping and accepted size evidence — 0.2.33, 2026-10-18
 
 Nearby adjoining parallel sections snap within 12 points, on either axis. Only the dragged section changes; exact alignment exposes equivalent shared/perpendicular local handles. Each pointer sample uses the gesture snapshot, so moving away separates the sections again. Minimum-size clamping must reach the exact target before a join is accepted. Native border resizing uses the same snapping, restricted to directly edited dividers.

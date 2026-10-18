@@ -264,7 +264,7 @@ struct MacSettings: Codable {
         permission = self.system.trusted
         currentDesktop = self.system.desktopIdentity
         if backgroundMonitoring {
-            timer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in Task { @MainActor in self?.tick() } }
+            timer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in Task { @MainActor in self?.tick() } }
             activationObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] notification in
                 MainActor.assumeIsolated {
                     guard let self else { return }
@@ -413,11 +413,16 @@ struct MacSettings: Codable {
             do {
                 let displaysChanged = displayAreas() != lastDisplays
                 let now = ProcessInfo.processInfo.systemUptime
-                if backgroundMonitoring && !displaysChanged && now - lastMembershipScan < 0.9 { return }
+                if backgroundMonitoring && !displaysChanged {
+                    let members = Set(history.current.windows.map(\.windowID))
+                    let missingVisible = system.hasMissingVisibleWindows(windows.filter { members.contains($0.id) && minimizedByBento[$0.id] == nil })
+                    let interval = pendingMembership != nil || missingVisible ? 0.12 : 0.9
+                    if now - lastMembershipScan < interval { return }
+                }
                 lastMembershipScan = now
                 let current = try discoverWindows()
                 let currentIDs = Set(current.map(\.id))
-                let missing = windows.filter { !currentIDs.contains($0.id) && system.isAlive($0) }
+                let missing = windows.filter { !currentIDs.contains($0.id) && system.isAlive($0) && !system.isMinimized($0) }
                 if !displaysChanged && !missing.isEmpty {
                     // AX and WindowServer can briefly disagree while a native app
                     // moves. Require a second observation before removing live leaves.
@@ -664,6 +669,14 @@ struct MacSettings: Codable {
                     } else {
                         next.roots[area.id] = try AutoLayout.fitting(members.map(\.leaf), in: area.bounds, gap: layoutGap, preserving: previous.roots[area.id], prioritizing: priority, leastRecentlyUsed: oldestFirst)
                     }
+                }
+                if usesSizePreference {
+                    for area in displays {
+                        if let root = next.roots[area.id] {
+                            next.roots[area.id] = try LayoutEngine.measuredRatios(root, in: area.bounds, gap: layoutGap)
+                        }
+                    }
+                    next = next.reconciled(with: current.map(\.leaf))
                 }
                 if areaChanged {
                     for area in displays {
@@ -930,20 +943,27 @@ struct MacSettings: Codable {
             let start = ProcessInfo.processInfo.systemUptime
             var sent = Dictionary(uniqueKeysWithValues: changes.map { ($0.0.id, $0.1) })
             var slow = Set<UUID>()
+            var samples = 0
             while true {
                 guard desktopIsCurrent() else { throw LayoutError.invalidInput }
                 let sampleStart = ProcessInfo.processInfo.systemUptime
                 if sampleStart - start >= duration { break }
-                for (window, from, to) in changes where !slow.contains(window.id) {
-                    let progress = (ProcessInfo.processInfo.systemUptime - start) / duration
+                let progress = (sampleStart - start) / duration
+                let requests = changes.compactMap { window, from, to -> MotionWrite? in
+                    guard !slow.contains(window.id), let previous = sent[window.id] else { return nil }
                     let frame = WindowMotion.frame(from: from, to: to, progress: progress)
-                    guard let previous = sent[window.id], frame != previous else { continue }
-                    do { try system.writeMotionFrame(window, frame: frame, previous: previous); sent[window.id] = frame }
-                    catch { slow.insert(window.id) }
+                    return frame == previous ? nil : MotionWrite(window, frame: frame, previous: previous)
                 }
+                // Await the whole sample before issuing another: no queue of old
+                // frames, and one slow app no longer serially stalls every other app.
+                let failed = await system.writeMotionFrames(requests)
+                if !requests.isEmpty { samples += 1 }
+                slow.formUnion(failed)
+                for request in requests where !failed.contains(request.id) { sent[request.id] = request.frame }
                 let remaining = max(0.001, 1.0 / 60 - (ProcessInfo.processInfo.systemUptime - sampleStart))
                 try await Task.sleep(for: .seconds(remaining))
             }
+            trace?("motion samples=\(samples) elapsedMS=\(Int((ProcessInfo.processInfo.systemUptime - start) * 1000)) slowApps=\(slow.count)")
         }
         guard desktopIsCurrent() else { throw LayoutError.invalidInput }
         for (window, _, to) in changes { try write(window, to) }

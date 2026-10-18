@@ -5,7 +5,7 @@ import AppKit
 @MainActor enum BentoStatusIcon {
     private static let outline = make(filled: false)
     private static let filled = make(filled: true)
-    private static let pinned = NSImage(systemSymbolName: "pin.fill", accessibilityDescription: "Bento pinned")!
+    private static let pinned = NSImage(systemSymbolName: "pause.fill", accessibilityDescription: "Bento paused")!
     static func image(active: Bool, pinned isPinned: Bool = false) -> NSImage { isPinned ? pinned : active ? filled : outline }
     private static func make(filled: Bool) -> NSImage {
         let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in

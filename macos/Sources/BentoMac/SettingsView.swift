@@ -75,7 +75,7 @@ struct SettingsView: View {
             Text("Your desktop, with a little breathing room.").font(.system(size: 13)).foregroundStyle(BentoStyle.secondary)
             BentoCard {
                 VStack(alignment: .leading, spacing: 18) {
-                    HStack { Circle().fill(!model.permission ? .orange : model.active ? BentoStyle.accent : BentoStyle.secondary).frame(width: 8, height: 8); Text(!model.permission ? "Accessibility access needed" : model.active ? (model.pinned ? "Bento is pinned on this desktop" : "Bento is arranging this desktop") : "Bento is off on this desktop").font(.system(size: 14, weight: .medium)); Spacer() }
+                    HStack { Circle().fill(!model.permission ? .orange : model.active ? BentoStyle.accent : BentoStyle.secondary).frame(width: 8, height: 8); Text(!model.permission ? "Accessibility access needed" : model.active ? (model.pinned ? "Bento is paused on this desktop" : "Bento is arranging this desktop") : "Bento is off on this desktop").font(.system(size: 14, weight: .medium)); Spacer() }
                     Text(model.active ? "\(model.history.current.windows.count) arranged · \(model.minimizedByBento.count) minimized · \(model.floatingWindows.count - model.minimizedByBento.count) outside layout · \(model.settings.shortcut.label)" : "\(model.windows.count) available windows · \(model.settings.shortcut.label)").font(.system(size: 12)).foregroundStyle(BentoStyle.secondary)
                     rowLayout {
                         Button {
@@ -84,12 +84,14 @@ struct SettingsView: View {
                         } label: { Text(!model.permission ? "Enable Accessibility" : model.active ? "Turn Bento off" : "Arrange windows") }.buttonStyle(PrimaryButtonStyle()).disabled(model.busy)
                         Button { Task { await model.restore() } } label: { settingLabel("Restore Window Positions", symbol: "Restore") }.help("Turn Bento off and restore window positions from before it was enabled.").disabled(model.busy)
                     }
-                    Toggle(isOn: Binding(get: { model.pinned }, set: { value in Task { await model.setPinned(value) } })) {
+                    HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Pin Bento").font(.system(size: 13, weight: .medium))
-                            Text("New apps float above Bento. Unpin minimizes them and returns to your layout.").font(.system(size: 11)).foregroundStyle(BentoStyle.secondary)
+                            Text("Pause Bento").font(.system(size: 13, weight: .medium))
+                            Text("New apps float above Bento. Resume minimizes them and returns to your layout.").font(.system(size: 11)).foregroundStyle(BentoStyle.secondary)
                         }
-                    }.toggleStyle(.switch)
+                        Spacer(minLength: 16)
+                        Toggle("Pause Bento", isOn: Binding(get: { model.pinned }, set: { value in Task { await model.setPinned(value) } })).labelsHidden().toggleStyle(.switch)
+                    }
                     if !model.permission { Text("In System Settings → Privacy & Security → Accessibility, enable this copy: \(Bundle.main.bundlePath). If access stays blocked after an update, remove the old Bento entry and add this app again.").font(.system(size: 11)).lineSpacing(3).foregroundStyle(BentoStyle.secondary).textSelection(.enabled) }
                     else { rowLayout { Text("Accessibility connected").foregroundStyle(BentoStyle.accent); Spacer(); Button("Refresh windows") { model.refresh() } }.font(.system(size: 11)) }
                     if let message = model.message { Text(message).font(.system(size: 12)).foregroundStyle(BentoStyle.secondary).textSelection(.enabled) }
@@ -99,7 +101,7 @@ struct SettingsView: View {
                             ForEach(model.floatingWindows, id: \.id) { window in
                                 Text("\(window.application) — \(window.title)\(model.minimizedByBento[window.id] == nil ? "" : " · In Dock")").font(.system(size: 11)).lineLimit(2)
                             }
-                            Text(model.pinned ? "Unpin Bento to minimize these windows and return to your layout." : "Open a minimized window from the Dock to give it priority in the layout. Turning Bento off brings back windows minimized by Bento.").font(.system(size: 11))
+                            Text(model.pinned ? "Resume Bento to minimize these windows and return to your layout." : "Open a minimized window from the Dock to give it priority in the layout. Turning Bento off brings back windows minimized by Bento.").font(.system(size: 11))
                         }.foregroundStyle(BentoStyle.secondary)
                     }
                 }

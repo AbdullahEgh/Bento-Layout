@@ -134,4 +134,54 @@ final class ResizeHandleTests: XCTestCase {
         XCTAssertEqual(try InteractionGeometry.snappingSeam(far, divider: d.id, area: area, gap: gap), far)
     }
 
+    func testNativeWidthResizeChangesOnlyItsLocalRow() throws {
+        let root = split(.horizontal, split(.vertical, leaf(), leaf()), split(.vertical, leaf(), leaf()))
+        let before = try frames(root)
+        let topLeft = try XCTUnwrap(before.first { $0.value.x == 0 && $0.value.y == 0 })
+        let r = topLeft.value
+        let changed = try InteractionGeometry.resizeWindow(root, windowID: topLeft.key,
+            requested: Rect(r.x, r.y, r.width - 70, r.height), area: area, gap: gap)
+        let after = try frames(changed)
+        for (id, frame) in before where frame.y > 0 { XCTAssertEqual(after[id], frame) }
+        XCTAssertEqual(after[topLeft.key]?.width, r.width - 70)
+    }
+    func testNativeHeightResizeChangesOnlyItsLocalColumn() throws {
+        let root = split(.vertical, split(.horizontal, leaf(), leaf()), split(.horizontal, leaf(), leaf()))
+        let before = try frames(root)
+        let topLeft = try XCTUnwrap(before.first { $0.value.x == 0 && $0.value.y == 0 })
+        let r = topLeft.value
+        let changed = try InteractionGeometry.resizeWindow(root, windowID: topLeft.key,
+            requested: Rect(r.x, r.y, r.width, r.height - 70), area: area, gap: gap)
+        let after = try frames(changed)
+        for (id, frame) in before where frame.x > 0 { XCTAssertEqual(after[id], frame) }
+        XCTAssertEqual(after[topLeft.key]?.height, r.height - 70)
+    }
+
+    func testJoinedFirstTwoColumnsExposeSharedGripBesideFullHeightThirdColumn() throws {
+        let root = split(.horizontal, split(.vertical, leaf(), leaf()),
+                         split(.horizontal, split(.vertical, leaf(), leaf()), leaf()))
+        let before = try frames(root)
+        let handles = try ResizeHandles.calculate(root, in: area, gap: gap)
+        let shared = try XCTUnwrap(handles.first { $0.shared && $0.divider.axis == .vertical && $0.divider.bounds.x == 0 })
+        XCTAssertLessThan(shared.divider.bounds.right, area.right)
+        XCTAssertEqual(try frames(shared.root), before)
+        let d = shared.divider
+        let next = try InteractionGeometry.resize(Workspace(roots: ["s": shared.root]), display: "s", divider: d,
+            pointer: Point(d.bounds.x + d.bounds.width / 2, d.bounds.y - 35), area: area, gap: gap,
+            grabbedAt: Point(d.bounds.x + d.bounds.width / 2, d.bounds.y))
+        let after = try frames(XCTUnwrap(next.roots["s"]))
+        for (id, frame) in before where frame.height == area.height { XCTAssertEqual(after[id], frame) }
+        XCTAssertEqual(Set(after.values.filter { $0.height < area.height && $0.y == 0 }.map(\.bottom)).count, 1)
+        XCTAssertEqual(ResizeHandles.hit(handles, at: Point(d.bounds.x + d.bounds.width / 2, d.bounds.y + 1))?.divider, d)
+    }
+
+    func testRemovingPlanningPreferencesPreservesExactFittedGeometry() throws {
+        let root = split(.horizontal, leaf(700, 100), split(.vertical, leaf(100, 500), leaf()))
+        let before = try frames(root)
+        let measured = try LayoutEngine.measuredRatios(root, in: area, gap: gap)
+        let unconstrained = root.windows.map { WindowLeaf(id: $0.id, windowID: $0.windowID, minimum: Size(100, 100)) }
+        let committed = Workspace(roots: ["s": measured]).reconciled(with: unconstrained)
+        XCTAssertEqual(try frames(XCTUnwrap(committed.roots["s"])), before)
+    }
+
 }

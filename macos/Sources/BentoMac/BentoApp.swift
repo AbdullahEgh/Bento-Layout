@@ -121,6 +121,10 @@ import Carbon.HIToolbox
     private func updateMenu() {
         let menu = NSMenu(); menu.autoenablesItems = false
         func item(_ title: String, _ action: Selector, _ symbol: String) { let i = NSMenuItem(title: title, action: action, keyEquivalent: ""); i.target = self; i.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil); menu.addItem(i) }
+        item(model.pinned ? "Resume Bento" : "Pause Bento", #selector(togglePin), model.pinned ? "play.fill" : "pause.fill")
+        menu.items.last?.state = model.pinned ? .on : .off
+        menu.items.last?.isEnabled = model.permission
+        menu.items.last?.toolTip = "Keep this desktop’s layout. Newly opened apps stay above it."
         item(!model.permission ? "Enable Accessibility…" : model.active ? "Turn Bento Off" : "Turn Bento On", #selector(toggle), "power")
         item("Undo Layout Change", #selector(undo), "arrow.uturn.backward")
         menu.items.last?.isEnabled = model.active
@@ -131,10 +135,6 @@ import Carbon.HIToolbox
         hideDesktop.toolTip = "This session only. Applies while Bento is on and resets when Bento quits."
         hideDesktop.state = model.settings.hideDock && model.settings.hideMenuBar ? .on : model.settings.hideDock || model.settings.hideMenuBar ? .mixed : .off
         menu.addItem(hideDesktop)
-        item(model.pinned ? "Unpin Bento" : "Pin Bento", #selector(togglePin), "pin")
-        menu.items.last?.state = model.pinned ? .on : .off
-        menu.items.last?.isEnabled = model.permission
-        menu.items.last?.toolTip = "Keep this desktop’s layout. Newly opened apps stay above it."
         item("Settings…", #selector(settings), "gearshape")
         menu.addItem(.separator()); item("Quit Bento", #selector(quit), "xmark.circle")
         statusMenu = menu
@@ -142,7 +142,7 @@ import Carbon.HIToolbox
         statusItem.button?.appearsDisabled = false
         statusItem.button?.image = BentoStatusIcon.image(active: model.active, pinned: model.pinned)
         statusItem.button?.alphaValue = model.active ? 1 : 0.45
-        statusItem.button?.toolTip = model.pinned ? "Bento is pinned — click to unpin and minimize floating apps" : !model.permission ? "Bento needs Accessibility access — click to enable" : model.active ? "Bento is on — click to turn off; right-click for menu" : "Bento is off — click to arrange windows; right-click for menu"
+        statusItem.button?.toolTip = model.pinned ? "Bento is paused — click to resume and minimize floating apps" : !model.permission ? "Bento needs Accessibility access — click to enable" : model.active ? "Bento is on — click to turn off; right-click for menu" : "Bento is off — click to arrange windows; right-click for menu"
         statusItem.button?.toolTip? += "\nHold to hide or show Dock and menu bar while Bento is on."
         if let message = model.message { statusItem.button?.toolTip? += "\n" + message }
     }

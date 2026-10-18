@@ -75,32 +75,33 @@ public enum InteractionGeometry {
         return root
     }
     public static func resizeWindow(_ root: LayoutNode, windowID: UUID, requested: Rect, area: Rect, gap: Int) throws -> LayoutNode {
-        let original = try LayoutEngine.calculate(root, in: area, gap: gap)
-        guard let leaf = original.regions.first(where: { $0.window.windowID == windowID }) else { return root }
+        guard let before = try LayoutEngine.calculate(root, in: area, gap: gap).regions.first(where: { $0.window.windowID == windowID }) else { return root }
         var result = root
-        var resized = Set<UUID>()
-        for divider in original.dividers {
-            let horizontal = divider.axis == .horizontal
-            let trailing = horizontal ? leaf.bounds.right == divider.bounds.x : leaf.bounds.bottom == divider.bounds.y
-            let leading = horizontal ? leaf.bounds.x == divider.bounds.right : leaf.bounds.y == divider.bounds.bottom
-            let adjacent = horizontal ? leaf.bounds.y >= divider.parent.y && leaf.bounds.bottom <= divider.parent.bottom : leaf.bounds.x >= divider.parent.x && leaf.bounds.right <= divider.parent.right
-            guard adjacent, trailing || leading else { continue }
-            let oldEdge = horizontal ? (trailing ? leaf.bounds.right : leaf.bounds.x) : (trailing ? leaf.bounds.bottom : leaf.bounds.y)
-            let newEdge = horizontal ? (trailing ? requested.right : requested.x) : (trailing ? requested.bottom : requested.y)
-            if abs(newEdge - oldEdge) <= 2 { continue }
-            guard let current = try LayoutEngine.calculate(result, in: area, gap: gap).dividers.first(where: { $0.id == divider.id }) else { continue }
-            let length = (horizontal ? current.parent.width : current.parent.height) - gap
-            guard length > 0 else { throw LayoutError.invalidInput }
-            let start = horizontal ? current.parent.x : current.parent.y
-            resized.insert(divider.id)
-            result = result.resizing(divider.id, ratio: max(0, min(1, Double(newEdge - start - (leading ? gap : 0)) / Double(length))))
-        }
-        for divider in original.dividers where resized.contains(divider.id) {
-            if let updated = try LayoutEngine.calculate(result, in: area, gap: gap).dividers.first(where: { $0.id == divider.id }), updated.bounds != divider.bounds {
-                result = try snappingSeam(result, divider: divider.id, area: area, gap: gap)
+        // Pick an equivalent local tree for each edited edge, not its saved
+        // ancestor. Untouched rows/columns remain at their original rectangles.
+        for (axis, leading, delta) in [(Axis.horizontal, true, requested.x - before.bounds.x),
+                                      (.horizontal, false, requested.right - before.bounds.right),
+                                      (.vertical, true, requested.y - before.bounds.y),
+                                      (.vertical, false, requested.bottom - before.bounds.bottom)] where abs(delta) > 2 {
+            let layout = try LayoutEngine.calculate(result, in: area, gap: gap)
+            guard let leaf = layout.regions.first(where: { $0.window.windowID == windowID }) else { continue }
+            let h = axis == .horizontal
+            let edge = h ? (leading ? leaf.bounds.x : leaf.bounds.right) : (leading ? leaf.bounds.y : leaf.bounds.bottom)
+            let handles = try ResizeHandles.calculate(result, in: area, gap: gap).filter { handle in
+                let d = handle.divider
+                guard d.axis == axis else { return false }
+                let boundary = h ? (leading ? d.bounds.right : d.bounds.x) : (leading ? d.bounds.bottom : d.bounds.y)
+                let covers = h ? d.parent.y <= leaf.bounds.y && d.parent.bottom >= leaf.bounds.bottom
+                    : d.parent.x <= leaf.bounds.x && d.parent.right >= leaf.bounds.right
+                return edge == boundary && covers
             }
+            guard let local = handles.min(by: { $0.divider.parent.width * $0.divider.parent.height < $1.divider.parent.width * $1.divider.parent.height }) else { continue }
+            let d = local.divider, length = (h ? d.parent.width : d.parent.height) - gap
+            guard length > 0 else { continue }
+            let offset = (h ? d.bounds.x - d.parent.x : d.bounds.y - d.parent.y) + delta
+            result = local.root.resizing(d.id, ratio: max(0, min(1, Double(offset) / Double(length))))
+            result = try snappingSeam(result, divider: d.id, area: area, gap: gap)
         }
-        _ = try LayoutEngine.calculate(result, in: area, gap: gap)
         return result
     }
 }

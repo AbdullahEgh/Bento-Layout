@@ -22,6 +22,15 @@ import BentoCore
         try check(record.minimum == Size(160, 120), "A larger observed frame never raises a window minimum")
         system.records.append((record, extra))
         defer { system.records.removeLast(); extra.close() }
+        let cue = GripView(axis: .vertical)
+        cue.frame = NSRect(x: 0, y: 0, width: 700, height: 14)
+        let cueBounds = cue.bounds
+        cue.showJoinCue()
+        try? await Task.sleep(for: .milliseconds(150))
+        try check(cue.visibleJoinCue > 0 && cue.bounds == cueBounds && cue.visibleInk == 0,
+            "Joined boundary cue appears without changing the grip hit area or idle hover ink")
+        try? await Task.sleep(for: .milliseconds(600))
+        try check(cue.visibleJoinCue == 0, "Joined boundary cue fades away automatically")
         var settings = MacSettings(); settings.animate = false
         let model = WorkspaceController(system: system, settings: settings,
             preferences: ActivationOverrides(backend: FixturePreferences(), journal: output.appendingPathComponent("resize-handles.json")),

@@ -70,6 +70,15 @@ import BentoCore
         if fixtureAreas == nil { fixtureAreas = super.displayAreas(margin: 0) }
         return fixtureAreas!.map { DisplayArea(id: $0.id, name: $0.name, bounds: $0.bounds.inset(margin)) }
     }
+    override func writeMotionFrames(_ requests: [MotionWrite]) async -> Set<UUID> {
+        var failed = Set<UUID>()
+        for request in requests {
+            guard let window = records.first(where: { $0.0.id == request.id })?.0 else { failed.insert(request.id); continue }
+            do { try writeMotionFrame(window, frame: request.frame, previous: request.previous) }
+            catch { failed.insert(request.id) }
+        }
+        return failed
+    }
     override func writeMotionFrame(_ window: ManagedWindow, frame: Rect, previous: Rect) throws {
         motionAdjustmentDepths.append(adjustmentDepth)
         try write(window, frame: frame)
@@ -174,9 +183,14 @@ final class FixturePreferences: PreferenceBackend {
             try check(lifecycle.active && lifecycle.history.current.windows.map(\.windowID) == [hidden.id],
                 "An unavailable saved tree falls back to visible apps rather than reporting a successful inactive resume")
             system.minimized.insert(hidden.id)
-            await lifecycle.arrange(preserving: true)
+            lifecycle.tick()
+            for _ in 0..<100 {
+                await Task.yield()
+                if lifecycle.windows.isEmpty && !lifecycle.activating { break }
+                try? await Task.sleep(for: .milliseconds(10))
+            }
             try check(lifecycle.active && lifecycle.windows.isEmpty && lifecycle.history.current.windows.isEmpty,
-                "Minimizing every tiled window keeps Bento armed with empty visible membership")
+                "Confirmed minimization collapses after one tick without a second membership scan")
             system.minimized.remove(hidden.id)
             lifecycle.tick()
             for _ in 0..<100 {
