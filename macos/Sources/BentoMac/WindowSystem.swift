@@ -52,6 +52,24 @@ private enum DockGeometry {
     }
 }
 
+private enum MenuBarGeometry {
+    private static var sampledAt = -Double.infinity
+    private static var bars: [Rect] = []
+    static func current() -> [Rect] {
+        let now = ProcessInfo.processInfo.systemUptime
+        if now - sampledAt < 0.04 { return bars }
+        sampledAt = now
+        let entries = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
+        bars = entries.compactMap { entry in
+            guard entry[kCGWindowLayer as String] as? Int == Int(CGWindowLevelForKey(.mainMenuWindow)),
+                  let bounds = entry[kCGWindowBounds as String] as? NSDictionary,
+                  let frame = CGRect(dictionaryRepresentation: bounds), frame.height > 0, frame.height <= 80 else { return nil }
+            return Rect(Int(frame.minX.rounded()), Int(frame.minY.rounded()), Int(frame.width.rounded()), Int(frame.height.rounded()))
+        }
+        return bars
+    }
+}
+
 struct DisplayArea: Equatable {
     let id: String; let name: String; let bounds: Rect
     static func all(margin: Int, fullScreen: Bool = false) -> [DisplayArea] {
@@ -60,13 +78,15 @@ struct DisplayArea: Equatable {
             return (CFPreferencesCopyValue(key as CFString, domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? NSNumber)?.boolValue ?? false
         }
         let hideDock = flag("com.apple.dock" as CFString, "autohide")
+        let hideMenu = flag(kCFPreferencesAnyApplication, "_HIHideMenuBar")
+        let menuBars = hideMenu ? [] : MenuBarGeometry.current()
         // Preferences describe intent, not the space WindowServer currently accepts.
         // Reclaim hidden areas only when native visible geometry has expanded.
         let dock = hideDock ? nil : DockGeometry.current()
         return NSScreen.screens.map { screen in
             let number = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
             let uuid = CGDisplayCreateUUIDFromDisplayID(number).takeRetainedValue()
-            return DisplayArea(id: CFUUIDCreateString(nil, uuid) as String, name: screen.localizedName, bounds: fullScreen ? DesktopCoordinates.engine(screen.frame).inset(margin) : DesktopWorkArea.calculate(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopWorkArea.correctingDock(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopCoordinates.engine(screen.visibleFrame), dock: dock), hideMenuBar: false, hideDock: false, safeTop: Int(screen.safeAreaInsets.top.rounded(.up)), margin: margin))
+            return DisplayArea(id: CFUUIDCreateString(nil, uuid) as String, name: screen.localizedName, bounds: fullScreen ? DesktopCoordinates.engine(screen.frame).inset(margin) : DesktopWorkArea.calculate(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopWorkArea.correctingDock(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopWorkArea.correctingMenu(frame: DesktopCoordinates.engine(screen.frame), visible: DesktopCoordinates.engine(screen.visibleFrame), bars: menuBars), dock: dock), hideMenuBar: false, hideDock: false, safeTop: Int(screen.safeAreaInsets.top.rounded(.up)), margin: margin))
         }
     }
 }
@@ -85,6 +105,13 @@ final class ManagedWindow {
     var leaf: WindowLeaf { WindowLeaf(windowID: id, minimum: minimum) }
 }
 
+enum WindowParticipation {
+    static func allows(_ bundleID: String?) -> Bool {
+        guard let bundleID else { return true }
+        return !["com.apple.systempreferences", "com.apple.systemsettings", "com.abdullahegh.bento"].contains(bundleID)
+    }
+}
+
 @MainActor class MacWindowSystem {
     private var known: [ManagedWindow] = []
     private let allowedPIDs: Set<pid_t>?
@@ -92,7 +119,12 @@ final class ManagedWindow {
     var trusted: Bool { AXIsProcessTrusted() }
     var desktopIdentity: String? { DesktopIdentity.current() }
     var pointerPressed: Bool { CGEventSource.buttonState(.combinedSessionState, button: .left) }
-    var tracksDesktopPointer: Bool { !NSApp.isActive }
+    var tracksDesktopPointer: Bool {
+        !NSApp.isActive && WindowParticipation.allows(NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
+    }
+    func isLayoutApplication(_ pid: pid_t) -> Bool {
+        pid != ProcessInfo.processInfo.processIdentifier && WindowParticipation.allows(NSRunningApplication(processIdentifier: pid)?.bundleIdentifier)
+    }
     func window(at point: Point, in windows: [ManagedWindow]) -> ManagedWindow? {
         let desktop = AXUIElementCreateSystemWide()
         AXUIElementSetMessagingTimeout(desktop, 0.05)
@@ -170,7 +202,9 @@ final class ManagedWindow {
         }
         guard shownDockReady else { return false }
         return NSScreen.screens.allSatisfy { screen in
-            let top = Int((screen.frame.maxY - screen.visibleFrame.maxY).rounded())
+            let frame = DesktopCoordinates.engine(screen.frame)
+            let visible = DesktopWorkArea.correctingMenu(frame: frame, visible: DesktopCoordinates.engine(screen.visibleFrame), bars: hideMenu ? [] : MenuBarGeometry.current())
+            let top = visible.y - frame.y
             let safe = Int(screen.safeAreaInsets.top.rounded(.up))
             // Hidden reservations are removed by DesktopWorkArea immediately;
             // stale visibleFrame data must not impose a two-second delay.
@@ -210,7 +244,7 @@ final class ManagedWindow {
         guard trusted else { throw WindowFailure.permission }
         let visible = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
         var found: [ManagedWindow] = []
-        for application in NSWorkspace.shared.runningApplications where application.activationPolicy == .regular && application.processIdentifier != ProcessInfo.processInfo.processIdentifier && !application.isHidden && (allowedPIDs == nil || allowedPIDs!.contains(application.processIdentifier)) {
+        for application in NSWorkspace.shared.runningApplications where application.activationPolicy == .regular && isLayoutApplication(application.processIdentifier) && !application.isHidden && (allowedPIDs == nil || allowedPIDs!.contains(application.processIdentifier)) {
             let app = AXUIElementCreateApplication(application.processIdentifier)
             AXUIElementSetMessagingTimeout(app, 0.15)
             guard let windows = attribute(app, kAXWindowsAttribute) as? [AXUIElement] else { continue }

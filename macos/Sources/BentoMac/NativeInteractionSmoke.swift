@@ -7,6 +7,7 @@ import BentoCore
 @MainActor final class FixtureWindowSystem: MacWindowSystem {
     var records: [(ManagedWindow, NSWindow)] = []
     var fixtureDesktop = "fixture-main"
+    override func isLayoutApplication(_ pid: pid_t) -> Bool { true }
     override var desktopIdentity: String? { fixtureDesktop }
     var focused: ManagedWindow?
     var pointed: ManagedWindow?
@@ -63,7 +64,12 @@ import BentoCore
     override func isAlive(_ window: ManagedWindow) -> Bool { !deadWindows.contains(window.id) && records.contains { $0.0.id == window.id } }
     var areaChangeOnWrite: [DisplayArea]?
     var areaOverride: [DisplayArea]?
-    override func displayAreas(margin: Int) -> [DisplayArea] { areaOverride ?? super.displayAreas(margin: margin) }
+    private var fixtureAreas: [DisplayArea]?
+    override func displayAreas(margin: Int) -> [DisplayArea] {
+        if let areaOverride { return areaOverride }
+        if fixtureAreas == nil { fixtureAreas = super.displayAreas(margin: 0) }
+        return fixtureAreas!.map { DisplayArea(id: $0.id, name: $0.name, bounds: $0.bounds.inset(margin)) }
+    }
     override func writeMotionFrame(_ window: ManagedWindow, frame: Rect, previous: Rect) throws {
         motionAdjustmentDepths.append(adjustmentDepth)
         try write(window, frame: frame)
@@ -147,6 +153,7 @@ final class FixturePreferences: PreferenceBackend {
         defer { system.records.forEach { $0.1.close() } }
         do {
             passed += try await DesktopSessionSmoke.run(system: system, initial: initial, output: output)
+            passed += try await ResizeHandleSmoke.run(system: system, output: output)
             let lifecycle = WorkspaceController(system: system, settings: fixtureSettings,
                 preferences: ActivationOverrides(backend: FixturePreferences(), journal: output.appendingPathComponent("lifecycle-preferences.json")),
                 persistSettings: { _ in }, backgroundMonitoring: false)
@@ -670,7 +677,14 @@ final class FixturePreferences: PreferenceBackend {
             try check(try model.layoutGap == originalGap + 6 && model.history.current == beforeLiveSpacing && matchingGeometry(), "Rapid gap edits apply live to the same split tree without an Arrange action")
             try check(system.writes.values.allSatisfy { $0 == 1 }, "Rapid spacing changes coalesce to one native frame write per affected window")
             let liveLayout = try regions().1
-            try check(interactions.helperFrames.allSatisfy { frame in liveLayout.dividers.contains { $0.bounds == frame } }, "Live gaps and grabber hit surfaces share the applied geometry")
+            var gripsStayInGaps = true
+            for frame in interactions.helperFrames {
+                for region in liveLayout.regions {
+                    let b = region.bounds
+                    if frame.x < b.right && b.x < frame.right && frame.y < b.bottom && b.y < frame.bottom { gripsStayInGaps = false }
+                }
+            }
+            try check(gripsStayInGaps, "Live gaps and grabber hit surfaces share the applied geometry")
             let plannedGap = originalGap + 12
             let planDisplay = try regions().0
             let planned = try LayoutEngine.calculate(model.history.current.roots[planDisplay], in: model.displayAreas().first { $0.id == planDisplay }!.bounds, gap: plannedGap)

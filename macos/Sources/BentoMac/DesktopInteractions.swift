@@ -38,6 +38,8 @@ struct DesktopInput {
     private var nativeResize = false
     private var grip: (display: String, divider: Divider)?
     private var gripStart = Point(0, 0)
+    private var gripWorkspace: Workspace?
+    private var resizeHandles: [String: [ResizeHandle]] = [:]
     private var pending: Workspace?
     private var liveTask: Task<Void, Never>?
     private var liveFailure = false
@@ -76,26 +78,36 @@ struct DesktopInput {
         } else { pinnedTint.hide() }
     }
     private func areas() -> [String: Rect] { if let gestureAreas { return gestureAreas }; return Dictionary(uniqueKeysWithValues: model.displayAreas().map { ($0.id, $0.bounds) }) }
-    private func removeHelpers() { pinnedTint.hide(); grips.values.forEach { $0.orderOut(nil) }; grips.removeAll(); preview.orderOut(nil); backdrop.hide(animated: model.settings.animate) }
+    private func removeHelpers() { resizeHandles.removeAll(); pinnedTint.hide(); grips.values.forEach { $0.orderOut(nil) }; grips.removeAll(); preview.orderOut(nil); backdrop.hide(animated: model.settings.animate) }
     private func updateGrips(_ workspace: Workspace) {
         hoverNeedsUpdate = true
         backdrop.show(darkness: model.settings.backgroundDarkness, animated: model.settings.animate)
+        resizeHandles = resizeHandles.filter { workspace.roots[$0.key] != nil }
         let displays = areas(); var retained = Set<UUID>()
         for (display, root) in workspace.roots {
-            guard let area = displays[display], let layout = try? LayoutEngine.calculate(root, in: area, gap: model.layoutGap) else { continue }
-            for divider in layout.dividers {
+            guard let area = displays[display], let handles = try? ResizeHandles.calculate(root, in: area, gap: model.layoutGap) else { continue }
+            resizeHandles[display] = handles
+            for handle in handles {
+                let divider = handle.divider
                 retained.insert(divider.id)
                 let panel: GapPanel
                 if let existing = grips[divider.id] { panel = existing }
                 else {
                     panel = GapPanel(axis: divider.axis)
-                    panel.gripView.onBegin = { [weak self] in self?.beginGrip(display: display, id: divider.id) ?? false }
+                    panel.gripView.onBegin = { [weak self] in
+                        guard let self, let selected = ResizeHandles.hit(self.resizeHandles[display] ?? [], at: self.input().point) else { return false }
+                        let started = self.beginGrip(display: display, id: selected.divider.id)
+                        return started && selected.divider.id == divider.id
+                    }
+                    panel.gripView.managedHover = true
+                    panel.gripView.onHover = { [weak self] in self?.hoverNeedsUpdate = true; self?.sample() }
                     panel.gripView.onDrag = { [weak self] in self?.moveGrip() }
                     panel.gripView.onEnd = { [weak self] cancel in Task { await self?.finish(cancel: cancel) } }
                     grips[divider.id] = panel
                 }
                 let frame = DesktopCoordinates.appKit(divider.bounds)
                 if panel.frame != frame { panel.setFrame(frame, display: true) }
+                panel.gripView.shared = handle.shared
                 panel.gripView.animate = model.settings.animate
                 panel.gripView.duration = Double(model.settings.animationMS) / 1000
                 let lightInk = true
@@ -123,9 +135,8 @@ struct DesktopInput {
         guard !releasePending else { return }
         if !pressed && !wasPressed && snapshot == nil && !hoverNeedsUpdate && lastSamplePoint == state.point { return }
         hoverNeedsUpdate = false
-        for panel in grips.values {
-            panel.gripView.hovering = panel.isVisible && DesktopCoordinates.engine(panel.frame).contains(state.point)
-        }
+        let hovered = Set(resizeHandles.values.compactMap { ResizeHandles.hit($0, at: state.point)?.divider.id })
+        for (id, panel) in grips { panel.gripView.hovering = panel.isVisible && hovered.contains(id) }
         if grip != nil {
             if pressed { moveGrip() }
             else if wasPressed { moveGrip(); releasePending = true; Task { await self.finish(cancel: false) } }
@@ -136,11 +147,10 @@ struct DesktopInput {
             pressedWindow = nil; pressedFrame = nil; pressPoint = state.point; escapeRequested = false
             // The complete divider is draggable, including its transparent
             // ends. Do not depend on WindowServer delivering a mouseDown to ink.
-            for (display, root) in model.history.current.roots {
-                guard let area = areas()[display],
-                      let divider = try? LayoutEngine.calculate(root, in: area, gap: model.layoutGap).dividers.first(where: { $0.bounds.contains(pressPoint) }),
-                      grips[divider.id]?.isVisible == true else { continue }
-                if model.system.dividerIsExposed(at: pressPoint), beginGrip(display: display, id: divider.id) { return }
+            for (display, handles) in resizeHandles {
+                guard let handle = ResizeHandles.hit(handles, at: pressPoint),
+                      grips[handle.divider.id]?.isVisible == true else { continue }
+                if model.system.dividerIsExposed(at: pressPoint), beginGrip(display: display, id: handle.divider.id) { return }
             }
             // Bento's settings controls may cover a tiled slot. Never bind a
             // settings click or slider drag to a window underneath our own UI.
@@ -235,18 +245,23 @@ struct DesktopInput {
     }
     func beginGrip(display: String, id: UUID) -> Bool {
         if grip?.display == display && grip?.divider.id == id { return true }
+        let prepared = model.history.current.reconciled(with: model.windows.map(\.leaf))
         guard model.active, model.permission, !model.busy, !model.interacting, !finishing, !releasePending,
-              let root = model.history.current.roots[display], let area = areas()[display],
-              let divider = try? LayoutEngine.calculate(root, in: area, gap: model.layoutGap).dividers.first(where: { $0.id == id }) else { return false }
+              let root = prepared.roots[display], let area = areas()[display],
+              let handle = try? ResizeHandles.calculate(root, in: area, gap: model.layoutGap).first(where: { $0.divider.id == id }) else { return false }
+        let divider = handle.divider
         gestureAreas = areas()
         snapshot = model.history.current.reconciled(with: model.windows.map(\.leaf)); candidate = snapshot; grip = (display, divider)
+        gripWorkspace = snapshot; gripWorkspace?.roots[display] = handle.root
+        gripWorkspace = gripWorkspace?.reconciled(with: model.windows.map(\.leaf))
         gripStart = input().point
         model.interacting = true; liveFailure = false; preview.orderOut(nil)
         grips[id]?.gripView.dragging = true
         return true
     }
     func moveGrip() {
-        guard !finishing, !liveFailure, let grip, let original = snapshot, let area = areas()[grip.display] else { return }
+        guard !finishing, !liveFailure, let grip, let original = gripWorkspace, let area = areas()[grip.display] else { return }
+        guard input().point != gripStart || candidate != snapshot else { return }
         do {
             let next = try InteractionGeometry.resize(original, display: grip.display, divider: grip.divider, pointer: input().point, area: area, gap: model.layoutGap, grabbedAt: gripStart)
             guard next != candidate else { return }
@@ -289,7 +304,7 @@ struct DesktopInput {
            !original.windows.contains(where: { $0.windowID == window.id }) {
             model.rememberOriginal(window, frame: frame)
         }
-        do { try await model.finishInteraction(next, commit: !disappeared.isEmpty || !cancel && !liveFailure && candidate != nil, animate: cancel || liveFailure || (grip == nil && !nativeResize)) }
+        do { try await model.finishInteraction(next, commit: !disappeared.isEmpty || !cancel && !liveFailure && candidate != nil && candidate != snapshot, animate: cancel || liveFailure || (grip == nil && !nativeResize)) }
         catch {
             trace?("gesture commit rejected; rolling back")
             let failure = error.localizedDescription
@@ -299,7 +314,7 @@ struct DesktopInput {
         trace?("gesture settled elapsedMS=\(Int((ProcessInfo.processInfo.systemUptime - started) * 1000)) committed=\(!cancel && !liveFailure && model.message == nil && model.history.current != original)")
         preview.orderOut(nil)
         gestureAreas = nil; gestureScreens = [:]; escapeRequested = false; releasePending = false
-        snapshot = nil; candidate = nil; swapsSections = false; session = nil; grip = nil; pressedWindow = nil; pressedFrame = nil
+        snapshot = nil; candidate = nil; swapsSections = false; session = nil; grip = nil; gripWorkspace = nil; pressedWindow = nil; pressedFrame = nil
         liveTask = nil; liveFailure = false; nativeResize = false; model.interacting = false; finishing = false
         model.onStateChange?()
         synchronize()
@@ -472,6 +487,9 @@ struct DesktopInput {
     let axis: Axis
     var onBegin: (() -> Bool)?, onDrag: (() -> Void)?, onEnd: ((Bool) -> Void)?
     var animate = true, lightInk = true
+    var managedHover = false
+    var onHover: (() -> Void)?
+    var shared = false { didSet { if oldValue != shared { transition() } } }
     var duration = 0.18
     var dragging = false { didSet { if oldValue != dragging { transition() } } }
     var hovering = false { didSet { if oldValue != hovering { transition() } } }
@@ -489,8 +507,8 @@ struct DesktopInput {
         addTrackingArea(tracking!)
     }
     override func resetCursorRects() { addCursorRect(bounds, cursor: axis == .horizontal ? .resizeLeftRight : .resizeUpDown) }
-    override func mouseEntered(with event: NSEvent) { hovering = true; needsDisplay = true }
-    override func mouseExited(with event: NSEvent) { hovering = false; needsDisplay = true }
+    override func mouseEntered(with event: NSEvent) { if managedHover { onHover?() } else { hovering = true }; needsDisplay = true }
+    override func mouseExited(with event: NSEvent) { if managedHover { onHover?() } else { hovering = false }; needsDisplay = true }
     override func mouseDown(with event: NSEvent) { dragging = onBegin?() ?? false; needsDisplay = true }
     override func mouseDragged(with event: NSEvent) { if dragging { onDrag?() } }
     override func mouseUp(with event: NSEvent) { if dragging { onDrag?(); onEnd?(false) }; dragging = false; needsDisplay = true }
@@ -498,7 +516,7 @@ struct DesktopInput {
     private func transition() {
         animation?.invalidate()
         let oldLength = displayedLength, oldAlpha = displayedAlpha
-        let length = dragging ? 160.0 : 80.0, alpha = hovering || dragging ? 1.0 : 0.0
+        let length = shared ? 160.0 : 80.0, alpha = hovering || dragging ? 1.0 : 0.0
         guard animate, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { displayedLength = length; displayedAlpha = alpha; needsDisplay = true; return }
         let start = ProcessInfo.processInfo.systemUptime
         animation = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in

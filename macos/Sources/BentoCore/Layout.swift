@@ -112,6 +112,15 @@ public enum LayoutEngine {
 /// Desktop controls can briefly leave AppKit's visible frame stale while hiding.
 /// Reclaim only opted-out reservations, retaining the camera-safe top inset.
 public enum DesktopWorkArea {
+    /// A shown system menu bar can precede the visibleFrame notification. Its
+    /// WindowServer geometry is authoritative; an auto-hidden hover is excluded
+    /// by the platform adapter, so transient reveals do not shrink the layout.
+    public static func correctingMenu(frame: Rect, visible: Rect, bars: [Rect]) -> Rect {
+        let bottom = bars.filter { abs($0.y - frame.y) <= 2 && $0.width >= frame.width * 4 / 5 && $0.x <= frame.x + 2 && $0.right >= frame.right - 2 }.map(\.bottom).max() ?? visible.y
+        let top = max(visible.y, min(frame.bottom, bottom))
+        return Rect(visible.x, top, visible.width, max(0, visible.bottom - top))
+    }
+
     /// Dock accessibility geometry updates when its size/edge changes, even when
     /// NSScreen still reports the previous reservation. Ignore off-screen/invalid
     /// data and keep the menu-bar boundary independent of the Dock.
