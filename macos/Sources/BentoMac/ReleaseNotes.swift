@@ -7,6 +7,13 @@ struct ReleaseNotes: Identifiable {
 
     // Keep newest first; ship the log with the app so it also works offline.
     static let history: [ReleaseNotes] = [
+        .init(version: "0.2.39", points: [
+            "Snap feedback follows only the divider you move.",
+            "Brighter specific grips, quieter full lines—even while dragging.",
+            "Glass slots stand out above a full-screen dim.",
+            "Grips stay hidden while dragging windows, including Settings.",
+            "Slot previews stay aligned through Dock and menu-bar visibility changes.",
+        ]),
         .init(version: "0.2.38", points: [
             "Separated full grips reveal local handles with larger grab areas.",
             "Snapping briefly lights all enabled full grips at full opacity.",
