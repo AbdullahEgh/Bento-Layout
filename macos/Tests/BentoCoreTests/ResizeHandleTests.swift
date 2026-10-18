@@ -89,6 +89,26 @@ final class ResizeHandleTests: XCTestCase {
         XCTAssertTrue(ResizeHandles.newlyJoined(handles, previous: handles).isEmpty)
         XCTAssertTrue(ResizeHandles.newlyJoined(handles, previous: []).isEmpty)
     }
+    func testJoiningOneSeamDoesNotCueAnUnrelatedExistingSeam() throws {
+        let left = split(.vertical, leaf(), leaf())
+        let right = split(.vertical, leaf(), leaf(), ratio: 0.65)
+        let root = split(.horizontal, left, right)
+        let unrelated = leaf()
+        let outerID = UUID()
+        func wrapped(_ subtree: LayoutNode) -> LayoutNode {
+            .split(id: outerID, axis: .horizontal, ratio: 0.7, first: subtree, second: unrelated)
+        }
+        let before = try ResizeHandles.calculate(wrapped(root), in: area, gap: gap)
+        guard case let .split(rightID, axis, _, first, second) = right,
+              case let .split(rootID, rootAxis, ratio, _, _) = root else { return XCTFail("Expected splits") }
+        let aligned = LayoutNode.split(id: rootID, axis: rootAxis, ratio: ratio, first: left,
+            second: .split(id: rightID, axis: axis, ratio: 0.5, first: first, second: second))
+        let after = try ResizeHandles.calculate(wrapped(aligned), in: area, gap: gap)
+        let cues = ResizeHandles.newlyJoined(after, previous: before)
+        XCTAssertFalse(cues.isEmpty)
+        XCTAssertTrue(after.contains { $0.divider.id == outerID && ResizeHandles.isUniversal($0, among: after) })
+        XCTAssertFalse(cues.contains { $0.divider.id == outerID })
+    }
     func testDockReflowKeepsJoinedRowsWhenOneBranchHitsMinimum() throws {
         let root = split(.horizontal, split(.vertical, leaf(100, 350), leaf()), split(.vertical, leaf(), leaf()))
         let small = Rect(0, 30, 1200, 690)

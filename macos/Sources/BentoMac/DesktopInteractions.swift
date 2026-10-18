@@ -160,7 +160,7 @@ struct DesktopInput {
                     let b = DesktopCoordinates.appKit(local.divider.bounds)
                     return divider.axis == .horizontal ? Double(b.midY - frame.minY) : Double(b.midX - frame.minX)
                 } : []
-                if !joined.isEmpty && universal { panel.gripView.showJoinCue() }
+                if joined.contains(divider.id) { panel.gripView.showJoinCue() }
                 panel.gripView.animate = model.settings.animate
                 panel.gripView.duration = Double(model.settings.animationMS) / 1000
                 let lightInk = true
