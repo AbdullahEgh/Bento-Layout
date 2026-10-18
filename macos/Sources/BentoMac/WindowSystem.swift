@@ -135,6 +135,7 @@ struct MotionWrite: @unchecked Sendable {
     init(allowedPIDs: Set<pid_t>? = nil) { self.allowedPIDs = allowedPIDs }
     var trusted: Bool { AXIsProcessTrusted() }
     var desktopIdentity: String? { DesktopIdentity.current() }
+    var fullScreenSpace: Bool { DesktopIdentity.isFullScreen }
     var pointerPressed: Bool { CGEventSource.buttonState(.combinedSessionState, button: .left) }
     var tracksDesktopPointer: Bool {
         !NSApp.isActive && WindowParticipation.allows(NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
@@ -367,6 +368,7 @@ struct MotionWrite: @unchecked Sendable {
             && NSRunningApplication(processIdentifier: window.pid)?.isHidden != true
             && attribute(window.element, "AXFullScreen") as? Bool != true
     }
+    func isFullScreen(_ window: ManagedWindow) -> Bool { attribute(window.element, "AXFullScreen") as? Bool == true }
     func isMinimized(_ window: ManagedWindow) -> Bool {
         attribute(window.element, kAXMinimizedAttribute) as? Bool ?? false
     }

@@ -25,7 +25,7 @@ final class DesktopPreferenceBackend: PreferenceBackend {
         guard CFPreferencesSynchronize(domain(key), kCFPreferencesCurrentUser, kCFPreferencesAnyHost) else { throw CocoaError(.fileWriteUnknown) }
     }
     func refresh(_ keys: [PreferenceKey]) throws {
-        guard !keys.isEmpty else { return }
+        guard !keys.isEmpty, !DesktopIdentity.isFullScreen else { return }
         // Preference files alone do not update WindowServer's reserved areas.
         // Apply the live native state, then preserve exact journaled key values
         // (native setters may materialize a default that originally was absent).

@@ -20,8 +20,9 @@ import BentoCore
         try check(DesktopIdentity.containsWindow(system.records[0].1.windowNumber) == true,
             "Read-only membership resolves a native window on the current desktop")
         var settings = MacSettings(); settings.animate = false; settings.minimizeOverflow = true
+        let preferences = FixturePreferences()
         let model = WorkspaceController(system: system, settings: settings,
-            preferences: ActivationOverrides(backend: FixturePreferences(), journal: output.appendingPathComponent("desktop-sessions.json")),
+            preferences: ActivationOverrides(backend: preferences, journal: output.appendingPathComponent("desktop-sessions.json")),
             persistSettings: { _ in }, backgroundMonitoring: false)
         await model.arrange()
         let remembered = model.history.current
@@ -29,6 +30,17 @@ import BentoCore
         try check(system.records.map { DesktopCoordinates.engine($0.1.frame) } == initial, "Automatic layout memory restores normal frames when Bento stops")
         await model.toggleLayout()
         try check(model.history.current == remembered, "An unedited automatically remembered layout resumes without an explicit save")
+        let fullScreenMember = system.records[0].0
+        let beforeFullScreen = model.history.current
+        system.fullScreenWindows = [fullScreenMember.id]; system.writes.removeAll()
+        await model.arrange(preserving: true)
+        try check(!model.history.current.windows.contains { $0.windowID == fullScreenMember.id }
+            && model.history.current.windows.count == beforeFullScreen.windows.count - 1 && system.writes[fullScreenMember.id] == nil,
+            "Returning to the desktop reflows visible apps while preserving a full-screen app's slot separately")
+        system.fullScreenWindows.removeAll(); system.writes.removeAll()
+        await model.arrange(preserving: true)
+        try check(model.history.current == beforeFullScreen,
+            "Exiting full screen restores the reserved slot and original split layout")
         await model.stop()
         let incoming = system.records[2].0
         system.undiscovered = [incoming.id]
@@ -153,7 +165,23 @@ import BentoCore
         await model.stop()
         system.undiscovered = [incoming.id]
         await model.arrange(); await model.setPinned(true)
+        model.settings.hideDock = true; model.settings.hideMenuBar = true
+        await model.applyLiveSettings()
         let desktopA = model.history.current
+        let desktopPreferences = preferences.values
+        system.fixtureDesktop = "fixture-fullscreen"; system.fixtureFullScreen = true; system.writes.removeAll()
+        await model.desktopDidChange()
+        try check(!model.active && preferences.values == desktopPreferences && system.writes.isEmpty,
+            "Entering a full-screen Space defers Dock/menu restoration and never moves windows")
+        await model.applyLiveSettings()
+        let arrangedFullScreen = await model.arrange()
+        try check(!arrangedFullScreen && preferences.values == desktopPreferences && system.writes.isEmpty,
+            "Full-screen settings and activation leave native presentation untouched")
+        system.fixtureDesktop = "fixture-main"; system.fixtureFullScreen = false
+        await model.desktopDidChange()
+        try check(model.active && model.pinned && model.history.current == desktopA && model.settings.hideDock && model.settings.hideMenuBar,
+            "Leaving full screen resumes the original desktop layout and session visibility choices")
+
         system.writes.removeAll()
         await model.desktopDidChange()
         try check(model.history.current == desktopA && system.writes.isEmpty,

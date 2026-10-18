@@ -11,11 +11,13 @@ enum NativeDesktopVisibility {
     private typealias MenuSetter = @convention(c) (Int32, Bool) -> Int32
 
     static func setDockHidden(_ hidden: Bool) -> Bool {
+        guard !DesktopIdentity.isFullScreen else { return true }
         guard let services, let symbol = dlsym(services, "CoreDockSetAutoHideEnabled") else { return false }
         unsafeBitCast(symbol, to: DockSetter.self)(hidden)
         return true
     }
     static func setMenuHidden(_ hidden: Bool) -> Bool {
+        guard !DesktopIdentity.isFullScreen else { return true }
         guard let graphics, let connection = dlsym(graphics, "CGSMainConnectionID"),
               let symbol = dlsym(graphics, "CGSSetMenuBarAutohideEnabled") else { return false }
         let id = unsafeBitCast(connection, to: Connection.self)()

@@ -7,6 +7,18 @@ enum DesktopIdentity {
     private static let graphics = dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", RTLD_LAZY)
     private typealias Connection = @convention(c) () -> Int32
     private typealias Spaces = @convention(c) (Int32, CFString?) -> Unmanaged<CFArray>?
+    // The focused Space can differ from NSScreen.main for full-screen apps.
+    // Read the native Space type (0 = desktop, 4 = fullscreen), as in Hammerspoon.
+    static var isFullScreen: Bool {
+        typealias ActiveSpace = @convention(c) (Int32) -> UInt64
+        typealias SpaceType = @convention(c) (Int32, UInt64) -> Int32
+        guard let graphics, let connection = dlsym(graphics, "CGSMainConnectionID"),
+              let active = dlsym(graphics, "CGSGetActiveSpace"),
+              let type = dlsym(graphics, "CGSSpaceGetType") else { return false }
+        let id = unsafeBitCast(connection, to: Connection.self)()
+        let space = unsafeBitCast(active, to: ActiveSpace.self)(id)
+        return unsafeBitCast(type, to: SpaceType.self)(id, space) == 4
+    }
     static func current() -> String? {
         guard let graphics, let connection = dlsym(graphics, "CGSMainConnectionID"),
               let copy = dlsym(graphics, "CGSCopyManagedDisplaySpaces") else { return nil }

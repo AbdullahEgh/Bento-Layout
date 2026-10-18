@@ -188,6 +188,18 @@ struct MacSettings: Codable {
         var displays: [DisplayArea]
         var hideDock: Bool
         var hideMenu: Bool
+        var fullScreenLayout: Workspace?
+        var fullScreenWindows: [UUID: ManagedWindow]
+    }
+    private var fullScreenLayout: Workspace?
+    private var fullScreenWindows: [UUID: ManagedWindow] = [:]
+    private func reserveFullScreenSlots() {
+        fullScreenWindows = fullScreenWindows.filter { system.isAlive($0.value) }
+        if fullScreenWindows.isEmpty { fullScreenLayout = nil }
+        for window in windows where history.current.windows.contains(where: { $0.windowID == window.id }) && system.isFullScreen(window) {
+            if fullScreenLayout == nil { fullScreenLayout = history.current }
+            fullScreenWindows[window.id] = window
+        }
     }
     private var desktopSessions: [String: DesktopSession] = [:]
     private var currentDesktop: String?
@@ -207,15 +219,18 @@ struct MacSettings: Codable {
             message = "Bento is waiting for this desktop to become available."; return
         }
         guard identity != currentDesktop else { return }
+        reserveFullScreenSlots()
         if let currentDesktop {
             desktopSessions[currentDesktop] = DesktopSession(active: active, history: history, windows: windows,
                 originals: originals, minimized: minimizedByBento, released: released, floating: floatingForSize,
                 saved: savedSessionLayout, remembered: lastBento, areaLayout: areaLayout, areaLayoutAreas: areaLayoutAreas, lastReleased: lastReleased, lastMinimized: lastMinimized,
                 edited: editedLayout, pinned: pinned, pinnedIDs: pinnedWindowIDs, displays: lastDisplays,
-                hideDock: settings.hideDock, hideMenu: settings.hideMenuBar)
+                hideDock: settings.hideDock, hideMenu: settings.hideMenuBar,
+                fullScreenLayout: fullScreenLayout, fullScreenWindows: fullScreenWindows)
         }
         currentDesktop = identity
         let session = desktopSessions[identity]
+        fullScreenLayout = session?.fullScreenLayout; fullScreenWindows = session?.fullScreenWindows ?? [:]
         active = session?.active ?? false; history = session?.history ?? LayoutHistory()
         windows = session?.windows ?? []; originals = session?.originals ?? [:]
         minimizedByBento = session?.minimized ?? [:]; released = session?.released ?? []
@@ -228,6 +243,13 @@ struct MacSettings: Codable {
         reopenedWindows = []; failedAutomaticInput = nil; pendingMembership = nil; membershipSamples = 0
         pendingDrift = nil; driftSamples = 0; lastFocusedWindow = nil; pendingApplicationActivation = nil
         lastMembershipScan = 0; message = nil
+        // Full-screen Spaces own Dock/menu presentation. Keep the preference
+        // journal for the return to a regular desktop instead of showing Dock.
+        if system.fullScreenSpace {
+            active = false; windows = []
+            trace?("fullscreen space: desktop overrides deferred")
+            return
+        }
         do {
             let desired = active ? try settings.desktopOverrides() : [:]
             try desktopPreferences.update(desired); appliedDesktopOptions = desired
@@ -376,6 +398,7 @@ struct MacSettings: Codable {
         }
     }
     func applyLiveSettings() async {
+        guard !system.fullScreenSpace else { return }
         guard !busy, !interacting, !activating, !switchingDesktop, desktopIsCurrent(), !desktopPointerPressed else { scheduleSettingsUpdate(); return }
         applyingSettings = true; activating = true
         defer { activating = false; applyingSettings = false; onSettingsChange?(); onStateChange?() }
@@ -429,7 +452,7 @@ struct MacSettings: Codable {
             }
             return
         }
-        guard !switchingDesktop, permission, !busy, !interacting, !activating, !reconciliationQueued, !system.pointerPressed else { return }
+        guard !system.fullScreenSpace, !switchingDesktop, permission, !busy, !interacting, !activating, !reconciliationQueued, !system.pointerPressed else { return }
         if active {
             do {
                 let displaysChanged = displayAreas() != lastDisplays
@@ -561,7 +584,7 @@ struct MacSettings: Codable {
         return windows.filter { !tiled.contains($0.id) }
     }
     @discardableResult func arrange(preserving: Bool = false, resuming: Bool = false, automatic: Bool = false, skipRefusingWindows: Bool = true) async -> Bool {
-        guard !desktopOverviewActive, !busy, !interacting, !activating, desktopIsCurrent() else { return false }
+        guard !system.fullScreenSpace, !desktopOverviewActive, !busy, !interacting, !activating, desktopIsCurrent() else { return false }
         if automatic && system.pointerPressed { return false }
         activating = true; defer { activating = false }
         let previousWindows = windows
@@ -571,7 +594,9 @@ struct MacSettings: Codable {
         trace?("arrangement start preserving=\(preserving) resuming=\(resuming) active=\(wasActive)")
         do {
             if !preserving { released = resuming ? lastReleased : [] }
+            reserveFullScreenSlots()
             let current = try discoverWindows(); windows = current
+            let returningFullScreen = Set(current.filter { fullScreenWindows[$0.id] != nil && !system.isFullScreen($0) }.map(\.id))
             guard !current.isEmpty else {
                 if preserving && wasActive {
                     // An empty visible workspace is a normal minimize/full-screen
@@ -591,7 +616,9 @@ struct MacSettings: Codable {
             let areaChanged = preserving && displays != lastDisplays
             if !preserving { areaLayout = nil }
             if areaChanged && areaLayout == nil { areaLayout = history.current; areaLayoutAreas = lastDisplays }
-            let previous = preserving ? (areaChanged ? areaLayout ?? history.current : history.current) : resuming ? lastBento ?? Workspace() : Workspace()
+            let previous = !returningFullScreen.isEmpty && preserving ? fullScreenLayout ?? history.current
+                : preserving ? (areaChanged ? areaLayout ?? history.current : history.current)
+                : resuming ? lastBento ?? Workspace() : Workspace()
             if resuming, lastBento != nil {
                 // Resume the edited tree itself. Native frames have just been restored
                 // to pre-Bento positions and cannot determine saved display ownership.
@@ -755,6 +782,8 @@ struct MacSettings: Codable {
                 reopenedWindows.removeAll(); failedAutomaticInput = nil
                 if !preserving && !resuming { editedLayout = false }
                 let committed = usesSizePreference ? next.reconciled(with: current.map(\.leaf)) : next
+                for id in returningFullScreen where included.contains(id) { fullScreenWindows.removeValue(forKey: id) }
+                if fullScreenWindows.isEmpty { fullScreenLayout = nil }
                 lastDisplays = displays; history.commit(committed); active = !included.isEmpty || !minimizedByBento.isEmpty || (pinned && wasActive)
                 if !active { try desktopPreferences.restore() }
                 message = active ? (floatingForSize.isEmpty ? nil : "A restored app stays outside Bento because it cannot use a slot on this display.") : "No windows fit on this display. Your windows were left in their original positions."

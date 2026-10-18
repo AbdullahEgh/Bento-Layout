@@ -1,3 +1,17 @@
+# Full-screen presentation and reserved return slots — 0.2.39
+
+Entering a focused native full-screen Space defers desktop preference restoration instead of issuing CoreDock show commands or restarting Dock. Native visibility setters and preference refresh also guard full-screen presentation; ordinary activation and settings reconciliation suspend there. Focused Space type is read through the existing dynamically resolved WindowServer APIs, using the same type-4 convention as [Hammerspoon](https://github.com/Hammerspoon/hammerspoon/blob/master/extensions/spaces/libspaces.m). No window or Space is moved by this detection.
+
+Each desktop retains a session-only pre-full-screen workspace and tracked full-screen members. Returning to the desktop while a member remains full-screen reflows visible members; rediscovery after leaving full screen uses the saved tree before ordinary placement. Closed reservations are removed and successful readmission releases the reservation. Native limits, membership changes and available bounds still constrain the fit.
+
+91 core tests and 258 disposable native checks passed, including no visibility preference changes or window writes on full-screen entry, suppression of activation/settings while full-screen, restoration of the original desktop session, reflow without moving the full-screen member, and exact tree restoration on its return. Actual third-party full-screen switching has not been independently reproduced through live UI. Earlier publication candidates were cancelled before release to include the user's added requirements.
+
+# 0.2.39 release validation — 2026-10-18
+
+The final release candidate includes selective snap feedback, 45% universal lines with 100% short specific grips during hold, full-display 45% black preview dimming without the previous slot wash/glow, excluded-window drag grip suppression, and committed-area preview geometry. Shared sections receive full-section ink from initial setup, including nested/partial groups rather than only maximal display-spanning seams. Snap candidates include newly joined partial sections; the active gesture selects one collinear containing section rather than illuminating perpendicular or unrelated grips.
+
+91 core tests and 253 disposable native checks passed for source `90413bd`. New core coverage verifies three-slot partial groups and nested shared candidates on both axes without altering pane geometry. Native checks cover excluded-window grip suppression/restoration, transient Dock/menu/both area changes, preview dim removal, and prior interaction regressions. Full local logs and results are in ignored `artifacts/macos/release-0239-qa/`. The earlier `ec91393` publication run was cancelled before publishing to include the user's added partial-group requirement. Live feel and all third-party app combinations are not certified by these fixture checks.
+
 # Pending interaction fixes — 2026-10-18
 
 Non-divider pointer presses hide grip panels and unregister their input surfaces before checking window participation, so excluded Settings windows cannot reveal or intercept dividers during a drag. Release restores helpers; explicit divider gestures and completed drops clear suppression. Preview and grip geometry use the display areas from the last successfully committed layout rather than transient live Dock/menu reveal bounds. Each gesture retains that snapshot. Normal arrangement still updates committed areas after a successful fit.

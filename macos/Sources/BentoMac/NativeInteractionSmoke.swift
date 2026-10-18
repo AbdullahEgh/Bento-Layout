@@ -7,6 +7,10 @@ import BentoCore
 @MainActor final class FixtureWindowSystem: MacWindowSystem {
     var records: [(ManagedWindow, NSWindow)] = []
     var fixtureDesktop = "fixture-main"
+    var fullScreenWindows = Set<UUID>()
+    override func isFullScreen(_ window: ManagedWindow) -> Bool { fullScreenWindows.contains(window.id) }
+    var fixtureFullScreen = false
+    override var fullScreenSpace: Bool { fixtureFullScreen }
     override func isLayoutApplication(_ pid: pid_t) -> Bool { true }
     override var desktopIdentity: String? { fixtureDesktop }
     var focused: ManagedWindow?
@@ -27,7 +31,7 @@ import BentoCore
     var deadWindows = Set<UUID>()
     var outsideDesktop = Set<UUID>()
     override func canRetainDuringInterruption(_ window: ManagedWindow) -> Bool {
-        isAlive(window) && !isMinimized(window) && !outsideDesktop.contains(window.id)
+        isAlive(window) && !isMinimized(window) && !outsideDesktop.contains(window.id) && !fullScreenWindows.contains(window.id)
     }
     var discoveryCount = 0
     var frameReads = 0
@@ -54,7 +58,7 @@ import BentoCore
         discoveryCount += 1
         if pressDuringDiscovery { pointerHeld = true }
         for (record, window) in records { record.frame = DesktopCoordinates.engine(window.frame) }
-        return records.map(\.0).filter { !minimized.contains($0.id) && !undiscovered.contains($0.id) && !deadWindows.contains($0.id) }
+        return records.map(\.0).filter { !minimized.contains($0.id) && !undiscovered.contains($0.id) && !deadWindows.contains($0.id) && !fullScreenWindows.contains($0.id) }
     }
     override func focusedWindow(in windows: [ManagedWindow]) -> ManagedWindow? { focused }
     override func frame(of element: AXUIElement) -> Rect? {
