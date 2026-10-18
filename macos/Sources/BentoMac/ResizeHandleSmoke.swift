@@ -48,7 +48,8 @@ import BentoCore
         interactions.synchronize()
         let layout = try LayoutEngine.calculate(grid.roots[display.id], in: area, gap: model.layoutGap)
         let x = layout.dividers[0].bounds.x + 1
-        let bottomY = area.y + area.height * 4 / 5
+        let bottom = layout.regions.first { $0.bounds.y > area.y }!.bounds
+        let bottomY = bottom.y + bottom.height / 2
         let before = system.records.map { system.frame(of: $0.0.element)! }
         input.point = Point(x, bottomY); input.pressed = true; interactions.sample()
         try check(model.interacting, "Pointer input selects a local bottom-column grip on the existing gap")
@@ -60,6 +61,13 @@ import BentoCore
             "A bottom-section drag changes only the two bottom native windows")
         await model.undo(); interactions.synchronize()
         try check(model.history.current == grid, "Undo restores the original split structure after a local seam rotation")
+        input.point = Point(x, area.bottom - 12); input.pressed = true; interactions.sample()
+        input.point.x -= 25; interactions.sample()
+        await interactions.finish(cancel: false)
+        input.pressed = false; interactions.sample()
+        try check(system.records.enumerated().allSatisfy { index, pair in system.frame(of: pair.0.element) != before[index] },
+            "The joined gap away from local grip ink moves the complete native column")
+        await model.undo(); interactions.synchronize()
         let midY = layout.dividers.first { $0.axis == .vertical }!.bounds.y + 1
         input.point = Point(area.x + area.width / 2, midY); input.pressed = true; interactions.sample()
         input.point.y += 25; interactions.sample()

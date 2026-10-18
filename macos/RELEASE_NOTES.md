@@ -1,6 +1,4 @@
-Bento for macOS 0.2.35
+Bento for macOS 0.2.36
 
-- Keep layouts and size limits intact across repeated Dock/menu-bar changes.
-- Full-length shared grips with matching join cues.
-- Independent app animations avoid pauses caused by slower windows.
-- One click brings a paused Bento app above the dim layer.
+- Local grips respond nearby; the rest of the divider moves the full joined row or column.
+- Snap cues highlight the full universal grip.

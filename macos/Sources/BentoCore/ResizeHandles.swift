@@ -95,18 +95,43 @@ public enum ResizeHandles {
         }
         return result
     }
-    /// A short center zone belongs to the shared seam. Else choose the smallest
-    /// applicable section under the pointer. At a junction the nearest grip wins.
+    /// Local ink is 80 points long; allow 12 points of padding at each end.
+    public static let localHitRadius = 52
+    public static func contains(_ outer: ResizeHandle, _ inner: ResizeHandle) -> Bool {
+        let a = outer.divider, b = inner.divider
+        guard a.axis == b.axis else { return false }
+        return a.axis == .horizontal
+            ? a.bounds.x == b.bounds.x && a.bounds.y <= b.bounds.y && a.bounds.bottom >= b.bounds.bottom && a.bounds.height > b.bounds.height
+            : a.bounds.y == b.bounds.y && a.bounds.x <= b.bounds.x && a.bounds.right >= b.bounds.right && a.bounds.width > b.bounds.width
+    }
+    public static func isUniversal(_ handle: ResizeHandle, among handles: [ResizeHandle]) -> Bool {
+        !handles.contains { contains($0, handle) }
+    }
+    /// Announce only the full joined seam, never its overlapping subgroups.
+    public static func newlyJoined(_ handles: [ResizeHandle], previous: [ResizeHandle]) -> [ResizeHandle] {
+        guard !previous.isEmpty else { return [] }
+        return handles.filter { handle in
+            handle.shared && isUniversal(handle, among: handles) && !previous.contains {
+                $0.shared && $0.divider.axis == handle.divider.axis && $0.divider.bounds == handle.divider.bounds
+            }
+        }
+    }
+    /// Local sections win only beside their short grip. The remainder belongs
+    /// to the longest joined seam. Standalone dividers keep their full hit area.
     public static func hit(_ handles: [ResizeHandle], at point: Point) -> ResizeHandle? {
         let hits = handles.filter { $0.divider.bounds.contains(point) }
         func centerDistance(_ handle: ResizeHandle) -> Int {
             let d = handle.divider
             return abs(d.axis == .horizontal ? point.y - (d.bounds.y + d.bounds.height / 2) : point.x - (d.bounds.x + d.bounds.width / 2))
         }
-        if let shared = hits.filter({ $0.shared && centerDistance($0) <= 80 }).min(by: { centerDistance($0) < centerDistance($1) }) { return shared }
-        return hits.min { a, b in
-            let x = a.divider.bounds.width + a.divider.bounds.height, y = b.divider.bounds.width + b.divider.bounds.height
-            return x == y ? centerDistance(a) < centerDistance(b) : x < y
+        func nearer(_ a: ResizeHandle, _ b: ResizeHandle) -> Bool {
+            let x = centerDistance(a), y = centerDistance(b)
+            if x != y { return x < y }
+            let sa = a.divider.bounds.width + a.divider.bounds.height, sb = b.divider.bounds.width + b.divider.bounds.height
+            return sa == sb ? a.divider.id.uuidString < b.divider.id.uuidString : sa < sb
         }
+        let local = hits.filter { !isUniversal($0, among: handles) && centerDistance($0) <= localHitRadius }
+        if let selected = local.min(by: nearer) { return selected }
+        return hits.filter { isUniversal($0, among: handles) }.min(by: nearer)
     }
 }

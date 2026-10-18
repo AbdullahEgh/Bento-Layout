@@ -1,3 +1,9 @@
+# Universal divider priority — 0.2.36, 2026-10-18
+
+Local handles now win only within 52 points of their center along the seam (80-point ink plus 12-point end padding). The remaining joined gap selects the maximal feasible collinear handle. Standalone seams retain their full input area, and intersections use deterministic nearest-center selection. Nested subgroups use short ink; only the maximal universal grip spans the full seam. Snap cues target new universal joined geometry, never overlapping subgroups, and equivalent-tree identity changes alone do not retrigger the cue.
+
+85 core tests passed, including exact hit-zone boundaries on both axes and universal-only join cues. 235 disposable native checks passed, including independent local resizing near its grip and full-column resizing from the same gap outside that zone. The optimized app builds. Release verification pending.
+
 # Repeated work-area transitions, shared grip ink and paused focus — 0.2.35, 2026-10-18
 
 Live 0.2.34 traces showed expanded heights being learned as minima on Dock restoration, followed by topology replacement on the second cycle. Same-membership work-area transitions now retain the reference tree and never learn minima from refused transition writes. Late rebound repair also avoids learning constraints; ordinary settled size changes still learn real limits. Failed transitions retain the committed layout rather than evicting members or rebuilding it.

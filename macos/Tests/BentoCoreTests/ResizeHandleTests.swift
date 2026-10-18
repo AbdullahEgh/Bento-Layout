@@ -37,14 +37,14 @@ final class ResizeHandleTests: XCTestCase {
         let handles = try ResizeHandles.calculate(fixture(), in: area, gap: gap)
         let whole = try XCTUnwrap(ResizeHandles.hit(handles, at: Point(600, 399)))
         XCTAssertTrue(whole.shared); XCTAssertEqual(whole.divider.bounds.width, 1200)
-        let local = try XCTUnwrap(ResizeHandles.hit(handles, at: Point(1050, 399)))
+        let local = try XCTUnwrap(ResizeHandles.hit(handles, at: Point(962, 399)))
         XCTAssertFalse(local.shared); XCTAssertEqual(local.divider.bounds.x, 724)
     }
     func testLocalVerticalEditKeepsHorizontalResizeAvailable() throws {
         let handles = try ResizeHandles.calculate(fixture(), in: area, gap: gap)
-        let local = try XCTUnwrap(ResizeHandles.hit(handles, at: Point(1050, 399)))
+        let local = try XCTUnwrap(ResizeHandles.hit(handles, at: Point(962, 399)))
         let next = try InteractionGeometry.resize(Workspace(roots: ["screen": local.root]), display: "screen", divider: local.divider,
-            pointer: Point(1050, 340), area: area, gap: gap, grabbedAt: Point(1050, 399))
+            pointer: Point(962, 340), area: area, gap: gap, grabbedAt: Point(962, 399))
         let updated = try ResizeHandles.calculate(XCTUnwrap(next.roots["screen"]), in: area, gap: gap)
         let horizontal = try XCTUnwrap(ResizeHandles.hit(updated, at: Point(718, 650)))
         XCTAssertEqual(horizontal.divider.axis, .horizontal)
@@ -59,6 +59,35 @@ final class ResizeHandleTests: XCTestCase {
         XCTAssertTrue(whole.shared); XCTAssertEqual(whole.divider.bounds.height, 800)
         let local = try XCTUnwrap(ResizeHandles.hit(handles, at: Point(599, 150)))
         XCTAssertFalse(local.shared); XCTAssertEqual(local.divider.bounds.height, 395)
+    }
+    func testLocalGripPaddingAndUniversalRemainderOnBothAxes() throws {
+        let root = split(.horizontal, split(.vertical, leaf(), leaf()), split(.vertical, leaf(), leaf()))
+        let handles = try ResizeHandles.calculate(root, in: area, gap: gap)
+        for axis in [Axis.horizontal, .vertical] {
+            let universal = try XCTUnwrap(handles.first { $0.shared && $0.divider.axis == axis && ResizeHandles.isUniversal($0, among: handles) })
+            for local in handles where ResizeHandles.contains(universal, local) {
+                let d = local.divider.bounds
+                let center = axis == .horizontal ? d.y + d.height / 2 : d.x + d.width / 2
+                for offset in [-53, -52, 0, 52, 53] {
+                    let point = axis == .horizontal ? Point(d.x + 1, center + offset) : Point(center + offset, d.y + 1)
+                    let picked = try XCTUnwrap(ResizeHandles.hit(handles, at: point))
+                    XCTAssertEqual(picked.divider, abs(offset) <= 52 ? local.divider : universal.divider)
+                }
+            }
+            let d = universal.divider.bounds
+            for point in [Point(d.x + 1, d.y + 1), Point(d.right - 1, d.bottom - 1)] {
+                XCTAssertEqual(ResizeHandles.hit(handles, at: point)?.divider, universal.divider)
+            }
+        }
+    }
+    func testJoinCueOnlyTargetsFullUniversalSeams() throws {
+        let handles = try ResizeHandles.calculate(fixture(), in: area, gap: gap)
+        let previous = try ResizeHandles.calculate(split(.horizontal, leaf(), leaf()), in: area, gap: gap)
+        let cues = ResizeHandles.newlyJoined(handles, previous: previous)
+        XCTAssertFalse(cues.isEmpty)
+        XCTAssertTrue(cues.allSatisfy { ResizeHandles.isUniversal($0, among: handles) })
+        XCTAssertTrue(ResizeHandles.newlyJoined(handles, previous: handles).isEmpty)
+        XCTAssertTrue(ResizeHandles.newlyJoined(handles, previous: []).isEmpty)
     }
     func testDockReflowKeepsJoinedRowsWhenOneBranchHitsMinimum() throws {
         let root = split(.horizontal, split(.vertical, leaf(100, 350), leaf()), split(.vertical, leaf(), leaf()))

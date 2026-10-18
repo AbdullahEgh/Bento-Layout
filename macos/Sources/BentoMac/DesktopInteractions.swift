@@ -88,6 +88,7 @@ struct DesktopInput {
             guard let area = displays[display], let handles = try? ResizeHandles.calculate(root, in: area, gap: model.layoutGap) else { continue }
             let previous = resizeHandles[display] ?? []
             resizeHandles[display] = handles
+            let joined = Set(ResizeHandles.newlyJoined(handles, previous: previous).map { $0.divider.id })
             for handle in handles {
                 let divider = handle.divider
                 retained.insert(divider.id)
@@ -108,10 +109,10 @@ struct DesktopInput {
                 }
                 let frame = DesktopCoordinates.appKit(divider.bounds)
                 if panel.frame != frame { panel.setFrame(frame, display: true) }
-                if handle.shared && !previous.isEmpty && !previous.contains(where: { $0.shared && $0.divider.id == divider.id }) {
+                if joined.contains(divider.id) {
                     panel.gripView.showJoinCue()
                 }
-                panel.gripView.shared = handle.shared
+                panel.gripView.shared = handle.shared && ResizeHandles.isUniversal(handle, among: handles)
                 panel.gripView.animate = model.settings.animate
                 panel.gripView.duration = Double(model.settings.animationMS) / 1000
                 let lightInk = true
