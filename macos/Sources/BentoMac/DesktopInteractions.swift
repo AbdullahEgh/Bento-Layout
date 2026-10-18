@@ -665,8 +665,15 @@ struct DesktopInput {
         let span = Double(axis == .horizontal ? bounds.height : bounds.width)
         let segments = shared || joinAlpha > 0 ? GripInk.segments(span: span, localCenters: localCenters)
             : [(span - min(displayedLength, span)) / 2 ... (span + min(displayedLength, span)) / 2]
-        (lightInk ? NSColor.white : .black).withAlphaComponent(alpha).setFill()
         for segment in segments {
+            // Short section pills stay prominent against the quieter universal seam.
+            // Join feedback still reaches full opacity across the affected seam.
+            let isLocalPill = localCenters.contains { center in
+                segment.lowerBound >= max(4, center - 40) && segment.upperBound <= min(span - 4, center + 40)
+            }
+            let emphasis = shared && !isLocalPill ? 0.45 : 1.0
+            let inkAlpha = max(joinAlpha, displayedAlpha * emphasis)
+            (lightInk ? NSColor.white : .black).withAlphaComponent(inkAlpha).setFill()
             let rect = axis == .horizontal
                 ? NSRect(x: bounds.midX - 2, y: segment.lowerBound, width: 4, height: segment.upperBound - segment.lowerBound)
                 : NSRect(x: segment.lowerBound, y: bounds.midY - 2, width: segment.upperBound - segment.lowerBound, height: 4)
