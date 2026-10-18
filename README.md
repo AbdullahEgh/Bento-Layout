@@ -5,6 +5,7 @@ Native window management for Windows, with a new native **macOS development prev
 - **Windows:** existing application and release instructions below.
 - **macOS:** [build, onboarding and current scope](macos/README.md), targeting macOS 15 or later.
 - **Shared behavior:** [geometry fixtures](shared/fixtures/layout-v1.json) consumed by both test suites.
+- **Windows experience parity:** [complete macOS-to-Windows handoff](docs/windows-parity/README.md), including behavior, platform adaptations and acceptance checks.
 
 ## Bento for Windows
 
