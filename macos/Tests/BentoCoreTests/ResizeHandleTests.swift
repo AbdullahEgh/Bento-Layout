@@ -68,10 +68,10 @@ final class ResizeHandleTests: XCTestCase {
             for local in handles where ResizeHandles.contains(universal, local) {
                 let d = local.divider.bounds
                 let center = axis == .horizontal ? d.y + d.height / 2 : d.x + d.width / 2
-                for offset in [-53, -52, 0, 52, 53] {
+                for offset in [-81, -80, 0, 80, 81] {
                     let point = axis == .horizontal ? Point(d.x + 1, center + offset) : Point(center + offset, d.y + 1)
                     let picked = try XCTUnwrap(ResizeHandles.hit(handles, at: point))
-                    XCTAssertEqual(picked.divider, abs(offset) <= 52 ? local.divider : universal.divider)
+                    XCTAssertEqual(picked.divider, abs(offset) <= 80 ? local.divider : universal.divider)
                 }
             }
             let d = universal.divider.bounds

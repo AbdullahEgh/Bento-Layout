@@ -1,4 +1,5 @@
-Bento for macOS 0.2.36
+Bento for macOS 0.2.37
 
-- Local grips respond nearby; the rest of the divider moves the full joined row or column.
-- Snap cues highlight the full universal grip.
+- Larger local grip targets and full-length straight grips.
+- Pause starts with every window dimmed; one click brings an app forward.
+- Hide Dock & Menu Bar now sits above Undo.

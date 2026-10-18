@@ -126,15 +126,15 @@ import Carbon.HIToolbox
         menu.items.last?.isEnabled = model.permission
         menu.items.last?.toolTip = "Keep this desktop’s layout. Newly opened apps stay above it."
         item(!model.permission ? "Enable Accessibility…" : model.active ? "Turn Bento Off" : "Turn Bento On", #selector(toggle), "power")
-        item("Undo Layout Change", #selector(undo), "arrow.uturn.backward")
-        menu.items.last?.isEnabled = model.active
-        menu.addItem(.separator())
         let hideDesktop = NSMenuItem(title: "Hide Dock & Menu Bar", action: #selector(toggleDesktopHiding), keyEquivalent: "")
         hideDesktop.target = self
         hideDesktop.image = NSImage(systemSymbolName: "menubar.dock.rectangle", accessibilityDescription: nil)
         hideDesktop.toolTip = "This session only. Applies while Bento is on and resets when Bento quits."
         hideDesktop.state = model.settings.hideDock && model.settings.hideMenuBar ? .on : model.settings.hideDock || model.settings.hideMenuBar ? .mixed : .off
         menu.addItem(hideDesktop)
+        menu.addItem(.separator())
+        item("Undo Layout Change", #selector(undo), "arrow.uturn.backward")
+        menu.items.last?.isEnabled = model.active
         item("Settings…", #selector(settings), "gearshape")
         menu.addItem(.separator()); item("Quit Bento", #selector(quit), "xmark.circle")
         statusMenu = menu

@@ -45,7 +45,14 @@ import BentoCore
         try check(secondFrame.y - firstFrame.bottom == model.layoutGap,
             "Cell-sized native windows align the shared divider and give spare pixels to their neighbor")
         system.nativeGrid.removeAll(); system.areaOverride = nil
-        await model.arrange(preserving: true); await model.setPinned(true)
+        await model.arrange(preserving: true)
+        system.focused = second
+        await model.setPinned(true)
+        try check(model.pausedFocusID == nil, "Pause starts with every Bento window dimmed")
+        model.applicationActivated(second.pid)
+        try check(model.pausedFocusID == nil, "Restoring the existing focus after Pause keeps every window dimmed")
+        model.recordInteraction(second)
+        try check(model.pausedFocusID == second.id, "The first explicit click uncovers the initially focused paused window")
         var pinRefreshes = 0
         model.onStateChange = { pinRefreshes += 1 }
         system.focused = first

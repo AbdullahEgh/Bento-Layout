@@ -112,7 +112,7 @@ struct DesktopInput {
                 if joined.contains(divider.id) {
                     panel.gripView.showJoinCue()
                 }
-                panel.gripView.shared = handle.shared && ResizeHandles.isUniversal(handle, among: handles)
+                panel.gripView.shared = ResizeHandles.isUniversal(handle, among: handles)
                 panel.gripView.animate = model.settings.animate
                 panel.gripView.duration = Double(model.settings.animationMS) / 1000
                 let lightInk = true

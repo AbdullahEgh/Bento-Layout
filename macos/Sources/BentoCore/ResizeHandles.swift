@@ -95,8 +95,8 @@ public enum ResizeHandles {
         }
         return result
     }
-    /// Local ink is 80 points long; allow 12 points of padding at each end.
-    public static let localHitRadius = 52
+    /// Local ink is 80 points long; allow 40 points of padding at each end.
+    public static let localHitRadius = 80
     public static func contains(_ outer: ResizeHandle, _ inner: ResizeHandle) -> Bool {
         let a = outer.divider, b = inner.divider
         guard a.axis == b.axis else { return false }

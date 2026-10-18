@@ -7,6 +7,11 @@ struct ReleaseNotes: Identifiable {
 
     // Keep newest first; ship the log with the app so it also works offline.
     static let history: [ReleaseNotes] = [
+        .init(version: "0.2.37", points: [
+            "Larger local grip targets and full-length straight grips.",
+            "Pause starts with every window dimmed; one click brings an app forward.",
+            "Hide Dock & Menu Bar now sits above Undo.",
+        ]),
         .init(version: "0.2.36", points: [
             "Local grips respond nearby; the rest of the divider moves the full joined row or column.",
             "Snap cues highlight the full universal grip.",

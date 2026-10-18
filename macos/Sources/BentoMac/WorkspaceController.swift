@@ -82,6 +82,12 @@ struct MacSettings: Codable {
             }
         }
         pausedFocusID = nil
+        if value {
+            // Establish the focus baseline before the status menu closes. Restoring
+            // that same focus must not uncover a window in a freshly paused layout.
+            lastFocusedWindow = system.focusedWindow(in: windows)?.id ?? lastFocusedWindow
+            pendingApplicationActivation = nil
+        }
         pinned = value
         pinnedWindowIDs = value ? Set(history.current.windows.map(\.windowID)) : []
         onStateChange?()
@@ -126,7 +132,9 @@ struct MacSettings: Codable {
             && !busy && !interacting && !activating
         if activation { pendingApplicationActivation = nil }
         if let focused, focused.id != lastFocusedWindow || activation {
-            recordInteraction(focused)
+            if !(pinned && pausedFocusID == nil && focused.id == lastFocusedWindow) {
+                recordInteraction(focused)
+            }
             if pinned && !busy && !activating && !interacting { onStateChange?() }
             // Bringing an already-visible floating app forward is admission intent,
             // even when its window identity and frame have not changed. Consume
