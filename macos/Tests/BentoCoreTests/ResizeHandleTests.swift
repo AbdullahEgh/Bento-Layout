@@ -224,6 +224,19 @@ final class ResizeHandleTests: XCTestCase {
         XCTAssertEqual(ResizeHandles.hit(handles, at: Point(d.bounds.x + d.bounds.width / 2, d.bounds.y + 1))?.divider, d)
     }
 
+    func testTwoAppDividerIsSpecificAndMultiSlotDividerIsShared() throws {
+        for axis in [Axis.horizontal, .vertical] {
+            let pair = try ResizeHandles.calculate(split(axis, leaf(), leaf()), in: area, gap: gap)
+            XCTAssertEqual(pair.count, 1)
+            XCTAssertFalse(try XCTUnwrap(pair.first).shared)
+            let other: Axis = axis == .horizontal ? .vertical : .horizontal
+            let grid = split(axis, split(other, leaf(), leaf()), split(other, leaf(), leaf()))
+            let handles = try ResizeHandles.calculate(grid, in: area, gap: gap)
+            XCTAssertTrue(handles.contains { $0.shared && $0.divider.axis == axis })
+            XCTAssertTrue(handles.contains { !$0.shared && $0.divider.axis == axis })
+        }
+    }
+
     func testSharedSectionsIncludeThreeSlotsWithoutRequiringTheFullLine() throws {
         for axis in [Axis.horizontal, .vertical] {
             let other: Axis = axis == .horizontal ? .vertical : .horizontal

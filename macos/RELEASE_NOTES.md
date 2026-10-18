@@ -1,5 +1,6 @@
 Bento for macOS 0.2.40
 
+- Short grips resize two apps; long shared grips resize groups of slots.
 - Updating or quitting keeps windows in place, including minimized apps.
 - Installation no longer waits for windows to restore their old positions.
 

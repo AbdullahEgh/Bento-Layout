@@ -8,6 +8,7 @@ struct ReleaseNotes: Identifiable {
     // Keep newest first; ship the log with the app so it also works offline.
     static let history: [ReleaseNotes] = [
         .init(version: "0.2.40", points: [
+            "Short grips resize two apps; long shared grips resize groups of slots.",
             "Updating or quitting keeps windows in place, including minimized apps.",
             "Installation no longer waits for windows to restore their old positions.",
         ]),

@@ -170,7 +170,7 @@ struct DesktopInput {
                 }
                 let frame = DesktopCoordinates.appKit(divider.bounds)
                 if panel.frame != frame { panel.setFrame(frame, display: true) }
-                let universal = handle.shared || ResizeHandles.isUniversal(handle, among: handles)
+                let universal = handle.shared
                 panel.gripView.shared = universal
                 panel.gripView.localCenters = universal ? handles.filter { ResizeHandles.contains(handle, $0) }.map { local in
                     let b = DesktopCoordinates.appKit(local.divider.bounds)
