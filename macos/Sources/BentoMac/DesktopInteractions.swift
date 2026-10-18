@@ -416,7 +416,7 @@ struct DesktopInput {
                 if panel.frame != screens[index].frame { panel.setFrame(screens[index].frame, display: true) }
                 if !panel.isVisible { panel.orderFrontRegardless() }
             }
-            return (panel, panel.alphaValue, visible ? 0.18 : 0)
+            return (panel, panel.alphaValue, visible ? 0.45 : 0)
         }
     }
     var animate = true
@@ -525,8 +525,6 @@ struct DesktopInput {
     var placement = Placement.center { didSet { if oldValue != placement { updateAppearance() } } }
     var progress: Double? { didSet { if oldValue != progress { updateAppearance() } } }
     private let frost: BentoFrostView
-    private let wash = CAGradientLayer()
-    private let glow = CALayer()
     private let outline = CALayer()
     var isSplitting: Bool { !conflict && !swapsSections && (placement != .center || progress != nil) }
     var materialKind: BentoFrostView.Kind { frost.kind }
@@ -535,13 +533,9 @@ struct DesktopInput {
         frost = BentoFrostView(radius: 18, allowGlass: allowGlass, reduceTransparency: reduceTransparency)
         super.init(frame: frame)
         wantsLayer = true; layer?.backgroundColor = NSColor.clear.cgColor
-        layer?.addSublayer(glow)
         addSubview(frost)
-        frost.ink.layer?.addSublayer(wash); frost.ink.layer?.addSublayer(outline)
+        frost.ink.layer?.addSublayer(outline)
         outline.cornerRadius = 17.5; outline.borderWidth = 0.8
-        wash.cornerRadius = 18; wash.masksToBounds = true
-        wash.startPoint = CGPoint(x: 0.15, y: 1); wash.endPoint = CGPoint(x: 0.85, y: 0)
-        glow.cornerRadius = 18; glow.shadowRadius = 18; glow.shadowOffset = .zero
         updateGeometry(); updateAppearance()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
@@ -550,22 +544,17 @@ struct DesktopInput {
     private func updateGeometry() {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         let frame = NSRect(x: 6, y: 6, width: max(0, bounds.width - 12), height: max(0, bounds.height - 12))
-        frost.frame = frame; wash.frame = NSRect(origin: .zero, size: frame.size); glow.frame = frame
-        outline.frame = wash.bounds.insetBy(dx: 0.5, dy: 0.5)
-        glow.shadowPath = CGPath(roundedRect: glow.bounds, cornerWidth: 18, cornerHeight: 18, transform: nil)
+        frost.frame = frame
+        outline.frame = NSRect(origin: .zero, size: frame.size).insetBy(dx: 0.5, dy: 0.5)
         CATransaction.commit()
     }
     private func updateAppearance() {
         // Native glass and a quiet neutral edge carry placement and splitting.
         // A warm tint appears only when the destination cannot fit.
         let accent: NSColor = conflict ? .systemOrange : .white
-        let strength: Double = primary ? (conflict ? 0.16 : isSplitting ? 0.06 + (progress ?? 1) * 0.04 : 0.045) : 0.02
         frost.tint = conflict ? accent.withAlphaComponent(0.12) : nil
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        wash.colors = [accent.withAlphaComponent(strength).cgColor, accent.withAlphaComponent(strength * 0.30).cgColor]
         outline.borderColor = accent.withAlphaComponent(primary ? 0.38 : 0.16).cgColor
-        glow.backgroundColor = accent.withAlphaComponent(strength * 0.20).cgColor
-        glow.shadowColor = accent.cgColor; glow.shadowOpacity = primary ? 0.10 : 0.035
         CATransaction.commit()
     }
 }

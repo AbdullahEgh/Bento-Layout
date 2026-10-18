@@ -1090,7 +1090,7 @@ final class FixturePreferences: PreferenceBackend {
             let reachedDestination = softPanel.frame == DesktopCoordinates.appKit(retarget) && softPanel.alphaValue == 1
             try? await Task.sleep(for: .milliseconds(150))
             try check(reachedDestination && softPanel.frame == DesktopCoordinates.appKit(retarget) && softPanel.alphaValue == 1, "Preview retargeting reaches the latest destination without an old animation snapping back")
-            try check(softPreview.dimVisible && abs(softPreview.dimOpacity - 0.18) < 0.001 && softPreview.dimPassesClicks,
+            try check(softPreview.dimVisible && abs(softPreview.dimOpacity - 0.45) < 0.001 && softPreview.dimPassesClicks,
                 "Destination highlights have a gentle black dim layer underneath that never intercepts clicks")
             softPreview.orderOut(nil)
             for _ in 0..<12 { try? await Task.sleep(for: .milliseconds(20)); softPreview.orderOut(nil) }
