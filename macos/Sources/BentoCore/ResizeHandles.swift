@@ -107,12 +107,13 @@ public enum ResizeHandles {
     public static func isUniversal(_ handle: ResizeHandle, among handles: [ResizeHandle]) -> Bool {
         !handles.contains { contains($0, handle) }
     }
-    /// Announce only the full joined seam, never its overlapping subgroups.
+    /// Return newly joined sections, including groups nested inside a longer seam.
+    /// The interaction selects only the section connected to the sliding divider.
     public static func newlyJoined(_ handles: [ResizeHandle], previous: [ResizeHandle]) -> [ResizeHandle] {
         guard !previous.isEmpty else { return [] }
         return handles.filter { handle in
-            handle.shared && isUniversal(handle, among: handles) && !previous.contains {
-                $0.shared && isUniversal($0, among: previous) && $0.divider.axis == handle.divider.axis
+            handle.shared && !previous.contains {
+                $0.shared && $0.divider.axis == handle.divider.axis
                     && ($0.divider.id == handle.divider.id || $0.divider.bounds == handle.divider.bounds)
             }
         }

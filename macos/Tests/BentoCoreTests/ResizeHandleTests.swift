@@ -80,12 +80,12 @@ final class ResizeHandleTests: XCTestCase {
             }
         }
     }
-    func testJoinCueOnlyTargetsFullUniversalSeams() throws {
+    func testJoinCandidatesOnlyIncludeSharedSections() throws {
         let handles = try ResizeHandles.calculate(fixture(), in: area, gap: gap)
         let previous = try ResizeHandles.calculate(split(.horizontal, leaf(), leaf()), in: area, gap: gap)
         let cues = ResizeHandles.newlyJoined(handles, previous: previous)
         XCTAssertFalse(cues.isEmpty)
-        XCTAssertTrue(cues.allSatisfy { ResizeHandles.isUniversal($0, among: handles) })
+        XCTAssertTrue(cues.allSatisfy { $0.shared })
         XCTAssertTrue(ResizeHandles.newlyJoined(handles, previous: handles).isEmpty)
         XCTAssertTrue(ResizeHandles.newlyJoined(handles, previous: []).isEmpty)
     }
@@ -222,6 +222,26 @@ final class ResizeHandleTests: XCTestCase {
         for (id, frame) in before where frame.height == area.height { XCTAssertEqual(after[id], frame) }
         XCTAssertEqual(Set(after.values.filter { $0.height < area.height && $0.y == 0 }.map(\.bottom)).count, 1)
         XCTAssertEqual(ResizeHandles.hit(handles, at: Point(d.bounds.x + d.bounds.width / 2, d.bounds.y + 1))?.divider, d)
+    }
+
+    func testSharedSectionsIncludeThreeSlotsWithoutRequiringTheFullLine() throws {
+        for axis in [Axis.horizontal, .vertical] {
+            let other: Axis = axis == .horizontal ? .vertical : .horizontal
+            func pair(_ ratio: Double) -> LayoutNode { split(other, leaf(), leaf(), ratio: ratio) }
+            let root = split(axis, split(axis, split(axis, pair(0.5), pair(0.5)), pair(0.5), ratio: 2.0 / 3), pair(0.7), ratio: 0.75)
+            let space = Rect(0, 0, 2400, 2400)
+            let handles = try ResizeHandles.calculate(root, in: space, gap: gap)
+            let partial = try XCTUnwrap(handles.first { h in
+                h.shared && h.divider.axis == other &&
+                    handles.filter { ResizeHandles.contains(h, $0) && !$0.shared }.count >= 3 &&
+                    (other == .horizontal ? h.divider.bounds.height < space.height : h.divider.bounds.width < space.width)
+            })
+            XCTAssertGreaterThanOrEqual(handles.filter { ResizeHandles.contains(partial, $0) && !$0.shared }.count, 3)
+            let nested = try XCTUnwrap(handles.first { $0.shared && ResizeHandles.contains(partial, $0) })
+            let before = handles.filter { $0.divider.id != nested.divider.id }
+            XCTAssertTrue(ResizeHandles.newlyJoined(handles, previous: before).contains { $0.divider.id == nested.divider.id })
+            XCTAssertEqual(try frames(root, space), try frames(partial.root, space))
+        }
     }
 
     func testRemovingPlanningPreferencesPreservesExactFittedGeometry() throws {

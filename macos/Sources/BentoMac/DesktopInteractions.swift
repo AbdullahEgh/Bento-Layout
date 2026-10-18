@@ -144,9 +144,10 @@ struct DesktopInput {
                     : a.x <= b.x && a.right >= b.right
             }.min { a, b in
                 let point = input().point
-                return a.divider.axis == .horizontal
-                    ? abs(a.divider.bounds.x - point.x) < abs(b.divider.bounds.x - point.x)
-                    : abs(a.divider.bounds.y - point.y) < abs(b.divider.bounds.y - point.y)
+                let da = a.divider.axis == .horizontal ? abs(a.divider.bounds.x - point.x) : abs(a.divider.bounds.y - point.y)
+                let db = b.divider.axis == .horizontal ? abs(b.divider.bounds.x - point.x) : abs(b.divider.bounds.y - point.y)
+                if da != db { return da < db }
+                return a.divider.bounds.width + a.divider.bounds.height > b.divider.bounds.width + b.divider.bounds.height
             }?.divider.id
             for handle in handles {
                 let divider = handle.divider
@@ -168,7 +169,7 @@ struct DesktopInput {
                 }
                 let frame = DesktopCoordinates.appKit(divider.bounds)
                 if panel.frame != frame { panel.setFrame(frame, display: true) }
-                let universal = ResizeHandles.isUniversal(handle, among: handles)
+                let universal = handle.shared || ResizeHandles.isUniversal(handle, among: handles)
                 panel.gripView.shared = universal
                 panel.gripView.localCenters = universal ? handles.filter { ResizeHandles.contains(handle, $0) }.map { local in
                     let b = DesktopCoordinates.appKit(local.divider.bounds)
