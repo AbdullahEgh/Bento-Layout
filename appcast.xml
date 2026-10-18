@@ -4,22 +4,20 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.35</title>
-            <pubDate>Sun, 18 Oct 2026 08:17:19 +0000</pubDate>
-            <sparkle:version>151</sparkle:version>
-            <sparkle:shortVersionString>0.2.35</sparkle:shortVersionString>
+            <title>0.2.36</title>
+            <pubDate>Sun, 18 Oct 2026 08:44:24 +0000</pubDate>
+            <sparkle:version>152</sparkle:version>
+            <sparkle:shortVersionString>0.2.36</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.35
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.36
 
-- Keep layouts and size limits intact across repeated Dock/menu-bar changes.
-- Full-length shared grips with matching join cues.
-- Independent app animations avoid pauses caused by slower windows.
-- One click brings a paused Bento app above the dim layer.
+- Local grips respond nearby; the rest of the divider moves the full joined row or column.
+- Snap cues highlight the full universal grip.
 ]]></description>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.35/Bento-macos-universal.zip" length="4365921" type="application/octet-stream" sparkle:edSignature="ZbwnFdFY1BouAhuPPX/hQZCPVDbo3gXo1eD4ZEGeu2iMA5+BEdzNm5KM8x0YFhWzPqIch1XFvKcCkbKJxbeAAA=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.36/Bento-macos-universal.zip" length="4373099" type="application/octet-stream" sparkle:edSignature="6gKxnC5kLjr8vNxtdPKkewjDZ/h/lXC+2nWMpabYLcPN7yOU0sKlUi13rdlCPO0aeA3dzgIT24Y+EI0/+uDNAg=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: 4vFqUq+QnPY68mt6EWKMbCdBARW2FDcqb+d693j57fAJhG1gMWDQ93SI/b59vV4r8H8q51gjqNcRoU7/gVhuCQ==
-length: 1421
+edSignature: T015A2P4WtMY95kGz2ScnZVrjxjMulZgIPx67E7z8vMlqY7YPhdF8b2okqeKrfQLyJ0YXNywO6v/60G9k33iAA==
+length: 1303
 -->
