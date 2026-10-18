@@ -117,9 +117,14 @@ public sealed class BentoController : IDisposable
         catch (Exception ex) { Report(ex.Message); }
     }
 
-    private static void Dispatch(Action action) => Application.Current.Dispatcher.BeginInvoke(action);
+    private void Dispatch(Action action)
+    {
+        if (disposed) return;
+        Application.Current.Dispatcher.BeginInvoke(new Action(() => { if (!disposed) action(); }));
+    }
     private nint WndProc(nint hwnd, int message, nint wparam, nint lparam, ref bool handled)
     {
+        if (disposed) return 0;
         if (message == 0x312) { if (Settings.ShortcutEnabled) ToggleBento(); handled = true; }
         if (message is 0x7E or 0x2E0 or 0x1A)
             Dispatch(RefreshMonitorGeometry);
@@ -128,6 +133,7 @@ public sealed class BentoController : IDisposable
 
     public void ArrangeDesktop()
     {
+        if (disposed) return;
         if (activeNativeDrag != 0) return;
         CancelDrag();
         Windows = DiscoverWindows(useCache: false);
@@ -158,13 +164,15 @@ public sealed class BentoController : IDisposable
     }
     private void CloseDesktopHelpers()
     {
-        CancelDrag();
+        // Shutdown has already discarded gesture rollback snapshots.
+        if (!disposed) CancelDrag();
         foreach (var handle in dividers.ToArray()) handle.Close();
         dividers.Clear();
         dropPreview?.Close(); dropPreview = null;
     }
     public void Refresh()
     {
+        if (disposed) return;
         Windows = DiscoverWindows(useCache: false);
         if (automatic && !Dragging && activeNativeDrag == 0) Synchronize();
         PlaceDividersBelowInterface();
@@ -184,6 +192,7 @@ public sealed class BentoController : IDisposable
     }
     public void AutoArrangeAll()
     {
+        if (disposed) return;
         if (activeNativeDrag != 0) return;
         CancelDrag(); released.Clear(); if (!automatic) originals.Clear(); automatic = true;
         snapLease?.SetSuppressed(Settings.SuppressWindowsSnap);
@@ -249,6 +258,7 @@ public sealed class BentoController : IDisposable
     }
     public void BeginDrag(long id)
     {
+        if (disposed) return;
         var window = Windows.FirstOrDefault(w => w.Id == id);
         if (window is null) return;
         CancelDrag(); lastActiveWindow = id;
@@ -260,6 +270,7 @@ public sealed class BentoController : IDisposable
     }
     public void BeginDivider(DesktopMonitor monitor, Divider value, PixelPoint? touch = null)
     {
+        if (disposed) return;
         CancelDrag(); divider = value; dividerMonitor = monitor.Id; dragStart = history.Current;
         transition?.Dispose(); transition = null;
         liveResizeStart = Layout(monitor, dragStart).Regions.Select(r => native.Capture(r.Window.WindowId)).ToArray();
@@ -271,6 +282,7 @@ public sealed class BentoController : IDisposable
     }
     public void BeginNativeResize(long id)
     {
+        if (disposed) return;
         CancelDrag();
         if (!history.Current.Windows.Any(w => w.WindowId == id)) return;
         nativeResizeWindow = id; dragStart = history.Current;
@@ -280,6 +292,7 @@ public sealed class BentoController : IDisposable
     public void PreviewDrag(PixelPoint point) { if (touchPoint.HasValue) touchPoint = point; UpdatePreview(point); }
     private void Tick()
     {
+        if (disposed) return;
         if (Dragging)
         {
             long id = incoming?.WindowId ?? nativeResizeWindow;
@@ -296,6 +309,7 @@ public sealed class BentoController : IDisposable
     }
     private void RefreshMonitorGeometry()
     {
+        if (disposed) return;
         var latest = WindowCatalog.Monitors();
         if (monitors.SequenceEqual(latest) || activeNativeDrag != 0 || Dragging) return;
         monitors = latest;
@@ -339,6 +353,7 @@ public sealed class BentoController : IDisposable
     });
     private void UpdatePreview(PixelPoint? position = null)
     {
+        if (disposed) return;
         var point = position ?? touchPoint ?? WindowCatalog.Cursor;
         var previousPreview = preview;
         var previousDestination = previewDestination;
@@ -424,6 +439,7 @@ public sealed class BentoController : IDisposable
     }
     public void FinishDrag(PixelPoint? position = null)
     {
+        if (disposed) return;
         UpdatePreview(position);
         var next = validPreview ? preview : null;
         bool nativeGesture = nativeStartBounds.HasValue;
@@ -438,7 +454,7 @@ public sealed class BentoController : IDisposable
         }
         if (!applied) RefreshDesktopDividers();
     }
-    public void CancelDrag() => ClearDrag(restoreLive: true);
+    public void CancelDrag() { if (!disposed) ClearDrag(restoreLive: true); }
     private void RestoreLiveResize(WindowSnapshot[] snapshots)
     {
         foreach (var snapshot in snapshots)
@@ -549,6 +565,7 @@ public sealed class BentoController : IDisposable
     }
     public void RestoreAll()
     {
+        if (disposed) return;
         CancelDrag();
         var previous = history.Current;
         if (Commit(new WorkspaceState()))
@@ -568,6 +585,7 @@ public sealed class BentoController : IDisposable
     }
     public bool UpdateSettings(BentoSettings settings)
     {
+        if (disposed) return false;
         if (!settings.IsValid) { Report("Please check the settings values."); return false; }
         if (Dragging || activeNativeDrag != 0) { Report("Finish dragging before changing settings."); return false; }
         var old = Settings;
@@ -667,11 +685,18 @@ public sealed class BentoController : IDisposable
     }
     public void Dispose()
     {
-        if (!disposed && automatic) RestoreAll();
+        if (disposed) return;
+        // Quit and update end this session without restoring native windows.
+        // Invalidate queued work before closing helpers: capture loss and settings
+        // close handlers can otherwise roll back a live resize or apply settings.
         disposed = true;
+        automatic = false;
+        timer.Stop();
+        ClearDrag(restoreLive: false);
+        activeNativeDrag = 0; nativeStartBounds = null;
         Microsoft.Win32.SystemEvents.UserPreferenceChanged -= AppearanceChanged;
         WallpaperContrast.Invalidate();
-        timer.Stop(); events.Dispose(); transition?.Dispose(); CloseDesktopHelpers(); appWindow?.Close();
+        events.Dispose(); transition?.Dispose(); CloseDesktopHelpers(); appWindow?.Close();
         CloseBackdrops();
         try { snapLease?.Dispose(); } catch { /* The recovery journal is kept for the next launch. */ }
         DesktopIntegration.UnregisterShortcut(source.Handle, 1); source.Dispose(); trayInterface.Dispose();

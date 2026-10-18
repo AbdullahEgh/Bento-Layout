@@ -548,6 +548,33 @@ internal static class NativeTests
                 native.Minimize(fixtures[0].Id); overflow.AutoArrangeAll(); overflow.RestoreAll(); Pump();
                 Check(WindowCatalog.IsMinimized(fixtures[0].Id)); native.Restore(originals[0]);
             });
+            foreach (bool liveResize in new[] { false, true })
+                Run($"Quit preserves native frames and overflow (live resize: {liveResize})", () =>
+                {
+                    using var quitting = new BentoController(() => WindowCatalog.Discover(includeMinimized: false)
+                        .Where(w => fixtures.Any(f => f.Id == w.Id)).Select(w => w.Id == fixtures[0].Id
+                            ? w with { Minimum = new PixelSize(monitor.WorkArea.Width + 100, 120) } : w).ToArray(),
+                        new BentoSettings(Animate: false, ShortcutEnabled: false));
+                    quitting.AutoArrangeAll(); Pump();
+                    Check(WindowCatalog.IsMinimized(fixtures[0].Id));
+                    var arranged = fixtures.Skip(1).Select(w => native.VisibleBounds(w.Id)).ToArray();
+                    if (liveResize)
+                    {
+                        var seam = quitting.Layout(monitor).Dividers.Single();
+                        var press = new PixelPoint(seam.Bounds.X + seam.Bounds.Width / 2, seam.Bounds.Y + seam.Bounds.Height / 2);
+                        quitting.BeginDivider(monitor, seam, press);
+                        quitting.PreviewDrag(new(press.X + 24, press.Y + 24));
+                        Check(quitting.Dragging);
+                    }
+                    var before = fixtures.Skip(1).Select(w => native.VisibleBounds(w.Id)).ToArray();
+                    if (liveResize) Check(!arranged.SequenceEqual(before));
+                    quitting.Dispose();
+                    // Queued callbacks and capture loss must stay inert after disposal.
+                    quitting.CancelDrag(); quitting.Refresh(); quitting.FinishDrag(); quitting.Dispose(); Pump();
+                    Check(WindowCatalog.IsMinimized(fixtures[0].Id));
+                    Check(before.SequenceEqual(fixtures.Skip(1).Select(w => native.VisibleBounds(w.Id))));
+                    foreach (var original in originals) native.Restore(original);
+                });
             foreach (var original in originals) native.Restore(original);
         }
         catch (Exception ex) { Run("Native integration setup", () => throw new Exception("An interactive Windows desktop is required.", ex)); }
