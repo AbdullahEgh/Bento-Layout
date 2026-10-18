@@ -649,7 +649,10 @@ struct DesktopInput {
         // A fully transparent WindowServer surface is click-through. Keep a
         // one-alpha input surface across the gap, independently of the hidden ink.
         NSColor.black.withAlphaComponent(1.0 / 255).setFill(); dirtyRect.fill(using: .copy)
-        let alpha = max(joinAlpha, displayedAlpha)
+        // Holding a divider pins its ink visibility, even while hover fades or
+        // geometry updates move the pointer outside the original panel.
+        let interactionAlpha = dragging ? 1.0 : displayedAlpha
+        let alpha = max(joinAlpha, interactionAlpha)
         guard alpha > 0 else { return }
         let span = Double(axis == .horizontal ? bounds.height : bounds.width)
         let segments = shared || joinAlpha > 0 ? GripInk.segments(span: span, localCenters: localCenters)
@@ -661,7 +664,7 @@ struct DesktopInput {
                 segment.lowerBound >= max(4, center - 40) && segment.upperBound <= min(span - 4, center + 40)
             }
             let emphasis = shared && !isLocalPill ? 0.45 : 1.0
-            let inkAlpha = max(joinAlpha, displayedAlpha * emphasis)
+            let inkAlpha = max(joinAlpha, interactionAlpha * emphasis)
             (lightInk ? NSColor.white : .black).withAlphaComponent(inkAlpha).setFill()
             let rect = axis == .horizontal
                 ? NSRect(x: bounds.midX - 2, y: segment.lowerBound, width: 4, height: segment.upperBound - segment.lowerBound)
