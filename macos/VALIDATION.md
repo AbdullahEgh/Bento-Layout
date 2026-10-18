@@ -1,3 +1,11 @@
+# Repeated work-area transitions, shared grip ink and paused focus — 0.2.35, 2026-10-18
+
+Live 0.2.34 traces showed expanded heights being learned as minima on Dock restoration, followed by topology replacement on the second cycle. Same-membership work-area transitions now retain the reference tree and never learn minima from refused transition writes. Late rebound repair also avoids learning constraints; ordinary settled size changes still learn real limits. Failed transitions retain the committed layout rather than evicting members or rebuilding it.
+
+Shared hover/drag ink spans the joined boundary; join cues use the same four-point thickness. Existing hit regions are unchanged. Motion has independent per-process loops with one in-flight sample per process, a common deadline, and no backlog; a timed-out sample no longer removes the window from the rest of the animation. Final writes and settled validation remain authoritative. Paused focus explicitly excludes the clicked/focused window from the tint instead of reordering its tint above the first click.
+
+83 core tests and 234 disposable native-window checks passed. New regressions cover two full work-area cycles with transient oversized native refusals, unchanged minima/topology, exact restored proportions, and first-interaction paused focus. A native regression caught overbroad protection of later ordinary size changes; the final code limits protection to transitions and late-rebound repair, and the full suite passes. The optimized app builds. Local evidence: ignored `artifacts/macos/reflow-0235-qa/`. Publication, installation and live measurements pending.
+
 # Local resize groups, join cues, removal latency and coordinated motion — 0.2.34, 2026-10-18
 
 The shared-grip search now explores equivalent rectangular subgroups, not only original-tree descendants. This covers the reported five-pane arrangement with joined splits in the first two columns beside a full-height third column. Every equivalent tree still verifies identical pane geometry. Newly shared grips briefly draw a gentle full-length cue in their existing gap panel; hit testing and panel rectangles are unchanged. Native border resizes select the smallest applicable equivalent section for each changed edge, preserving unrelated rows/columns.

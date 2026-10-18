@@ -7,6 +7,12 @@ struct ReleaseNotes: Identifiable {
 
     // Keep newest first; ship the log with the app so it also works offline.
     static let history: [ReleaseNotes] = [
+        .init(version: "0.2.35", points: [
+            "Keep layouts and size limits intact across repeated Dock/menu-bar changes.",
+            "Full-length shared grips with matching join cues.",
+            "Independent app animations avoid pauses caused by slower windows.",
+            "One click brings a paused Bento app above the dim layer.",
+        ]),
         .init(version: "0.2.34", points: [
             "Joined splits reveal a gentle full-length cue and all valid shared grips.",
             "Manual resizing adjusts its local section; closed and minimized apps release space sooner.",

@@ -52,6 +52,9 @@ import BentoCore
         model.applicationActivated(first.pid)
         try check(pinRefreshes > 0, "Focusing a pinned app refreshes its dim layer without moving windows")
         model.onStateChange = nil; system.focused = nil
+        try check(model.pausedFocusID == first.id, "The first paused app focus removes its tint immediately")
+        model.recordInteraction(second)
+        try check(model.pausedFocusID == second.id, "A single click switches the clear paused window without a second activation")
         let pinned = model.history.current, incomingFrame = system.frame(of: incoming.element)
         system.undiscovered.removeAll(); system.writes.removeAll()
         await model.arrange(preserving: true)
@@ -85,6 +88,26 @@ import BentoCore
             "The next settled work area reuses the saved split instead of replacing the layout")
         system.areaOverride = nil
         await model.arrange(preserving: true)
+        // A settled display can still have an app carrying its expanded size.
+        // Such refusals must not poison minima or trigger a different topology.
+        let stableLimits = system.records.map { $0.0.minimum }
+        let reduced = DisplayArea(id: compactArea.id, name: compactArea.name,
+            bounds: Rect(compactArea.bounds.x, compactArea.bounds.y + 30, compactArea.bounds.width, compactArea.bounds.height - 90))
+        for cycle in 1...2 {
+            system.areaOverride = [reduced]
+            system.nativeMinimum[first.id] = Size(compactArea.bounds.width, compactArea.bounds.height)
+            await model.arrange(preserving: true)
+            try check(model.history.current == originalTree && system.records.map { $0.0.minimum } == stableLimits,
+                "Dock cycle \(cycle) refuses transient expanded sizes without learning limits or rebuilding")
+            system.nativeMinimum.removeAll()
+            await model.arrange(preserving: true)
+            try check(model.history.current.windows.count == originalTree.windows.count && model.message == nil,
+                "Dock cycle \(cycle) fits the same members after the app releases its transient size")
+            system.areaOverride = nil
+            await model.arrange(preserving: true)
+            try check(model.history.current == originalTree,
+                "Dock cycle \(cycle) restores exact saved topology and ratios")
+        }
         system.undiscovered = Set(model.history.current.windows.map(\.windowID))
         await model.arrange(preserving: true)
         try check(model.history.current == originalTree, "Temporary discovery loss preserves live nonminimized layout members")

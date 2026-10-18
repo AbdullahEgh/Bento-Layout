@@ -74,7 +74,7 @@ struct DesktopInput {
         updateGrips(model.history.current)
         if model.pinned {
             let ids = Set(model.history.current.windows.map(\.windowID))
-            pinnedTint.show(windows: model.windows.filter { ids.contains($0.id) })
+            pinnedTint.show(windows: model.windows.filter { ids.contains($0.id) && $0.id != model.pausedFocusID })
         } else { pinnedTint.hide() }
     }
     private func areas() -> [String: Rect] { if let gestureAreas { return gestureAreas }; return Dictionary(uniqueKeysWithValues: model.displayAreas().map { ($0.id, $0.bounds) }) }
@@ -542,7 +542,7 @@ struct DesktopInput {
     private func transition() {
         animation?.invalidate()
         let oldLength = displayedLength, oldAlpha = displayedAlpha
-        let length = shared ? 160.0 : 80.0, alpha = hovering || dragging ? 1.0 : 0.0
+        let length = shared ? max(0, (axis == .horizontal ? bounds.height : bounds.width) - 8) : 80.0, alpha = hovering || dragging ? 1.0 : 0.0
         guard animate, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { displayedLength = length; displayedAlpha = alpha; needsDisplay = true; return }
         let start = ProcessInfo.processInfo.systemUptime
         animation = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in
@@ -563,13 +563,14 @@ struct DesktopInput {
         NSColor.black.withAlphaComponent(1.0 / 255).setFill(); dirtyRect.fill(using: .copy)
         if joinAlpha > 0 {
             let rect = axis == .horizontal
-                ? NSRect(x: bounds.midX - 1, y: 4, width: 2, height: max(0, bounds.height - 8))
-                : NSRect(x: 4, y: bounds.midY - 1, width: max(0, bounds.width - 8), height: 2)
+                ? NSRect(x: bounds.midX - 2, y: 4, width: 4, height: max(0, bounds.height - 8))
+                : NSRect(x: 4, y: bounds.midY - 2, width: max(0, bounds.width - 8), height: 4)
             NSColor.white.withAlphaComponent(joinAlpha).setFill()
-            NSBezierPath(roundedRect: rect, xRadius: 1, yRadius: 1).fill()
+            NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2).fill()
         }
         guard displayedAlpha > 0 else { return }
-        let length = min(displayedLength, axis == .horizontal ? bounds.height : bounds.width)
+        let span = axis == .horizontal ? bounds.height : bounds.width
+        let length = shared ? max(0, span - 8) : min(displayedLength, span)
         let rect = axis == .horizontal ? NSRect(x: bounds.midX - 2, y: bounds.midY - length / 2, width: 4, height: length) : NSRect(x: bounds.midX - length / 2, y: bounds.midY - 2, width: length, height: 4)
         (lightInk ? NSColor.white : .black).withAlphaComponent(displayedAlpha).setFill(); NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2).fill()
     }

@@ -60,6 +60,7 @@ struct MacSettings: Codable {
     @Published var active = false
     @Published private(set) var pinned = false
     private var pinnedWindowIDs = Set<UUID>()
+    private(set) var pausedFocusID: UUID?
     func canArrangeWindow(_ id: UUID) -> Bool { !pinned || pinnedWindowIDs.contains(id) }
     private var pinRequest = 0
     func setPinned(_ value: Bool) async {
@@ -80,6 +81,7 @@ struct MacSettings: Codable {
                 reopenedWindows.remove(window.id)
             }
         }
+        pausedFocusID = nil
         pinned = value
         pinnedWindowIDs = value ? Set(history.current.windows.map(\.windowID)) : []
         onStateChange?()
@@ -104,6 +106,10 @@ struct MacSettings: Codable {
         interactionSequence += 1
         lastInteraction[window.id] = interactionSequence
         lastFocusedWindow = window.id
+        if pinned && pausedFocusID != window.id {
+            pausedFocusID = window.id
+            onStateChange?()
+        }
     }
     func applicationActivated(_ pid: pid_t) {
         guard system.isLayoutApplication(pid) else { pendingApplicationActivation = nil; return }
@@ -208,7 +214,7 @@ struct MacSettings: Codable {
         floatingForSize = session?.floating ?? []; savedSessionLayout = session?.saved
         lastBento = session?.remembered; areaLayout = session?.areaLayout; areaLayoutAreas = session?.areaLayoutAreas ?? []; lastReleased = session?.lastReleased ?? []
         lastMinimized = session?.lastMinimized ?? []; editedLayout = session?.edited ?? false
-        pinned = session?.pinned ?? false; pinnedWindowIDs = session?.pinnedIDs ?? []
+        pausedFocusID = nil; pinned = session?.pinned ?? false; pinnedWindowIDs = session?.pinnedIDs ?? []
         lastDisplays = session?.displays ?? []; settings.hideDock = session?.hideDock ?? false
         settings.hideMenuBar = session?.hideMenu ?? false
         reopenedWindows = []; failedAutomaticInput = nil; pendingMembership = nil; membershipSamples = 0
@@ -298,7 +304,7 @@ struct MacSettings: Codable {
             }
             guard drift else { return }
             self.trace?("late native rebound; restoring committed slots once")
-            do { try await self.apply(committed, displays: areas, animate: false) }
+            do { try await self.apply(committed, displays: areas, animate: false, learnMinimum: false) }
             catch { self.message = error.localizedDescription }
         }
     }
@@ -666,6 +672,15 @@ struct MacSettings: Codable {
                                 }
                             }
                         }
+                    } else if areaChanged, let reference = previous.roots[area.id],
+                              Set(reference.windows.map(\.windowID)) == Set(members.map(\.id)) {
+                        // A work-area change is a projection of the same layout,
+                        // never an admission request. Do not rebuild or evict when
+                        // an app temporarily refuses the returning Dock's bounds.
+                        let retained = Workspace(roots: [area.id: reference]).reconciled(with: members.map(\.leaf))
+                        guard let root = retained.roots[area.id] else { throw LayoutError.missingTarget }
+                        _ = try LayoutEngine.calculate(root, in: area.bounds, gap: layoutGap)
+                        next.roots[area.id] = root
                     } else {
                         next.roots[area.id] = try AutoLayout.fitting(members.map(\.leaf), in: area.bounds, gap: layoutGap, preserving: previous.roots[area.id], prioritizing: priority, leastRecentlyUsed: oldestFirst)
                     }
@@ -695,7 +710,7 @@ struct MacSettings: Codable {
                 attemptedInput = arrangementInput(current, areas: displays)
                 // One coordinated transition for normal actions; corrections are
                 // bounded final-frame transactions, never repeated visible probing.
-                do { try await apply(next, displays: displays, allowSkipping: true, animate: attempt == 0, validateIndividually: wasActive) }
+                do { try await apply(next, displays: displays, allowSkipping: true, animate: attempt == 0, validateIndividually: wasActive, learnMinimum: !areaChanged) }
                 catch ArrangementFailure.window(let id) where attempt == 0 && skipRefusingWindows && !areaChanged {
                     excluded.insert(id); continue
                 }
@@ -743,7 +758,7 @@ struct MacSettings: Codable {
         }
         return false
     }
-    func apply(_ workspace: Workspace, displays: [DisplayArea], allowSkipping: Bool = false, liveResize: Bool = false, animate: Bool = true, validateIndividually: Bool = true, returning: Bool = false) async throws {
+    func apply(_ workspace: Workspace, displays: [DisplayArea], allowSkipping: Bool = false, liveResize: Bool = false, animate: Bool = true, validateIndividually: Bool = true, returning: Bool = false, learnMinimum: Bool = true) async throws {
         guard !busy, desktopIsCurrent() else { throw LayoutError.invalidInput }; busy = true; defer { busy = false }
         guard displayAreas() == displays else { throw WindowFailure.workAreaChanged }
         let restoreAXMode = system.beginFrameAdjustment(windows)
@@ -801,7 +816,7 @@ struct MacSettings: Codable {
                     try write(entry.0, frame: entry.1)
                     await settle([entry], displays: displays)
                     guard displayAreas() == displays else { throw WindowFailure.workAreaChanged }
-                    try validate([entry], allowSkipping: true)
+                    try validate([entry], allowSkipping: true, learnMinimum: learnMinimum)
                 }
             } else { try await move(plan, animated: animate && !liveResize, returning: returning, write: write) }
             if liveResize && interacting {
@@ -812,7 +827,7 @@ struct MacSettings: Codable {
             }
             await settle(plan, displays: displays)
             guard displayAreas() == displays else { throw WindowFailure.workAreaChanged }
-            try validate(plan, allowSkipping: allowSkipping)
+            try validate(plan, allowSkipping: allowSkipping, learnMinimum: learnMinimum)
         } catch {
             // Never roll old desktop windows into the newly visible desktop.
             guard desktopIsCurrent(), displayAreas() == displays else { throw WindowFailure.workAreaChanged }
@@ -868,7 +883,7 @@ struct MacSettings: Codable {
         try? await apply(workspace, displays: displays, animate: false)
         return workspace
     }
-    private func validate(_ plan: [(ManagedWindow, Rect)], allowSkipping: Bool) throws {
+    private func validate(_ plan: [(ManagedWindow, Rect)], allowSkipping: Bool, learnMinimum: Bool = true) throws {
         // Use one settled snapshot per window for acceptance, diagnostics and
         // size learning. Repeated AX reads can disagree and are slow on busy apps.
         var frames: [UUID: Rect] = [:]
@@ -892,7 +907,7 @@ struct MacSettings: Codable {
             guard let actual = frames[window.id] else { continue }
             let widthClamped = actual.width > wanted.width + 2
             let heightClamped = abs(actual.y - wanted.y) <= 2 && actual.height > wanted.height + 2
-            if widthClamped || heightClamped {
+            if learnMinimum && (widthClamped || heightClamped) {
                 // A clamp proves a minimum only on that axis. The accepted
                 // other dimension is not a permanent limit.
                 if widthClamped { window.minimum.width = max(window.minimum.width, actual.width) }
@@ -941,29 +956,35 @@ struct MacSettings: Codable {
             let duration = max(returning ? 0.32 : 0, Double(settings.animationMS) / 1000)
             if !changes.isEmpty { trace?("motion batch started windows=\(changes.count) durationMS=\(Int(duration * 1000)) returning=\(returning)") }
             let start = ProcessInfo.processInfo.systemUptime
-            var sent = Dictionary(uniqueKeysWithValues: changes.map { ($0.0.id, $0.1) })
-            var slow = Set<UUID>()
-            var samples = 0
-            while true {
-                guard desktopIsCurrent() else { throw LayoutError.invalidInput }
-                let sampleStart = ProcessInfo.processInfo.systemUptime
-                if sampleStart - start >= duration { break }
-                let progress = (sampleStart - start) / duration
-                let requests = changes.compactMap { window, from, to -> MotionWrite? in
-                    guard !slow.contains(window.id), let previous = sent[window.id] else { return nil }
-                    let frame = WindowMotion.frame(from: from, to: to, progress: progress)
-                    return frame == previous ? nil : MotionWrite(window, frame: frame, previous: previous)
+            // Each app has one in-flight sample and a common deadline. A busy
+            // process cannot hold up responsive apps; missed frames are skipped,
+            // not queued, and a transient timeout does not disable its animation.
+            let batches = Dictionary(grouping: changes, by: { $0.0.pid })
+            let tasks = batches.values.map { batch in
+                Task { @MainActor in
+                    var sent = Dictionary(uniqueKeysWithValues: batch.map { ($0.0.id, $0.1) })
+                    var samples = 0, failures = 0
+                    while !Task.isCancelled && self.desktopIsCurrent() {
+                        let sampleStart = ProcessInfo.processInfo.systemUptime
+                        guard sampleStart - start < duration else { break }
+                        let requests = batch.compactMap { window, from, to -> MotionWrite? in
+                            let previous = sent[window.id] ?? from
+                            let frame = WindowMotion.frame(from: from, to: to, progress: (sampleStart - start) / duration)
+                            return frame == previous ? nil : MotionWrite(window, frame: frame, previous: previous)
+                        }
+                        let failed = await self.system.writeMotionFrames(requests)
+                        failures += failed.count
+                        if !requests.isEmpty { samples += 1 }
+                        for request in requests where !failed.contains(request.id) { sent[request.id] = request.frame }
+                        let remaining = max(0.001, 1.0 / 60 - (ProcessInfo.processInfo.systemUptime - sampleStart))
+                        try? await Task.sleep(for: .seconds(remaining))
+                    }
+                    return (samples, failures)
                 }
-                // Await the whole sample before issuing another: no queue of old
-                // frames, and one slow app no longer serially stalls every other app.
-                let failed = await system.writeMotionFrames(requests)
-                if !requests.isEmpty { samples += 1 }
-                slow.formUnion(failed)
-                for request in requests where !failed.contains(request.id) { sent[request.id] = request.frame }
-                let remaining = max(0.001, 1.0 / 60 - (ProcessInfo.processInfo.systemUptime - sampleStart))
-                try await Task.sleep(for: .seconds(remaining))
             }
-            trace?("motion samples=\(samples) elapsedMS=\(Int((ProcessInfo.processInfo.systemUptime - start) * 1000)) slowApps=\(slow.count)")
+            var counts: [Int] = [], failures = 0
+            for task in tasks { let result = await task.value; counts.append(result.0); failures += result.1 }
+            trace?("motion appSamples=\(counts.sorted()) elapsedMS=\(Int((ProcessInfo.processInfo.systemUptime - start) * 1000)) failedSamples=\(failures)")
         }
         guard desktopIsCurrent() else { throw LayoutError.invalidInput }
         for (window, _, to) in changes { try write(window, to) }
