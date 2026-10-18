@@ -84,7 +84,7 @@ struct DesktopInput {
     var helperFrames: [Rect] { grips.values.map { DesktopCoordinates.engine($0.frame) } }
     private func updateSampling() {
         guard automaticSampling else { return }
-        let needed = !model.desktopOverviewActive && model.active && model.permission && model.desktopIsCurrent() && !model.switchingDesktop
+        let needed = !model.shuttingDown && !model.desktopOverviewActive && model.active && model.permission && model.desktopIsCurrent() && !model.switchingDesktop
         if !needed { pulse?.invalidate(); pulse = nil }
         else if pulse == nil {
             pulse = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.sample() } }
@@ -107,6 +107,7 @@ struct DesktopInput {
         } else { synchronize() }
     }
     func synchronize() {
+        guard !model.shuttingDown else { removeHelpers(); updateSampling(); return }
         overviewMonitor?.connect()
         updateSampling()
         guard !model.desktopOverviewActive else { return }
@@ -191,7 +192,7 @@ struct DesktopInput {
         model.system.dividerWindowNumbers = Set(grips.values.map(\.windowNumber))
     }
     func sample() {
-        guard !model.desktopOverviewActive else { return }
+        guard !model.shuttingDown, !model.desktopOverviewActive else { return }
         let state = input(), pressed = state.pressed
         defer { wasPressed = pressed; lastSamplePoint = state.point }
         guard !finishing else { return }
@@ -331,7 +332,7 @@ struct DesktopInput {
         }
     }
     func beginGrip(display: String, id: UUID) -> Bool {
-        guard !model.desktopOverviewActive else { return false }
+        guard !model.shuttingDown, !model.desktopOverviewActive else { return false }
         if grip?.display == display && grip?.divider.id == id { return true }
         let prepared = model.history.current.reconciled(with: model.windows.map(\.leaf))
         guard model.active, model.permission, !model.busy, !model.interacting, !finishing, !releasePending,
@@ -375,8 +376,18 @@ struct DesktopInput {
             }
         } catch { model.message = error.localizedDescription }
     }
+    func resumeAfterShutdownFailure() { finishing = false; releasePending = false; waitForRelease = true; synchronize() }
+    func abandonForShutdown() async {
+        finishing = true; pending = nil
+        pulse?.invalidate(); pulse = nil
+        if let liveTask { await liveTask.value }
+        snapshot = nil; candidate = nil; session = nil; grip = nil; gripWorkspace = nil
+        pressedWindow = nil; pressedFrame = nil; gestureAreas = nil; gestureScreens = [:]
+        model.interacting = false
+        preview.hideImmediately(); removeHelpers()
+    }
     func finish(cancel: Bool) async {
-        guard !model.desktopOverviewActive else { pending = nil; return }
+        guard !model.shuttingDown, !model.desktopOverviewActive else { pending = nil; return }
         guard !finishing, let original = snapshot else { return }
         finishing = true
         if cancel { pending = nil; preview.orderOut(nil) }

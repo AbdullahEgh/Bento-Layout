@@ -173,6 +173,24 @@ import BentoCore
         idle.synchronize()
         try? await Task.sleep(for: .milliseconds(60))
         try check(!idle.pointerSamplingActive && idleSamples == 0, "Bento off has no pointer timer or pointer polling")
+        let preShutdownFrames = system.records.map { DesktopCoordinates.engine($0.1.frame) }
+        await model.arrange()
+        let shutdownLayout = try LayoutEngine.calculate(model.history.current.roots[display.id], in: model.interactionAreas()[0].bounds, gap: model.layoutGap)
+        let shutdownDivider = shutdownLayout.dividers[0]
+        input.point = Point(shutdownDivider.bounds.x + 1, shutdownDivider.bounds.y + 1)
+        try check(interactions.beginGrip(display: display.id, id: shutdownDivider.id), "Shutdown fixture begins an active divider gesture")
+        let shutdownFrames = system.records.map { DesktopCoordinates.engine($0.1.frame) }
+        system.writes.removeAll(); model.beginShutdownKeepingWindows()
+        await interactions.abandonForShutdown(); await model.finishShutdownKeepingWindows()
+        interactions.synchronize(); interactions.sample()
+        try check(system.writes.isEmpty && system.records.map { DesktopCoordinates.engine($0.1.frame) } == shutdownFrames
+            && interactions.visibleGripCount == 0 && !model.interacting,
+            "Quit/update abandons a gesture without rollback writes and removes helper panels")
+        model.resumeAfterShutdownFailure(); interactions.resumeAfterShutdownFailure()
+        await model.arrange()
+        try check(model.active && !model.shuttingDown, "A deferred installation can return to a usable Bento session")
+        await model.stopAllDesktops()
+        for (index, entry) in system.records.enumerated() { try system.write(entry.0, frame: preShutdownFrames[index]) }
         // Real WindowServer ordering with disposable surfaces, independent of AX.
         let stackRect = NSRect(x: 100, y: 100, width: 200, height: 150)
         let under = NSPanel(contentRect: stackRect, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)

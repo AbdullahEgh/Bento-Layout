@@ -207,7 +207,20 @@ import BentoCore
         model.busy = false
         await queuedPin.value
         try check(model.active && model.pinned, "A queued Pin request can activate Bento from off without being discarded")
-        await model.stopAllDesktops()
+        system.fixtureDesktop = "fixture-quit-second"
+        await model.desktopDidChange(); await model.arrange()
+        let quitFrames = system.records.map { DesktopCoordinates.engine($0.1.frame) }
+        let quitMinimized = system.minimized
+        system.writes.removeAll()
+        model.beginShutdownKeepingWindows()
+        await model.finishShutdownKeepingWindows()
+        model.tick(); _ = await model.arrange()
+        try check(system.writes.isEmpty && system.records.map { DesktopCoordinates.engine($0.1.frame) } == quitFrames
+            && system.minimized == quitMinimized && !model.active,
+            "Quit/update preserves all window frames and minimized states across desktops with no late rearrangement")
+        // Clean up disposable fixtures explicitly; production shutdown never does this.
+        system.fixtureDesktop = "fixture-main"
+        for (index, entry) in system.records.enumerated() { try system.write(entry.0, frame: initial[index]) }
         let backdrop = DesktopBackdrop()
         backdrop.show(darkness: 90, animated: false)
         try check(backdrop.opacity == 0.9, "Black backdrop uses the requested darkness")

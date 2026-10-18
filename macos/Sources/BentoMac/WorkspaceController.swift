@@ -93,6 +93,7 @@ struct MacSettings: Codable {
         onStateChange?()
     }
     var desktopOverviewActive = false
+    private(set) var shuttingDown = false
     @Published var busy = false
     @Published var interacting = false
     @Published var activating = false
@@ -206,7 +207,7 @@ struct MacSettings: Codable {
     @Published private(set) var switchingDesktop = false
     private var desktopSwitchTask: Task<Void, Never>?
     func desktopDidChange() async {
-        guard !switchingDesktop else { return }
+        guard !shuttingDown, !switchingDesktop else { return }
         // Duplicate Space notifications must not cancel an in-flight layout.
         if let identity = system.desktopIdentity, identity == currentDesktop { return }
         switchingDesktop = true
@@ -398,7 +399,7 @@ struct MacSettings: Codable {
         }
     }
     func applyLiveSettings() async {
-        guard !system.fullScreenSpace else { return }
+        guard !shuttingDown, !system.fullScreenSpace else { return }
         guard !busy, !interacting, !activating, !switchingDesktop, desktopIsCurrent(), !desktopPointerPressed else { scheduleSettingsUpdate(); return }
         applyingSettings = true; activating = true
         defer { activating = false; applyingSettings = false; onSettingsChange?(); onStateChange?() }
@@ -441,7 +442,7 @@ struct MacSettings: Codable {
         } catch { message = error.localizedDescription }
     }
     func tick() {
-        guard !desktopOverviewActive else { return }
+        guard !shuttingDown, !desktopOverviewActive else { return }
         refreshPermissionStatus()
         if !desktopIsCurrent() {
             if desktopSwitchTask == nil {
@@ -584,7 +585,7 @@ struct MacSettings: Codable {
         return windows.filter { !tiled.contains($0.id) }
     }
     @discardableResult func arrange(preserving: Bool = false, resuming: Bool = false, automatic: Bool = false, skipRefusingWindows: Bool = true) async -> Bool {
-        guard !system.fullScreenSpace, !desktopOverviewActive, !busy, !interacting, !activating, desktopIsCurrent() else { return false }
+        guard !shuttingDown, !system.fullScreenSpace, !desktopOverviewActive, !busy, !interacting, !activating, desktopIsCurrent() else { return false }
         if automatic && system.pointerPressed { return false }
         activating = true; defer { activating = false }
         let previousWindows = windows
@@ -1076,6 +1077,30 @@ struct MacSettings: Codable {
         message = failures == 0 ? nil : system.trusted
             ? "\(failures) window(s) could not return to their original size or position. Try Restore again after checking the app and display."
             : WindowFailure.permission.localizedDescription
+        onStateChange?()
+        do { try desktopPreferences.restore() } catch { message = error.localizedDescription }
+    }
+    func beginShutdownKeepingWindows() {
+        shuttingDown = true; activationGeneration += 1
+        timer?.invalidate(); timer = nil
+        settingsTask?.cancel(); settledValidationTask?.cancel()
+        activateAfterPermission = false
+    }
+    func resumeAfterShutdownFailure() {
+        shuttingDown = false
+        if backgroundMonitoring && timer == nil {
+            timer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in Task { @MainActor in self?.tick() } }
+        }
+    }
+    /// Quit/update is not Bento Off: never restore, resize, unminimize or move
+    /// windows on this or another desktop. Only release session-owned helpers/preferences.
+    func finishShutdownKeepingWindows() async {
+        beginShutdownKeepingWindows()
+        while busy || activating || switchingDesktop { try? await Task.sleep(for: .milliseconds(20)) }
+        active = false; interacting = false; pinned = false
+        originals.removeAll(); minimizedByBento.removeAll(); desktopSessions.removeAll()
+        fullScreenWindows.removeAll(); fullScreenLayout = nil
+        appliedDesktopOptions = [:]; message = nil
         onStateChange?()
         do { try desktopPreferences.restore() } catch { message = error.localizedDescription }
     }

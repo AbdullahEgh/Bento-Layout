@@ -85,7 +85,7 @@ import BentoCore
     }
     func retryInstall() {
         guard installationTask == nil, resumeInstallation != nil else { return }
-        preparingInstallation = true; status = "Preparing to install — restoring your windows…"
+        preparingInstallation = true; status = "Preparing to install — keeping your windows in place…"
         installationTask = Task { @MainActor in
             let prepared = await beforeInstall?() ?? true
             guard !Task.isCancelled else { return }
@@ -97,7 +97,7 @@ import BentoCore
                 resume?()
             } else {
                 pendingInstallation = true
-                status = "The update is ready, but some windows could not be restored. Retry installation here."
+                status = "The update is ready, but desktop preferences could not be released. Retry installation here."
                 onInstallationNeedsAttention?()
             }
         }
@@ -124,7 +124,7 @@ struct UpdatesView: View {
                     Divider()
                     Toggle("Check for updates automatically", isOn: Binding(get: { updater.automaticallyChecks }, set: { updater.setAutomaticChecks($0) })).toggleStyle(.switch)
                     Toggle("Download updates automatically", isOn: Binding(get: { updater.automaticallyInstalls }, set: { updater.setAutomaticInstall($0) })).toggleStyle(.switch)
-                    Text("Bento verifies update signatures before installation and restores desktop visibility before restarting. Session saves end when Bento restarts.").font(.system(size: 11)).lineSpacing(4).foregroundStyle(BentoStyle.secondary)
+                    Text("Bento verifies update signatures and keeps windows in place when updating or quitting. Session saves end when Bento restarts.").font(.system(size: 11)).lineSpacing(4).foregroundStyle(BentoStyle.secondary)
                 }.font(.system(size: 12)).disabled(!updater.ready)
             }
             Link(destination: URL(string: "https://github.com/AbdullahEgh/Bento-Layout/releases")!) { Label("View releases on GitHub", systemImage: "arrow.up.right.square") }

@@ -74,10 +74,12 @@ import Carbon.HIToolbox
         model.cancelInteraction = { [weak self] in await self?.interactions?.finish(cancel: true) }
         updater.beforeInstall = { [weak self] in
             guard let self else { return false }
-            await self.interactions?.finish(cancel: true)
-            await self.model.stopAllDesktops(); return self.model.message == nil
+            self.model.beginShutdownKeepingWindows()
+            await self.interactions?.abandonForShutdown()
+            await self.model.finishShutdownKeepingWindows(); return self.model.message == nil
         }
         updater.onInstallationNeedsAttention = { [weak self] in
+            self?.model.resumeAfterShutdownFailure(); self?.interactions?.resumeAfterShutdownFailure()
             self?.model.page = "Updates"; self?.showWindow(onboarding: false)
         }
         updater.start()
@@ -242,13 +244,13 @@ import Carbon.HIToolbox
         if CommandLine.arguments.contains("--render-settings") && CommandLine.arguments.contains("--keep-preview-open") { return .terminateNow }
         if canTerminate || (updater.installationPrepared && !model.active && !model.busy && !model.interacting) { return .terminateNow }
         Task {
-            await interactions?.finish(cancel: true)
-            // Stop honors this session’s explicit layout save and restores desktop overrides.
-            await model.stopAllDesktops()
+            model.beginShutdownKeepingWindows()
+            await interactions?.abandonForShutdown()
+            await model.finishShutdownKeepingWindows()
             if let message = model.message {
                 let alert = NSAlert(); alert.messageText = "Could not finish this Bento session"
                 alert.informativeText = message; alert.addButton(withTitle: "Keep Bento open"); alert.addButton(withTitle: "Quit anyway")
-                if alert.runModal() == .alertFirstButtonReturn { NSApp.reply(toApplicationShouldTerminate: false); return }
+                if alert.runModal() == .alertFirstButtonReturn { model.resumeAfterShutdownFailure(); interactions?.resumeAfterShutdownFailure(); NSApp.reply(toApplicationShouldTerminate: false); return }
             }
             canTerminate = true; NSApp.reply(toApplicationShouldTerminate: true)
         }
