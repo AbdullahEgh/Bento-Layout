@@ -4,21 +4,22 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.33</title>
-            <pubDate>Sun, 18 Oct 2026 06:23:47 +0000</pubDate>
-            <sparkle:version>149</sparkle:version>
-            <sparkle:shortVersionString>0.2.33</sparkle:shortVersionString>
+            <title>0.2.34</title>
+            <pubDate>Sun, 18 Oct 2026 07:10:25 +0000</pubDate>
+            <sparkle:version>150</sparkle:version>
+            <sparkle:shortVersionString>0.2.34</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.33
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.34
 
-- Snap nearby split sections into continuous rows and columns.
-- Separate joined sections again with the local grips.
-- Recover smaller window sizes and let Dock changes settle before fitting.
+- Joined splits reveal a gentle full-length cue and all valid shared grips.
+- Manual resizing adjusts its local section; closed and minimized apps release space sooner.
+- Pause Bento comes first in the menu, with a right-aligned settings switch.
+- Smoother coordinated motion and better use of hidden menu-bar space.
 ]]></description>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.33/Bento-macos-universal.zip" length="4304119" type="application/octet-stream" sparkle:edSignature="8hLCbhQMQvZd6AkQyTkAFj1mcprUehHvt+BAKM4t9jwQy1LPXZgl9TvEawF2LcQnr58/uweHih/hjZVmROkIAQ=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.34/Bento-macos-universal.zip" length="4343217" type="application/octet-stream" sparkle:edSignature="HRg5GKTOYIOfH0xRTtt4YWlaOfl0NoHlO0IsfWBzhGP2FDPoOmDW9TTfuVxeYpkg1dNUNsYJf6v+7LZcPuNDAg=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: OR8P5BXcpSlv5YbNi98dJVMsuvpo5dCT5l/19qD4KG20xtJ3fNDEKRpVOmcbOG2ksSUGHpWrSm63jHOUBYXmAA==
-length: 1358
+edSignature: 9xtmhB78EP2G0L5bR+3luDRfU6ezfIU/4qGsljTRhWTAb5WgchQORTFBoDUaCIu0RyGfBBOvj640vkZMYJGADQ==
+length: 1482
 -->
