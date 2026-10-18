@@ -213,4 +213,60 @@ final class ResizeHandleTests: XCTestCase {
         XCTAssertEqual(try frames(XCTUnwrap(committed.roots["s"])), before)
     }
 
+    func testCachePreservesHandlesAndInvalidatesEveryGeometryInput() throws {
+        var cache = ResizeHandleCache()
+        let root = fixture(), expected = try ResizeHandles.calculate(root, in: area, gap: gap)
+        for _ in 0..<100 { XCTAssertEqual(try cache.handles(display: "a", root: root, area: area, gap: gap), expected) }
+        XCTAssertEqual(cache.calculationCount, 1)
+        _ = try cache.handles(display: "a", root: root, area: area, gap: gap + 2)
+        _ = try cache.handles(display: "a", root: root, area: Rect(0, 30, 1200, 700), gap: gap)
+        let changed = split(.horizontal, leaf(250, 200), leaf(300, 150))
+        _ = try cache.handles(display: "a", root: changed, area: area, gap: gap)
+        _ = try cache.handles(display: "b", root: root, area: area, gap: gap)
+        XCTAssertEqual(cache.calculationCount, 5)
+        var member = root.windows[0]; member.minimum = Size(180, 140)
+        let newLimit = root.replacing(member.id, with: .window(member))
+        let refreshed = try cache.handles(display: "b", root: newLimit, area: area, gap: gap)
+        XCTAssertEqual(refreshed, try ResizeHandles.calculate(newLimit, in: area, gap: gap))
+        XCTAssertEqual(cache.calculationCount, 6)
+        XCTAssertEqual(cache.entryCount, 2)
+        cache.retain(displays: ["b"]); XCTAssertEqual(cache.entryCount, 1)
+        cache.removeAll(); XCTAssertEqual(cache.entryCount, 0)
+    }
+    func testGripInkSeparatesShortPillsWithoutChangingLargerHitTargets() {
+        let segments = GripInk.segments(span: 800, localCenters: [200, 600])
+        XCTAssertEqual(segments, [4.0...152.0, 248.0...552.0, 648.0...796.0, 160.0...240.0, 560.0...640.0])
+        XCTAssertEqual(GripInk.segments(span: 800, localCenters: []), [4.0...796.0])
+        XCTAssertEqual(ResizeHandles.localHitRadius, 80)
+        XCTAssertTrue(GripInk.segments(span: 6, localCenters: [3]).isEmpty)
+        XCTAssertEqual(GripInk.joinOpacity(elapsed: 0), 1)
+        XCTAssertEqual(GripInk.joinOpacity(elapsed: 0.15), 1)
+        XCTAssertEqual(GripInk.joinOpacity(elapsed: 0.55), 0)
+    }
+    func testRepeatedGeometryBenchmark() throws {
+        let root = fixture(), iterations = 250
+        let start = Date()
+        var uncached: [ResizeHandle] = []
+        for _ in 0..<iterations { uncached = try ResizeHandles.calculate(root, in: area, gap: gap) }
+        let uncachedMS = Date().timeIntervalSince(start) * 1000
+        var cache = ResizeHandleCache(), cached: [ResizeHandle] = []
+        let cachedStart = Date()
+        for _ in 0..<iterations { cached = try cache.handles(display: "a", root: root, area: area, gap: gap) }
+        let cachedMS = Date().timeIntervalSince(cachedStart) * 1000
+        XCTAssertEqual(cached, uncached); XCTAssertEqual(cache.calculationCount, 1)
+        print("Grip geometry benchmark: \(iterations) unchanged requests, uncached=\(uncachedMS)ms cached=\(cachedMS)ms; identical handles")
+    }
+
+    func testMovingAnExistingJoinedGripDoesNotReplaySnapCue() throws {
+        let root = fixture(), handles = try ResizeHandles.calculate(root, in: area, gap: gap)
+        let handle = try XCTUnwrap(handles.first { $0.shared && ResizeHandles.isUniversal($0, among: handles) })
+        let d = handle.divider.bounds
+        let start = Point(d.x + d.width / 2, d.y + d.height / 2)
+        let moved = handle.divider.axis == .horizontal ? Point(start.x + 20, start.y) : Point(start.x, start.y + 20)
+        let next = try InteractionGeometry.resize(Workspace(roots: ["a": handle.root]), display: "a", divider: handle.divider,
+            pointer: moved, area: area, gap: gap, grabbedAt: start)
+        let updated = try ResizeHandles.calculate(XCTUnwrap(next.roots["a"]), in: area, gap: gap)
+        XCTAssertFalse(ResizeHandles.newlyJoined(updated, previous: handles).contains { $0.divider.id == handle.divider.id })
+    }
+
 }

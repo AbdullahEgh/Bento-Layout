@@ -83,6 +83,38 @@ jobs:
             security delete-keychain "$RUNNER_TEMP/bento-signing.keychain-db"
           fi
 
+  windows:
+    if: ${{ !inputs.notes_only }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build and validate Windows download
+        run: ./build.ps1 -NativeTests -Publish
+      - name: Validate settings window stacking
+        run: ./tests/Bento.Tests/bin/Release/net10.0-windows/Bento.Tests.exe --settings-order-smoke
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Bento-windows-release
+          path: artifacts/Bento-win-x64.zip
+          if-no-files-found: error
+
+  attach-windows:
+    needs: [publish, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Bento-windows-release
+          path: download
+      - name: Attach tested Windows app to the same release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: gh release upload "macos-v$RELEASE_VERSION" download/Bento-win-x64.zip --repo "$GITHUB_REPOSITORY"
+
   refresh-notes:
     if: ${{ inputs.notes_only }}
     runs-on: macos-15

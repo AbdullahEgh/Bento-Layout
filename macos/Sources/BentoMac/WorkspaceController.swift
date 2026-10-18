@@ -92,6 +92,7 @@ struct MacSettings: Codable {
         pinnedWindowIDs = value ? Set(history.current.windows.map(\.windowID)) : []
         onStateChange?()
     }
+    var desktopOverviewActive = false
     @Published var busy = false
     @Published var interacting = false
     @Published var activating = false
@@ -135,7 +136,6 @@ struct MacSettings: Codable {
             if !(pinned && pausedFocusID == nil && focused.id == lastFocusedWindow) {
                 recordInteraction(focused)
             }
-            if pinned && !busy && !activating && !interacting { onStateChange?() }
             // Bringing an already-visible floating app forward is admission intent,
             // even when its window identity and frame have not changed. Consume
             // that intent once; a permanently oversized app must not cause a loop.
@@ -412,6 +412,7 @@ struct MacSettings: Codable {
         } catch { message = error.localizedDescription }
     }
     func tick() {
+        guard !desktopOverviewActive else { return }
         refreshPermissionStatus()
         if !desktopIsCurrent() {
             if desktopSwitchTask == nil {
@@ -554,7 +555,7 @@ struct MacSettings: Codable {
         return windows.filter { !tiled.contains($0.id) }
     }
     @discardableResult func arrange(preserving: Bool = false, resuming: Bool = false, automatic: Bool = false, skipRefusingWindows: Bool = true) async -> Bool {
-        guard !busy, !interacting, !activating, desktopIsCurrent() else { return false }
+        guard !desktopOverviewActive, !busy, !interacting, !activating, desktopIsCurrent() else { return false }
         if automatic && system.pointerPressed { return false }
         activating = true; defer { activating = false }
         let previousWindows = windows

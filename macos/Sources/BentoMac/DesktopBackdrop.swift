@@ -57,8 +57,7 @@ import AppKit
 @MainActor final class PinnedWindowTint {
     private var panels: [UUID: NSPanel] = [:]
     func hide() { panels.values.forEach { $0.orderOut(nil) }; panels.removeAll() }
-    func show(windows: [ManagedWindow]) {
-        let visible = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+    func show(windows: [ManagedWindow], visible: [[String: Any]]) {
         var retained = Set<UUID>()
         for window in windows {
             guard let info = visible.first(where: { entry in

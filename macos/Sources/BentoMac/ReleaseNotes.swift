@@ -7,6 +7,13 @@ struct ReleaseNotes: Identifiable {
 
     // Keep newest first; ship the log with the app so it also works offline.
     static let history: [ReleaseNotes] = [
+        .init(version: "0.2.38", points: [
+            "Separated full grips reveal local handles with larger grab areas.",
+            "Snapping briefly lights all enabled full grips at full opacity.",
+            "Grips stay hidden and inactive in Mission Control.",
+            "A gentle dim layer makes destination slots stand out.",
+            "Reuse unchanged grip geometry and stop pointer polling while Bento is off.",
+        ]),
         .init(version: "0.2.37", points: [
             "Larger local grip targets and full-length straight grips.",
             "Pause starts with every window dimmed; one click brings an app forward.",

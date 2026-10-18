@@ -112,7 +112,8 @@ public enum ResizeHandles {
         guard !previous.isEmpty else { return [] }
         return handles.filter { handle in
             handle.shared && isUniversal(handle, among: handles) && !previous.contains {
-                $0.shared && $0.divider.axis == handle.divider.axis && $0.divider.bounds == handle.divider.bounds
+                $0.shared && isUniversal($0, among: previous) && $0.divider.axis == handle.divider.axis
+                    && ($0.divider.id == handle.divider.id || $0.divider.bounds == handle.divider.bounds)
             }
         }
     }

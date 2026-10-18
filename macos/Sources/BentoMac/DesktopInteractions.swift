@@ -21,7 +21,12 @@ struct DesktopInput {
     private let model: WorkspaceController
     private let input: () -> DesktopInput
     private let trace: ((String) -> Void)?
+    private var overviewMonitor: DesktopOverviewMonitor?
     private var pulse: Timer?
+    private let automaticSampling: Bool
+    private var handleCache = ResizeHandleCache()
+    var handleCalculationCount: Int { handleCache.calculationCount }
+    var pointerSamplingActive: Bool { pulse != nil }
     private var spaceObserver: NSObjectProtocol?
     private var grips: [UUID: GapPanel] = [:]
     private let preview = DestinationPanel()
@@ -50,45 +55,82 @@ struct DesktopInput {
     private var escapeRequested = false
     private var releasePending = false
     private var hoverNeedsUpdate = true
-    init(model: WorkspaceController, input: (() -> DesktopInput)? = nil, automaticSampling: Bool = true, trace: ((String) -> Void)? = nil) {
+    init(model: WorkspaceController, input: (() -> DesktopInput)? = nil, automaticSampling: Bool = true, observeOverview: Bool = true, trace: ((String) -> Void)? = nil) {
+        self.automaticSampling = automaticSampling
         self.model = model; self.input = input ?? { DesktopInput.current() }; self.trace = trace ?? (automaticSampling ? { InteractionDiagnostics.record($0) } : nil)
         guard automaticSampling else { return }
-        pulse = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.sample() } }
-        RunLoop.main.add(pulse!, forMode: .common)
+        if observeOverview { overviewMonitor = DesktopOverviewMonitor { [weak self] in self?.setOverviewActive($0) } }
+        updateSampling()
         escapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard event.keyCode == 53 else { return }
             MainActor.assumeIsolated { self?.escapeRequested = true }
         }
         spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, !self.model.desktopOverviewActive else { return }
                 self.removeHelpers()
                 await self.finish(cancel: true)
                 await self.model.desktopDidChange(); self.synchronize()
             }
         }
     }
+    deinit {
+        pulse?.invalidate()
+        if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
+        if let spaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver) }
+    }
+    var visibleGripCount: Int { grips.values.filter(\.isVisible).count }
     var helperFrames: [Rect] { grips.values.map { DesktopCoordinates.engine($0.frame) } }
+    private func updateSampling() {
+        guard automaticSampling else { return }
+        let needed = !model.desktopOverviewActive && model.active && model.permission && model.desktopIsCurrent() && !model.switchingDesktop
+        if !needed { pulse?.invalidate(); pulse = nil }
+        else if pulse == nil {
+            pulse = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.sample() } }
+            RunLoop.main.add(pulse!, forMode: .common)
+        }
+    }
+    func setOverviewActive(_ value: Bool) {
+        guard model.desktopOverviewActive != value else { return }
+        model.desktopOverviewActive = value
+        updateSampling()
+        if value {
+            pending = nil; waitForRelease = true
+            grips.values.forEach { $0.ignoresMouseEvents = true; $0.orderOut(nil) }
+            model.system.dividerWindowNumbers.removeAll()
+            preview.hideImmediately(); backdrop.hide(animated: false); pinnedTint.hide()
+        } else if !model.desktopIsCurrent() {
+            Task { await self.model.desktopDidChange(); self.synchronize() }
+        } else if snapshot != nil {
+            Task { await self.finish(cancel: true) }
+        } else { synchronize() }
+    }
     func synchronize() {
+        overviewMonitor?.connect()
+        updateSampling()
+        guard !model.desktopOverviewActive else { return }
         guard model.active, model.permission, model.desktopIsCurrent(), !model.switchingDesktop, !model.interacting else { if !model.interacting { removeHelpers() }; return }
-        updateGrips(model.history.current)
+        let visible = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        updateGrips(model.history.current, visible: visible)
         if model.pinned {
             let ids = Set(model.history.current.windows.map(\.windowID))
-            pinnedTint.show(windows: model.windows.filter { ids.contains($0.id) && $0.id != model.pausedFocusID })
+            pinnedTint.show(windows: model.windows.filter { ids.contains($0.id) && $0.id != model.pausedFocusID }, visible: visible)
         } else { pinnedTint.hide() }
     }
     private func areas() -> [String: Rect] { if let gestureAreas { return gestureAreas }; return Dictionary(uniqueKeysWithValues: model.displayAreas().map { ($0.id, $0.bounds) }) }
-    private func removeHelpers() { model.system.dividerWindowNumbers.removeAll(); resizeHandles.removeAll(); pinnedTint.hide(); grips.values.forEach { $0.orderOut(nil) }; grips.removeAll(); preview.orderOut(nil); backdrop.hide(animated: model.settings.animate) }
-    private func updateGrips(_ workspace: Workspace) {
+    private func removeHelpers() { handleCache.removeAll(); model.system.dividerWindowNumbers.removeAll(); resizeHandles.removeAll(); pinnedTint.hide(); grips.values.forEach { $0.orderOut(nil) }; grips.removeAll(); preview.orderOut(nil); backdrop.hide(animated: model.settings.animate) }
+    private func updateGrips(_ workspace: Workspace, visible: [[String: Any]]? = nil) {
+        guard !model.desktopOverviewActive else { return }
+        let visible = visible ?? (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? [])
         hoverNeedsUpdate = true
         let ids = Set(workspace.windows.map(\.windowID))
-        let visible = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
         let anchor = BentoWindowStack.anchor(windows: model.windows.filter { ids.contains($0.id) }, visible: visible)
         backdrop.show(darkness: model.settings.backgroundDarkness, animated: model.settings.animate, belowWindow: anchor)
         resizeHandles = resizeHandles.filter { workspace.roots[$0.key] != nil }
+        handleCache.retain(displays: Set(workspace.roots.keys))
         let displays = areas(); var retained = Set<UUID>()
         for (display, root) in workspace.roots {
-            guard let area = displays[display], let handles = try? ResizeHandles.calculate(root, in: area, gap: model.layoutGap) else { continue }
+            guard let area = displays[display], let handles = try? handleCache.handles(display: display, root: root, area: area, gap: model.layoutGap) else { continue }
             let previous = resizeHandles[display] ?? []
             resizeHandles[display] = handles
             let joined = Set(ResizeHandles.newlyJoined(handles, previous: previous).map { $0.divider.id })
@@ -112,15 +154,19 @@ struct DesktopInput {
                 }
                 let frame = DesktopCoordinates.appKit(divider.bounds)
                 if panel.frame != frame { panel.setFrame(frame, display: true) }
-                if joined.contains(divider.id) {
-                    panel.gripView.showJoinCue()
-                }
-                panel.gripView.shared = ResizeHandles.isUniversal(handle, among: handles)
+                let universal = ResizeHandles.isUniversal(handle, among: handles)
+                panel.gripView.shared = universal
+                panel.gripView.localCenters = universal ? handles.filter { ResizeHandles.contains(handle, $0) }.map { local in
+                    let b = DesktopCoordinates.appKit(local.divider.bounds)
+                    return divider.axis == .horizontal ? Double(b.midY - frame.minY) : Double(b.midX - frame.minX)
+                } : []
+                if !joined.isEmpty && universal { panel.gripView.showJoinCue() }
                 panel.gripView.animate = model.settings.animate
                 panel.gripView.duration = Double(model.settings.animationMS) / 1000
                 let lightInk = true
                 if panel.gripView.lightInk != lightInk { panel.gripView.lightInk = lightInk; panel.gripView.needsDisplay = true }
                 panel.gripView.dragging = grip?.divider.id == divider.id
+                panel.ignoresMouseEvents = false
                 panel.level = anchor == nil ? NSWindow.Level(rawValue: -1) : .normal
                 if let anchor { panel.order(.below, relativeTo: anchor) }
                 else if !panel.isVisible { panel.orderFrontRegardless() }
@@ -130,6 +176,7 @@ struct DesktopInput {
         model.system.dividerWindowNumbers = Set(grips.values.map(\.windowNumber))
     }
     func sample() {
+        guard !model.desktopOverviewActive else { return }
         let state = input(), pressed = state.pressed
         defer { wasPressed = pressed; lastSamplePoint = state.point }
         guard !finishing else { return }
@@ -260,6 +307,7 @@ struct DesktopInput {
         }
     }
     func beginGrip(display: String, id: UUID) -> Bool {
+        guard !model.desktopOverviewActive else { return false }
         if grip?.display == display && grip?.divider.id == id { return true }
         let prepared = model.history.current.reconciled(with: model.windows.map(\.leaf))
         guard model.active, model.permission, !model.busy, !model.interacting, !finishing, !releasePending,
@@ -303,6 +351,7 @@ struct DesktopInput {
         } catch { model.message = error.localizedDescription }
     }
     func finish(cancel: Bool) async {
+        guard !model.desktopOverviewActive else { pending = nil; return }
         guard !finishing, let original = snapshot else { return }
         finishing = true
         if cancel { pending = nil; preview.orderOut(nil) }
@@ -337,12 +386,39 @@ struct DesktopInput {
     }
 }
 
-// Separate click-through panels softly fill each affected slot without covering the
-// desktop in one opaque overlay. Their geometry comes from the committed candidate.
+// Click-through slot highlights sit above a gentle, transient dim layer.
+// Both share one animation clock and disappear together.
 @MainActor final class DestinationPanel {
     private let reduceMotion: () -> Bool
     init(reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) { self.reduceMotion = reduceMotion }
     private var panels: [PreviewSlotPanel] = []
+    private var dimPanels: [NSPanel] = []
+    private var dimTransitions: [(panel: NSPanel, from: CGFloat, to: CGFloat)] = []
+    var dimOpacity: CGFloat { dimPanels.map(\.alphaValue).max() ?? 0 }
+    var dimVisible: Bool { dimPanels.contains(where: \.isVisible) }
+    var dimPassesClicks: Bool { dimPanels.allSatisfy(\.ignoresMouseEvents) }
+    var previewWindow: NSWindow? { panels.first }
+    private func prepareDimming(for rectangles: [Rect]) {
+        let frames = rectangles.map(DesktopCoordinates.appKit)
+        let screens = NSScreen.screens.filter { screen in frames.contains { $0.intersects(screen.frame) } }
+        while dimPanels.count < screens.count {
+            let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            panel.isReleasedWhenClosed = false; panel.isOpaque = false; panel.hasShadow = false
+            panel.backgroundColor = .black; panel.alphaValue = 0; panel.ignoresMouseEvents = true
+            panel.level = .floating; panel.hidesOnDeactivate = false
+            panel.collectionBehavior = [.stationary, .ignoresCycle]
+            panel.setAccessibilityLabel("Bento preview dim")
+            dimPanels.append(panel)
+        }
+        dimTransitions = dimPanels.enumerated().map { index, panel in
+            let visible = index < screens.count
+            if visible {
+                if panel.frame != screens[index].frame { panel.setFrame(screens[index].frame, display: true) }
+                if !panel.isVisible { panel.orderFrontRegardless() }
+            }
+            return (panel, panel.alphaValue, visible ? 0.18 : 0)
+        }
+    }
     var animate = true
     private var motion: Timer?
     private var hiding = false
@@ -353,11 +429,13 @@ struct DesktopInput {
         motion?.invalidate(); motion = nil
         hiding = rectangles.isEmpty
         while panels.count < rectangles.count { panels.append(PreviewSlotPanel()) }
+        prepareDimming(for: rectangles)
         transitions = panels.enumerated().map { index, panel in
             let destination = index < rectangles.count ? DesktopCoordinates.appKit(rectangles[index]) : panel.frame
             if !panel.isVisible && index < rectangles.count {
                 panel.alphaValue = 0; panel.setFrame(destination.insetBy(dx: 5, dy: 5), display: true); panel.orderFrontRegardless()
             }
+            if index < rectangles.count, let dim = dimPanels.last(where: \.isVisible) { panel.order(.above, relativeTo: dim.windowNumber) }
             return Transition(panel: panel, from: panel.frame, to: destination, alpha: panel.alphaValue, targetAlpha: index < rectangles.count ? 1 : 0)
         }
         started = ProcessInfo.processInfo.systemUptime
@@ -374,6 +452,10 @@ struct DesktopInput {
     }
     private func advance(progress: Double) {
         let t = progress * progress * (3 - 2 * progress)
+        for item in dimTransitions {
+            item.panel.alphaValue = item.from + (item.to - item.from) * t
+            if progress >= 1 && item.to == 0 { item.panel.orderOut(nil) }
+        }
         for item in transitions {
             func mix(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * t }
             let frame = NSRect(x: mix(item.from.minX, item.to.minX), y: mix(item.from.minY, item.to.minY), width: mix(item.from.width, item.to.width), height: mix(item.from.height, item.to.height))
@@ -382,6 +464,12 @@ struct DesktopInput {
             if item.panel.alphaValue != alpha { item.panel.alphaValue = alpha }
             if progress >= 1 && item.targetAlpha == 0 { item.panel.orderOut(nil) }
         }
+    }
+    func hideImmediately() {
+        motion?.invalidate(); motion = nil; hiding = true
+        for panel in dimPanels { panel.alphaValue = 0; panel.orderOut(nil) }
+        for panel in panels { panel.alphaValue = 0; panel.orderOut(nil) }
+        transitions.removeAll(); dimTransitions.removeAll(); lastProposal = nil; lastConflict = nil
     }
     private var lastProposal: DropProposal?
     private var lastConflict: Rect?
@@ -506,6 +594,7 @@ struct DesktopInput {
     var managedHover = false
     var onHover: (() -> Void)?
     var shared = false { didSet { if oldValue != shared { transition() } } }
+    var localCenters: [Double] = [] { didSet { if oldValue != localCenters { needsDisplay = true } } }
     var duration = 0.18
     var dragging = false { didSet { if oldValue != dragging { transition() } } }
     var hovering = false { didSet { if oldValue != hovering { transition() } } }
@@ -518,14 +607,15 @@ struct DesktopInput {
     var visibleJoinCue: Double { joinAlpha }
     func showJoinCue() {
         joinCue?.invalidate()
+        joinAlpha = 1; needsDisplay = true
         let start = ProcessInfo.processInfo.systemUptime
         joinCue = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in
             MainActor.assumeIsolated {
                 guard let self else { timer.invalidate(); return }
-                let progress = min(1, (ProcessInfo.processInfo.systemUptime - start) / 0.65)
-                self.joinAlpha = 0.48 * sin(progress * .pi)
+                let elapsed = ProcessInfo.processInfo.systemUptime - start
+                self.joinAlpha = GripInk.joinOpacity(elapsed: elapsed)
                 self.needsDisplay = true
-                if progress >= 1 { self.joinAlpha = 0; timer.invalidate() }
+                if elapsed >= 0.55 { self.joinAlpha = 0; timer.invalidate() }
             }
         }
         RunLoop.main.add(joinCue!, forMode: .common)
@@ -550,6 +640,8 @@ struct DesktopInput {
         animation?.invalidate()
         let oldLength = displayedLength, oldAlpha = displayedAlpha
         let length = shared ? max(0, (axis == .horizontal ? bounds.height : bounds.width) - 8) : 80.0, alpha = hovering || dragging ? 1.0 : 0.0
+        if oldAlpha == 0 && alpha == 0 { displayedLength = length; return }
+        guard oldLength != length || oldAlpha != alpha else { return }
         guard animate, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { displayedLength = length; displayedAlpha = alpha; needsDisplay = true; return }
         let start = ProcessInfo.processInfo.systemUptime
         animation = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in
@@ -568,17 +660,17 @@ struct DesktopInput {
         // A fully transparent WindowServer surface is click-through. Keep a
         // one-alpha input surface across the gap, independently of the hidden ink.
         NSColor.black.withAlphaComponent(1.0 / 255).setFill(); dirtyRect.fill(using: .copy)
-        if joinAlpha > 0 {
+        let alpha = max(joinAlpha, displayedAlpha)
+        guard alpha > 0 else { return }
+        let span = Double(axis == .horizontal ? bounds.height : bounds.width)
+        let segments = shared || joinAlpha > 0 ? GripInk.segments(span: span, localCenters: localCenters)
+            : [(span - min(displayedLength, span)) / 2 ... (span + min(displayedLength, span)) / 2]
+        (lightInk ? NSColor.white : .black).withAlphaComponent(alpha).setFill()
+        for segment in segments {
             let rect = axis == .horizontal
-                ? NSRect(x: bounds.midX - 2, y: 4, width: 4, height: max(0, bounds.height - 8))
-                : NSRect(x: 4, y: bounds.midY - 2, width: max(0, bounds.width - 8), height: 4)
-            NSColor.white.withAlphaComponent(joinAlpha).setFill()
+                ? NSRect(x: bounds.midX - 2, y: segment.lowerBound, width: 4, height: segment.upperBound - segment.lowerBound)
+                : NSRect(x: segment.lowerBound, y: bounds.midY - 2, width: segment.upperBound - segment.lowerBound, height: 4)
             NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2).fill()
         }
-        guard displayedAlpha > 0 else { return }
-        let span = axis == .horizontal ? bounds.height : bounds.width
-        let length = shared ? max(0, span - 8) : min(displayedLength, span)
-        let rect = axis == .horizontal ? NSRect(x: bounds.midX - 2, y: bounds.midY - length / 2, width: 4, height: length) : NSRect(x: bounds.midX - length / 2, y: bounds.midY - 2, width: length, height: 4)
-        (lightInk ? NSColor.white : .black).withAlphaComponent(displayedAlpha).setFill(); NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2).fill()
     }
 }

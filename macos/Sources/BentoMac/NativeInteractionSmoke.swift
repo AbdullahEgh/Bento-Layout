@@ -1072,11 +1072,10 @@ final class FixturePreferences: PreferenceBackend {
                 "Retry installation resumes Sparkle exactly once after successful restoration")
             try check(!update.shouldPostponeInstallation { installCalls += 100 } && installCalls == 1 && !update.preparingInstallation,
                 "A repeated relaunch callback proceeds immediately after preparation instead of postponing forever")
-            let panelIDs = Set(NSApp.windows.map { ObjectIdentifier($0) })
             var previewReducedMotion = false
             let softPreview = DestinationPanel(reduceMotion: { previewReducedMotion })
             softPreview.presentConflict(Rect(40, 40, 400, 300))
-            let softPanel = NSApp.windows.first { !panelIDs.contains(ObjectIdentifier($0)) }!
+            let softPanel = softPreview.previewWindow!
             try check(softPanel.alphaValue == 0 && softPanel.ignoresMouseEvents, "Soft preview starts transparent and never intercepts app input")
             let retarget = Rect(120, 80, 520, 360)
             softPreview.presentConflict(retarget)
@@ -1091,16 +1090,20 @@ final class FixturePreferences: PreferenceBackend {
             let reachedDestination = softPanel.frame == DesktopCoordinates.appKit(retarget) && softPanel.alphaValue == 1
             try? await Task.sleep(for: .milliseconds(150))
             try check(reachedDestination && softPanel.frame == DesktopCoordinates.appKit(retarget) && softPanel.alphaValue == 1, "Preview retargeting reaches the latest destination without an old animation snapping back")
+            try check(softPreview.dimVisible && abs(softPreview.dimOpacity - 0.18) < 0.001 && softPreview.dimPassesClicks,
+                "Destination highlights have a gentle black dim layer underneath that never intercepts clicks")
             softPreview.orderOut(nil)
             for _ in 0..<12 { try? await Task.sleep(for: .milliseconds(20)); softPreview.orderOut(nil) }
-            try check(!softPanel.isVisible, "Repeated hide requests finish one fade and remove the overlay instead of restarting it")
+            try check(!softPanel.isVisible && !softPreview.dimVisible && softPreview.dimOpacity == 0,
+                "Repeated hide requests finish one fade and remove both preview and dim layer")
             softPreview.animate = false; softPreview.presentConflict(retarget)
             try check(softPanel.frame == DesktopCoordinates.appKit(retarget) && softPanel.alphaValue == 1, "Disabling motion applies preview geometry immediately")
             softPreview.orderOut(nil)
             softPreview.animate = true; previewReducedMotion = true
             softPreview.presentConflict(retarget)
             try check(softPanel.frame == DesktopCoordinates.appKit(retarget) && softPanel.alphaValue == 1, "Reduce Motion skips preview movement while preserving the destination")
-            softPreview.orderOut(nil)
+            softPreview.hideImmediately()
+            try check(!softPanel.isVisible && !softPreview.dimVisible, "Mission Control immediately removes preview highlights and their dim layer")
             let splitFrost = PreviewSlotView(frame: NSRect(x: 0, y: 0, width: 300, height: 400), reduceTransparency: false)
             splitFrost.placement = .left
             try check(splitFrost.isSplitting, "Directional destinations retain split semantics with a neutral glass outline")

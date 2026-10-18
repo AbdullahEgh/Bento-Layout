@@ -25,10 +25,15 @@ import BentoCore
         let cue = GripView(axis: .vertical)
         cue.frame = NSRect(x: 0, y: 0, width: 700, height: 14)
         let cueBounds = cue.bounds
+        cue.shared = true; cue.localCenters = [175, 525]
         cue.showJoinCue()
         try? await Task.sleep(for: .milliseconds(150))
-        try check(cue.visibleJoinCue > 0 && cue.bounds == cueBounds && cue.visibleInk == 0,
-            "Joined boundary cue appears without changing the grip hit area or idle hover ink")
+        try check(cue.visibleJoinCue == 1 && cue.bounds == cueBounds && cue.visibleInk == 0,
+            "Joined boundary cue starts fully opaque without changing hit areas or idle hover ink")
+        if let bitmap = cue.bitmapImageRepForCachingDisplay(in: cue.bounds) {
+            cue.cacheDisplay(in: cue.bounds, to: bitmap)
+            try bitmap.representation(using: .png, properties: [:])?.write(to: output.appendingPathComponent("segmented-grip.png"))
+        }
         try? await Task.sleep(for: .milliseconds(600))
         try check(cue.visibleJoinCue == 0, "Joined boundary cue fades away automatically")
         var settings = MacSettings(); settings.animate = false
@@ -46,6 +51,20 @@ import BentoCore
         var input = DesktopInput(point: Point(0, 0), pressed: false, escape: false, time: 0)
         let interactions = DesktopInteractions(model: model, input: { input }, automaticSampling: false)
         interactions.synchronize()
+        let builds = interactions.handleCalculationCount
+        for _ in 0..<20 { interactions.synchronize() }
+        try check(interactions.handleCalculationCount == builds, "Unchanged helper refreshes reuse geometry without rebuilding split alternatives")
+        let saved = model.history.current
+        interactions.setOverviewActive(true)
+        try check(interactions.visibleGripCount == 0 && model.system.dividerWindowNumbers.isEmpty,
+            "Mission Control removes grip visuals and hit surfaces")
+        system.writes.removeAll(); model.tick(); interactions.sample()
+        try check(system.writes.isEmpty && model.history.current == saved && !model.interacting,
+            "Mission Control suspends pointer gestures and automatic layout changes")
+        interactions.setOverviewActive(false)
+        try check(interactions.visibleGripCount > 0 && model.history.current == saved && interactions.handleCalculationCount == builds,
+            "Leaving Mission Control restores the same grips and saved layout without rebuilding")
+        input.pressed = false; interactions.sample()
         let layout = try LayoutEngine.calculate(grid.roots[display.id], in: area, gap: model.layoutGap)
         let x = layout.dividers[0].bounds.x + 1
         let bottom = layout.regions.first { $0.bounds.y > area.y }!.bounds
@@ -130,6 +149,11 @@ import BentoCore
             await model.stopAllDesktops()
             system.records = originalRecords
         }
+        var idleSamples = 0
+        let idle = DesktopInteractions(model: model, input: { idleSamples += 1; return DesktopInput(point: Point(0, 0), pressed: false, escape: false, time: 0) }, observeOverview: false)
+        idle.synchronize()
+        try? await Task.sleep(for: .milliseconds(60))
+        try check(!idle.pointerSamplingActive && idleSamples == 0, "Bento off has no pointer timer or pointer polling")
         // Real WindowServer ordering with disposable surfaces, independent of AX.
         let stackRect = NSRect(x: 100, y: 100, width: 200, height: 150)
         let under = NSPanel(contentRect: stackRect, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)

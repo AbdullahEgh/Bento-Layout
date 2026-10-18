@@ -1,6 +1,9 @@
-Bento for macOS 0.2.37
+Bento for macOS 0.2.38
 
-- Larger local grip targets and full-length straight grips.
-- Pause starts with every window dimmed; one click brings an app forward.
-- Hide Dock & Menu Bar now sits above Undo.
-- Grips stay above dimmed background windows and below floating apps.
+- Separated full grips reveal local handles with larger grab areas.
+- Snapping briefly lights all enabled full grips at full opacity.
+- Grips stay hidden and inactive in Mission Control.
+- A gentle dim layer makes destination slots stand out.
+- Reuse unchanged grip geometry and stop pointer polling while Bento is off.
+
+Downloads include macOS and the current Windows portable app (Windows 11 x64, .NET 10 Desktop Runtime). Windows feature improvements follow separately.
