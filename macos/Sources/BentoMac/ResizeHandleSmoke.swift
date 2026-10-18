@@ -54,6 +54,25 @@ import BentoCore
         let builds = interactions.handleCalculationCount
         for _ in 0..<20 { interactions.synchronize() }
         try check(interactions.handleCalculationCount == builds, "Unchanged helper refreshes reuse geometry without rebuilding split alternatives")
+        let committedAreas = model.interactionAreas()
+        let originalOverride = system.areaOverride
+        for inset in [Rect(area.x, area.y + 24, area.width, area.height - 24),
+                      Rect(area.x, area.y, area.width, area.height - 48),
+                      Rect(area.x, area.y + 24, area.width, area.height - 72)] {
+            system.areaOverride = [DisplayArea(id: display.id, name: display.name, bounds: inset)]
+            try check(model.interactionAreas() == committedAreas,
+                "Transient Dock/menu reveal keeps preview geometry anchored to committed slots: \(inset)")
+        }
+        system.areaOverride = originalOverride
+        system.desktopPointerEnabled = false
+        input.point = Point(area.x + 20, area.y + 20); input.pressed = true
+        interactions.sample(); interactions.synchronize()
+        try check(interactions.visibleGripCount == 0 && model.system.dividerWindowNumbers.isEmpty && !model.interacting,
+            "Excluded Settings press hides grips without entering a layout gesture")
+        input.pressed = false; interactions.sample()
+        try check(interactions.visibleGripCount > 0 && !model.system.dividerWindowNumbers.isEmpty,
+            "Releasing an excluded window restores grip visuals and input surfaces")
+        system.desktopPointerEnabled = true
         let saved = model.history.current
         interactions.setOverviewActive(true)
         try check(interactions.visibleGripCount == 0 && model.system.dividerWindowNumbers.isEmpty,

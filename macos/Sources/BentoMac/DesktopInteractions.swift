@@ -55,6 +55,7 @@ struct DesktopInput {
     private var escapeRequested = false
     private var releasePending = false
     private var hoverNeedsUpdate = true
+    private var suppressGripsUntilRelease = false
     init(model: WorkspaceController, input: (() -> DesktopInput)? = nil, automaticSampling: Bool = true, observeOverview: Bool = true, trace: ((String) -> Void)? = nil) {
         self.automaticSampling = automaticSampling
         self.model = model; self.input = input ?? { DesktopInput.current() }; self.trace = trace ?? (automaticSampling ? { InteractionDiagnostics.record($0) } : nil)
@@ -117,10 +118,10 @@ struct DesktopInput {
             pinnedTint.show(windows: model.windows.filter { ids.contains($0.id) && $0.id != model.pausedFocusID }, visible: visible)
         } else { pinnedTint.hide() }
     }
-    private func areas() -> [String: Rect] { if let gestureAreas { return gestureAreas }; return Dictionary(uniqueKeysWithValues: model.displayAreas().map { ($0.id, $0.bounds) }) }
-    private func removeHelpers() { handleCache.removeAll(); model.system.dividerWindowNumbers.removeAll(); resizeHandles.removeAll(); pinnedTint.hide(); grips.values.forEach { $0.orderOut(nil) }; grips.removeAll(); preview.orderOut(nil); backdrop.hide(animated: model.settings.animate) }
+    private func areas() -> [String: Rect] { if let gestureAreas { return gestureAreas }; return Dictionary(uniqueKeysWithValues: model.interactionAreas().map { ($0.id, $0.bounds) }) }
+    private func removeHelpers() { suppressGripsUntilRelease = false; handleCache.removeAll(); model.system.dividerWindowNumbers.removeAll(); resizeHandles.removeAll(); pinnedTint.hide(); grips.values.forEach { $0.orderOut(nil) }; grips.removeAll(); preview.orderOut(nil); backdrop.hide(animated: model.settings.animate) }
     private func updateGrips(_ workspace: Workspace, visible: [[String: Any]]? = nil) {
-        guard !model.desktopOverviewActive else { return }
+        guard !model.desktopOverviewActive, !suppressGripsUntilRelease else { return }
         let visible = visible ?? (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? [])
         hoverNeedsUpdate = true
         let ids = Set(workspace.windows.map(\.windowID))
@@ -190,11 +191,15 @@ struct DesktopInput {
             trace?("gesture cancelled: Escape")
             Task { await finish(cancel: true) }; return
         }
+        if !pressed && suppressGripsUntilRelease {
+            suppressGripsUntilRelease = false
+            if snapshot == nil { synchronize() }
+        }
         guard !releasePending else { return }
         if !pressed && !wasPressed && snapshot == nil && !hoverNeedsUpdate && lastSamplePoint == state.point { return }
         hoverNeedsUpdate = false
         let hovered = Set(resizeHandles.values.compactMap { ResizeHandles.hit($0, at: state.point)?.divider.id })
-        for (id, panel) in grips { panel.gripView.hovering = panel.isVisible && hovered.contains(id) }
+        for (id, panel) in grips { panel.gripView.hovering = !suppressGripsUntilRelease && panel.isVisible && hovered.contains(id) }
         if grip != nil {
             if pressed { moveGrip() }
             else if wasPressed { moveGrip(); releasePending = true; Task { await self.finish(cancel: false) } }
@@ -210,6 +215,11 @@ struct DesktopInput {
                       grips[handle.divider.id]?.isVisible == true else { continue }
                 if model.system.dividerIsExposed(at: pressPoint), beginGrip(display: display, id: handle.divider.id) { return }
             }
+            // Any non-divider press may become a native window drag, including
+            // excluded Settings windows. Suspend helpers before participation checks.
+            suppressGripsUntilRelease = true
+            model.system.dividerWindowNumbers.removeAll()
+            grips.values.forEach { $0.gripView.hovering = false; $0.ignoresMouseEvents = true; $0.orderOut(nil) }
             // Bento's settings controls may cover a tiled slot. Never bind a
             // settings click or slider drag to a window underneath our own UI.
             guard model.system.tracksDesktopPointer else { return }
@@ -313,6 +323,7 @@ struct DesktopInput {
         guard model.active, model.permission, !model.busy, !model.interacting, !finishing, !releasePending,
               let root = prepared.roots[display], let area = areas()[display],
               let handle = try? ResizeHandles.calculate(root, in: area, gap: model.layoutGap).first(where: { $0.divider.id == id }) else { return false }
+        suppressGripsUntilRelease = false
         let divider = handle.divider
         gestureAreas = areas()
         snapshot = model.history.current.reconciled(with: model.windows.map(\.leaf)); candidate = snapshot; grip = (display, divider)
@@ -378,6 +389,7 @@ struct DesktopInput {
         }
         trace?("gesture settled elapsedMS=\(Int((ProcessInfo.processInfo.systemUptime - started) * 1000)) committed=\(!cancel && !liveFailure && model.message == nil && model.history.current != original)")
         preview.orderOut(nil)
+        suppressGripsUntilRelease = false
         gestureAreas = nil; gestureScreens = [:]; escapeRequested = false; releasePending = false
         snapshot = nil; candidate = nil; swapsSections = false; session = nil; grip = nil; gripWorkspace = nil; pressedWindow = nil; pressedFrame = nil
         liveTask = nil; liveFailure = false; nativeResize = false; model.interacting = false; finishing = false

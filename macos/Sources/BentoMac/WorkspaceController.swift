@@ -291,6 +291,12 @@ struct MacSettings: Codable {
         }
     }
     func displayAreas() -> [DisplayArea] { system.displayAreas(margin: layoutMargin) }
+    /// Preview the geometry actually committed to windows, not transient Dock/menu
+    /// reveal bounds. Arrangement updates this snapshot only after a successful fit.
+    func interactionAreas() -> [DisplayArea] {
+        active && !lastDisplays.isEmpty ? lastDisplays : displayAreas()
+    }
+
     /// Native apps can finish their own mouse-up animation after AX first settles.
     /// Repair the committed rectangles once, never reinterpret that rebound as a
     /// request to rebuild the split tree. A newer interaction invalidates this task.

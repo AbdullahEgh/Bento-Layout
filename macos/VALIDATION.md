@@ -1,3 +1,9 @@
+# Pending interaction fixes — 2026-10-18
+
+Non-divider pointer presses hide grip panels and unregister their input surfaces before checking window participation, so excluded Settings windows cannot reveal or intercept dividers during a drag. Release restores helpers; explicit divider gestures and completed drops clear suppression. Preview and grip geometry use the display areas from the last successfully committed layout rather than transient live Dock/menu reveal bounds. Each gesture retains that snapshot. Normal arrangement still updates committed areas after a successful fit.
+
+Debug app build and 253 disposable native checks passed. New checks cover excluded-window suppression/restoration and independent Dock, menu-bar and combined transient area changes. A first run exposed stale helper suppression after direct divider entry; clearing it at explicit gesture start/completion fixed the failure. This validates controlled geometry and helper behavior, not a live third-party drag across every Dock visibility mode. Changes are committed for the next release, not installed.
+
 # Grip feedback, overview suspension and repeated-work reduction — 0.2.38, 2026-10-18
 
 Full grip ink has 8-point visual breaks around the 80-point local pills; the local hit radius stays 80 points (160-point target). Snapping lights all currently enabled universal grips at full opacity for 180 ms, then fades over 370 ms. Moving an already joined handle does not replay the cue. The native-rendered segmented grip is retained in ignored `artifacts/macos/efficiency-0238-qa/segmented-grip.png`.
