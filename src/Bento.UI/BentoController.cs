@@ -4,15 +4,15 @@ using Forms = System.Windows.Forms;
 
 namespace Bento.UI;
 
-public sealed class BentoController : IDisposable
+public sealed partial class BentoController : IDisposable
 {
     private readonly HwndSource source;
     private readonly DesktopEvents events;
     private readonly Forms.NotifyIcon tray;
     private readonly TrayInterface trayInterface;
-    private readonly WindowController native = new();
+    private readonly WindowController native;
     private readonly Dictionary<string, DesktopBackdropWindow> backdrops = new();
-    private readonly LayoutHistory history = new();
+    private LayoutHistory history => session.History;
     private readonly Func<IReadOnlyList<AppWindow>>? windowSource;
     private readonly Func<long> clock;
     private readonly DragIntent dragIntent = new();
@@ -22,35 +22,35 @@ public sealed class BentoController : IDisposable
     private DropIntent intent;
     private PixelRect dropTargetBounds;
     private PixelPoint? touchPoint;
-    private readonly Dictionary<long, (AppWindow Window, WindowSnapshot Snapshot)> minimizedByBento = new();
-    private readonly HashSet<long> reopened = new();
+    private Dictionary<long, (AppWindow Window, WindowSnapshot Snapshot)> minimizedByBento => session.Minimized;
+    private HashSet<long> reopened => session.Reopened;
     public int MinimizedCount => minimizedByBento.Count;
-    private readonly HashSet<long> released = new();
-    private bool automatic;
-    private SessionLayoutSnapshot? lastBento;
-    private SessionLayoutSnapshot? savedSession;
+    private HashSet<long> released => session.Released;
+    private bool automatic { get => session.Active; set => session.Active = value; }
+    private SessionLayoutSnapshot? lastBento { get => session.Remembered; set => session.Remembered = value; }
+    private SessionLayoutSnapshot? savedSession { get => session.Saved; set => session.Saved = value; }
     private readonly ResizeHandleCache resizeHandles = new();
     private Guid? dividerSurface;
-    private readonly Dictionary<string, (LayoutNode Root, PixelRect Area)> workAreaBaseline = new();
+    private Dictionary<string, (LayoutNode Root, PixelRect Area, int Gap)> workAreaBaseline => session.WorkAreas;
     private bool reflowing;
     public bool HasSessionSave => savedSession is not null;
     private IEnumerable<SessionWindow> SessionWindows => Windows.Select(w => new SessionWindow(w.Id, w.ProcessId, w.Minimum));
     private bool disposed;
-    private string? failedMembership;
+    private string? failedMembership { get => session.FailedMembership; set => session.FailedMembership = value; }
     private long? rejectedWindow;
     private sealed class PlacementFailure(long id, Exception cause) : Exception(cause.Message, cause) { public long WindowId => id; }
-    private readonly Dictionary<long, WindowSnapshot> originals = new();
+    private Dictionary<long, WindowSnapshot> originals => session.Originals;
     private readonly List<DesktopDividerWindow> dividers = new();
     private DropPreviewWindow? dropPreview;
     private readonly DispatcherTimer timer;
-    private IReadOnlyList<DesktopMonitor> monitors = [];
+    private IReadOnlyList<DesktopMonitor> monitors { get => session.Monitors; set => session.Monitors = value; }
     private WorkspaceState? preview;
     private (string Monitor, Guid? Target, Placement Placement, bool Section)? previewDestination;
     private readonly Dictionary<(string Monitor, Guid? Target, Placement Placement, bool Section), WorkspaceState?> dropProposals = new();
     private WindowNode? incoming;
     private long activeNativeDrag;
-    private long lastActiveWindow;
-    private readonly Dictionary<long, long> lastInteraction = new();
+    private long lastActiveWindow { get => session.LastActive; set => session.LastActive = value; }
+    private Dictionary<long, long> lastInteraction => session.Interactions;
     private long nativeResizeWindow;
     private PixelRect? nativeStartBounds;
     private Divider? divider;
@@ -61,45 +61,73 @@ public sealed class BentoController : IDisposable
     private readonly Dictionary<long, PixelRect> liveBounds = new();
     private bool validPreview;
     public BentoSettings Settings { get; private set; } = BentoSettings.Load();
-    public IReadOnlyList<AppWindow> Windows { get; private set; } = [];
+    public IReadOnlyList<AppWindow> Windows { get => session.Windows; private set => session.Windows = value; }
     public bool Dragging => incoming is not null || divider is not null || nativeResizeWindow != 0;
     public WorkspaceState DisplayState => preview ?? history.Current;
     public string Status { get; private set; } = "";
     public bool Automatic => automatic;
     public int ManagedCount => history.Current.Windows.Count();
 
-    public BentoController(Func<IReadOnlyList<AppWindow>>? windowSource = null, BentoSettings? settings = null, Func<long>? clock = null)
+    public BentoController(Func<IReadOnlyList<AppWindow>>? windowSource = null, BentoSettings? settings = null, Func<long>? clock = null, IDesktopEnvironment? desktopEnvironment = null)
     {
         this.windowSource = windowSource;
         this.clock = clock ?? (() => Environment.TickCount64);
+        this.desktopEnvironment = desktopEnvironment ?? (windowSource is null ? new DesktopEnvironment() : null);
+        native = new WindowController(CanWriteNative);
         if (settings is not null) Settings = settings;
-        if (windowSource is null) snapLease = new SnapLease(Path.Combine(BentoSettings.DataDirectory, "snap-lease.txt"));
+        if (windowSource is null)
+        {
+            snapLease = new SnapLease(Path.Combine(BentoSettings.DataDirectory, "snap-lease.txt"));
+            taskbarLease = new TaskbarLease(Path.Combine(BentoSettings.DataDirectory, "taskbar-lease.json"));
+        }
         source = new HwndSource(new HwndSourceParameters("Bento hotkeys") { Width = 0, Height = 0, WindowStyle = 0 });
         source.AddHook(WndProc);
         bool shortcut = !Settings.ShortcutEnabled || DesktopIntegration.RegisterShortcut(source.Handle, 1, Settings.Modifiers, Settings.Key);
         int shortcutError = DesktopIntegration.ShortcutError;
         events = new DesktopEvents();
         events.NativeDrag += OnNativeDrag;
-        events.ForegroundChanged += () => Dispatch(() => { RememberActiveWindow(); PlaceDividersBelowInterface(); });
+        events.ForegroundChanged += () => Dispatch(OnForeground);
+        events.WindowsChanged += () => Dispatch(RequestMembershipRefresh);
+        events.WindowInvalidated += id => Dispatch(() => ForgetWindow(id), scoped: false);
+        events.OverviewChanged += value => Dispatch(() => { overview = value; EnsureDesktop(); }, scoped: false);
+        events.DesktopChanged += () => Dispatch(() => EnsureDesktop(), scoped: false);
         trayInterface = new TrayInterface(this, RememberActiveWindow, () => lastActiveWindow);
         tray = trayInterface.Icon;
         timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         timer.Tick += (_, _) => Tick(); timer.Start();
+        ConfigurePlatformTimers();
         Microsoft.Win32.SystemEvents.UserPreferenceChanged += AppearanceChanged;
         if (!shortcut) Report($"Could not register {Settings.Shortcut} (Windows error {shortcutError}). Choose another shortcut in tray settings.");
-        try { snapLease?.SetSuppressed(Settings.SuppressWindowsSnap); } catch (Exception ex) { Report(ex.Message); }
+        // Session overrides are acquired only after activation on a proven desktop.
     }
 
     public void ShowInterface(string page = "Workspace")
     {
         if (disposed) return;
-        if (appWindow is null) { appWindow = new BentoWindow(this); appWindow.Closed += (_, _) => appWindow = null; appWindow.Activated += (_, _) => PlaceDividersBelowInterface(); }
+        bool known = EnsureDesktop();
+        // Reusing a window on a different desktop can make Windows switch the
+        // user back there. Move only our own settings HWND after proving the
+        // current identity; create a fresh window when that proof is unavailable.
+        if (!known && appWindow is not null) { appWindow.Close(); appWindow = null; }
+        bool createdHere = appWindow is null;
+        if (appWindow is null)
+        {
+            var created = new BentoWindow(this); appWindow = created;
+            created.Closed += (_, _) => { if (ReferenceEquals(appWindow, created)) appWindow = null; };
+            created.Activated += (_, _) => PlaceDividersBelowInterface();
+        }
+        if (!createdHere && known && desktopEnvironment is not null && sessions.Desktop is { } desktop)
+        {
+            var handle = new WindowInteropHelper(appWindow).EnsureHandle().ToInt64();
+            if (!desktopEnvironment.Contains(desktop, handle) && !desktopEnvironment.MoveHelper(handle, desktop))
+            { appWindow.Close(); appWindow = null; ShowInterface(page); return; }
+        }
         appWindow.SelectPage(page); appWindow.Show(); appWindow.WindowState = WindowState.Normal; appWindow.Activate();
         PlaceDividersBelowInterface();
     }
     private void PlaceDividersBelowInterface()
     {
-        if (disposed) return;
+        if (!HelpersAllowed) return;
         var applications = Windows.Select(w => w.Id).ToList();
         if (appWindow?.IsVisible == true && appWindow.WindowState != WindowState.Minimized)
             applications.Add(new WindowInteropHelper(appWindow).Handle.ToInt64());
@@ -115,55 +143,59 @@ public sealed class BentoController : IDisposable
     });
     public void SetAutomatic(bool enabled)
     {
-        if (disposed) return;
+        if (!EnsureDesktop()) return;
         if (enabled == automatic) return;
         if (enabled) { ArrangeDesktop(); return; }
         Deactivate(restorePositions: savedSession is null);
     }
-    public void ToggleBento() => SetAutomatic(!automatic);
+    public void ToggleBento() { if (EnsureDesktop()) SetAutomatic(!automatic); }
     public void SaveBento()
     {
-        if (disposed || !automatic || Dragging || !history.Current.Windows.Any()) return;
-        savedSession = new(history.Current, SessionWindows);
+        if (!EnsureDesktop() || !automatic || Dragging || !history.Current.Windows.Any()) return;
+        savedSession = CaptureSessionLayout();
         Report("Layout saved for this session. Turning Bento off will keep window positions.");
     }
     public void ClearSessionSave()
     {
-        if (disposed) return;
+        if (!EnsureDesktop()) return;
         savedSession = null;
         Report("Session save cleared. Turning Bento off restores original positions.");
     }
     public void UseSessionSave()
     {
-        if (disposed || Dragging || activeNativeDrag != 0 || savedSession is null) return;
+        if (!EnsureDesktop() || Dragging || activeNativeDrag != 0 || savedSession is null) return;
+        if (session.Fullscreen.Count > 0) { Report("Leave fullscreen before using the saved layout."); return; }
         Windows = DiscoverWindows(useCache: false); monitors = WindowCatalog.Monitors();
         var next = savedSession.Reconcile(SessionWindows, monitors.Select(m => m.Id));
         if (!next.Windows.Any()) { Report("The saved windows are no longer available."); return; }
+        bool paused = Paused;
         if (!Commit(next)) return;
-        automatic = true;
+        if (paused) { session.Pause.Exit(); ClosePausedShades(); UpdatePausePointer(); }
+        automatic = true; ScheduleSettled();
         released.UnionWith(Windows.Select(w => w.Id).Except(next.Windows.Select(w => w.WindowId)).Except(minimizedByBento.Keys));
         released.ExceptWith(next.Windows.Select(w => w.WindowId));
-        snapLease?.SetSuppressed(Settings.SuppressWindowsSnap);
+        UpdateLeases();
         RefreshDesktopDividers(); trayInterface.Refresh();
     }
 
-    private void Dispatch(Action action)
+    private void Dispatch(Action action, bool scoped = true)
     {
         if (disposed) return;
-        Application.Current.Dispatcher.BeginInvoke(new Action(() => { if (!disposed) action(); }));
+        long revision = sessions.Revision;
+        Application.Current.Dispatcher.BeginInvoke(new Action(() => { if (!disposed && (!scoped || revision == sessions.Revision)) action(); }));
     }
     private nint WndProc(nint hwnd, int message, nint wparam, nint lparam, ref bool handled)
     {
         if (disposed) return 0;
         if (message == 0x312) { if (Settings.ShortcutEnabled) ToggleBento(); handled = true; }
         if (message is 0x7E or 0x2E0 or 0x1A)
-            Dispatch(RefreshMonitorGeometry);
+            Dispatch(RequestGeometryRefresh, scoped: false);
         return 0;
     }
 
     public void ArrangeDesktop()
     {
-        if (disposed) return;
+        if (!EnsureDesktop()) return;
         if (activeNativeDrag != 0) return;
         CancelDrag();
         Windows = DiscoverWindows(useCache: false);
@@ -176,7 +208,7 @@ public sealed class BentoController : IDisposable
             // Preserve originals retained by an explicit session save; never inherit
             // a disk layout or apply an old process snapshot to a reused HWND.
             foreach (long id in originals.Keys.Where(id => !Windows.Any(w => w.Id == id && w.ProcessId == originals[id].ProcessId)).ToArray()) originals.Remove(id);
-            released.Clear(); failedMembership = null;
+            failedMembership = null;
             WorkspaceState? resume = lastBento?.Reconcile(SessionWindows, monitors.Select(m => m.Id));
             if (resume is not null)
             {
@@ -186,7 +218,17 @@ public sealed class BentoController : IDisposable
             }
         }
         automatic = true;
-        snapLease?.SetSuppressed(Settings.SuppressWindowsSnap);
+        foreach (var window in Windows.Where(w => session.OverflowBeforeOff.GetValueOrDefault(w.Id) == w.ProcessId && !released.Contains(w.Id)).ToArray())
+        {
+            try
+            {
+                var snapshot = native.Capture(window.Id); originals.TryAdd(window.Id, snapshot);
+                native.Minimize(window.Id); if (WindowCatalog.IsMinimized(window.Id)) minimizedByBento[window.Id] = (window, snapshot);
+            }
+            catch (Exception ex) { Report(ex.Message); }
+        }
+        UpdateLeases();
+        RefreshFullscreenReservations();
         Synchronize(geometryChanged);
         RefreshBackdrops();
         RefreshDesktopDividers();
@@ -202,42 +244,57 @@ public sealed class BentoController : IDisposable
     }
     public void Refresh()
     {
-        if (disposed) return;
-        Windows = DiscoverWindows(useCache: false);
-        if (automatic && !Dragging && activeNativeDrag == 0) Synchronize();
+        if (!EnsureDesktop()) return;
+        Windows = DiscoverWindows(useCache: false); RememberActiveWindow();
+        RefreshFullscreenReservations();
+        if (Paused) RefreshPausedShades();
+        else if (automatic && !Dragging && activeNativeDrag == 0) { ReapplyCurrentSession(); Synchronize(); }
         PlaceDividersBelowInterface();
     }
     private IReadOnlyList<AppWindow> DiscoverWindows(bool useCache = true)
     {
-        var visible = (windowSource?.Invoke() ?? WindowCatalog.Discover(includeMinimized: false,
-            cache: useCache ? Windows.ToDictionary(w => w.Id) : null)).ToList();
+        var discovered = windowSource?.Invoke() ?? WindowCatalog.Discover(includeMinimized: false, cache: useCache ? Windows.ToDictionary(w => w.Id) : null);
+        foreach (var known in Windows.Where(old => discovered.Any(w => w.Id == old.Id && w.ProcessId != old.ProcessId)).ToArray()) ForgetWindow(known.Id);
+        var visible = discovered.Where(w => CurrentMember(w.Id)).Select(w =>
+        {
+            var reported = windowSource is null ? w : w with { ReportedMinimum = w.Minimum };
+            return reported with { Minimum = native.EffectiveMinimum(reported) };
+        }).ToList();
+        foreach (var known in session.FullscreenKnown.Values)
+            if (!visible.Any(w => w.Id == known.Id) && WindowCatalog.Exists(known.Id) && WindowCatalog.ProcessId(known.Id) == known.ProcessId && !WindowCatalog.IsMinimized(known.Id) && CurrentMember(known.Id)) visible.Add(known);
         foreach (var (id, entry) in minimizedByBento.ToArray())
         {
-            if (!WindowCatalog.Exists(id)) { minimizedByBento.Remove(id); continue; }
+            if (!WindowCatalog.Exists(id) || WindowCatalog.ProcessId(id) != entry.Snapshot.ProcessId) { ForgetWindow(id); continue; }
+            if (!CurrentMember(id)) continue;
             if (visible.Any(w => w.Id == id) && !WindowCatalog.IsMinimized(id))
-            { reopened.Add(id); minimizedByBento.Remove(id); }
+            { reopened.Add(id); session.ResumeHeld.Remove(id); session.OverflowBeforeOff.Remove(id); minimizedByBento.Remove(id); }
             else if (WindowCatalog.IsMinimized(id) && !visible.Any(w => w.Id == id)) visible.Add(entry.Window);
         }
+        native.RetainConstraints(visible.Select(w => w.Id).Concat(sessions.All.SelectMany(s => s.Windows).Select(w => w.Id)).Where(WindowCatalog.Exists).ToHashSet());
         return visible;
     }
     public void AutoArrangeAll()
     {
-        if (disposed) return;
+        if (!EnsureDesktop()) return;
         if (activeNativeDrag != 0) return;
-        CancelDrag(); released.Clear(); if (!automatic) originals.Clear(); automatic = true;
-        snapLease?.SetSuppressed(Settings.SuppressWindowsSnap);
+        CancelDrag(); session.Pause.Exit(); ClosePausedShades(); UpdatePausePointer(); released.Clear(); session.ResumeHeld.Clear(); session.OverflowBeforeOff.Clear();
+        automatic = true;
+        UpdateLeases();
         Windows = DiscoverWindows(useCache: false); monitors = WindowCatalog.Monitors();
         Synchronize(rebuild: true);
         trayInterface.Refresh();
     }
     private void Synchronize(bool rebuild = false, HashSet<long>? excluded = null)
     {
+        if (!EnsureDesktop() || !automatic || Paused) return;
+        if (!rebuild && history.Current.Windows.Any(w => !Windows.Any(live => live.Id == w.WindowId) && WindowCatalog.Exists(w.WindowId) && !WindowCatalog.IsMinimized(w.WindowId)))
+        { Status = "Waiting for hidden windows or the desktop transition to settle."; return; }
         string membership = string.Join(";", Windows.Where(w => !released.Contains(w.Id)).OrderBy(w => w.Id)
             .Select(w => $"{w.Id}:{w.ProcessId}:{w.MonitorId}:{w.Minimum}")) + string.Join(";", monitors);
         if (!rebuild && reopened.Count == 0 && failedMembership == membership) return;
         try
         {
-            var eligible = Windows.Where(w => !released.Contains(w.Id) && !(excluded?.Contains(w.Id) ?? false)).ToArray();
+            var eligible = Windows.Where(w => !released.Contains(w.Id) && !session.ResumeHeld.Contains(w.Id) && !session.Fullscreen.Contains(w.Id) && !(excluded?.Contains(w.Id) ?? false)).ToArray();
             var ids = eligible.Select(w => w.Id).ToHashSet();
             var state = history.Current;
             bool changed = rebuild;
@@ -254,11 +311,13 @@ public sealed class BentoController : IDisposable
                 var priority = reopened.Concat(group.Where(w => !history.Current.Windows.Any(old => old.WindowId == w.WindowId)
                     && !minimizedByBento.ContainsKey(w.WindowId)).Select(w => w.WindowId)).ToHashSet();
                 var oldest = assigned.OrderBy(w => lastInteraction.GetValueOrDefault(w.Id)).Select(w => w.Id).ToArray();
-                var root = AutoLayout.Fitting(group, Area(monitor), Settings.Gap, rebuild ? null : existing, priority, oldest);
+                var root = AutoLayout.Fitting(group, Area(monitor), Gap(monitor), rebuild ? null : existing, priority, oldest);
+                if (!Settings.MinimizeOverflow && LayoutEngine.Windows(root).Count() != group.Length)
+                    throw new LayoutConstraintException("These windows cannot all fit. Enable overflow minimization or free some space; the previous layout was kept.");
                 if (!Equals(root, existing)) changed = true;
                 state = state.WithRoot(monitor.Id, root);
             }
-            if (changed && !Commit(state))
+            if (changed && !Commit(state, restoreRemoved: session.Fullscreen.Count == 0))
             {
                 excluded ??= new();
                 if (rejectedWindow is long failed && excluded.Add(failed) && excluded.Count <= Windows.Count)
@@ -268,7 +327,7 @@ public sealed class BentoController : IDisposable
             var included = state.Windows.Select(w => w.WindowId).ToHashSet();
             foreach (long id in included) minimizedByBento.Remove(id);
             if (Settings.MinimizeOverflow)
-                foreach (var window in Windows.Where(w => !released.Contains(w.Id) && !included.Contains(w.Id) && !minimizedByBento.ContainsKey(w.Id)))
+                foreach (var window in Windows.Where(w => !released.Contains(w.Id) && !session.Fullscreen.Contains(w.Id) && !session.ResumeHeld.Contains(w.Id) && !included.Contains(w.Id) && !minimizedByBento.ContainsKey(w.Id)))
                 {
                     if (WindowCatalog.IsMinimized(window.Id)) continue;
                     try
@@ -284,18 +343,20 @@ public sealed class BentoController : IDisposable
         }
         catch (Exception ex) { failedMembership = membership; Report(ex.Message); }
     }
-    public PixelRect Area(DesktopMonitor monitor) => monitor.WorkArea.Inset(Settings.Margin);
+    public int Gap(DesktopMonitor monitor) => Math.Max(0, (int)Math.Round(Settings.Gap * monitor.Scale));
+    public PixelRect Area(DesktopMonitor monitor) => monitor.WorkArea.Inset((int)Math.Round(Settings.Margin * monitor.Scale));
     public LayoutResult Layout(DesktopMonitor monitor, WorkspaceState? state = null)
     {
         (state ?? DisplayState).Roots.TryGetValue(monitor.Id, out var root);
-        return LayoutEngine.Calculate(root, Area(monitor), Settings.Gap);
+        return LayoutEngine.Calculate(root, Area(monitor), Gap(monitor));
     }
     public void BeginDrag(long id)
     {
-        if (disposed) return;
+        if (!EnsureDesktop() || !automatic || Paused) return;
+        CancelSettled(); CloseJoinCues();
         var window = Windows.FirstOrDefault(w => w.Id == id);
         if (window is null) return;
-        CancelDrag(); lastActiveWindow = id;
+        CancelDrag(); lastActiveWindow = id; lastInteraction[id] = clock();
         transition?.Dispose();
         incoming = history.Current.Windows.FirstOrDefault(w => w.WindowId == id) ?? WindowNode.Create(id, window.Minimum);
         timer.Interval = TimeSpan.FromMilliseconds(16);
@@ -304,14 +365,16 @@ public sealed class BentoController : IDisposable
     }
     public void BeginDivider(DesktopMonitor monitor, Divider value, PixelPoint? touch = null)
     {
-        if (disposed) return;
+        if (!EnsureDesktop() || !automatic || Paused) return;
+        CancelSettled(); CloseJoinCues();
         CancelDrag();
         dividerSurface = value.SplitId;
         var point = touch ?? WindowCatalog.Cursor;
-        var handles = Handles(monitor, history.Current);
+        var handles = Handles(monitor, history.Current); gestureHandles = handles;
         var selected = ResizeHandles.Hit(handles, point, monitor.Scale);
         divider = selected?.Divider ?? value; dividerMonitor = monitor.Id;
         dragStart = selected is null ? history.Current : history.Current.WithRoot(monitor.Id, selected.Root);
+        gestureHandlesRoot = dragStart.Roots[monitor.Id];
         transition?.Dispose(); transition = null;
         liveResizeStart = Layout(monitor, dragStart).Regions.Select(r => native.Capture(r.Window.WindowId)).ToArray();
         foreach (var region in Layout(monitor, dragStart).Regions) liveBounds[region.Window.WindowId] = native.VisibleBounds(region.Window.WindowId);
@@ -322,17 +385,29 @@ public sealed class BentoController : IDisposable
     }
     public void BeginNativeResize(long id)
     {
-        if (disposed) return;
+        if (!EnsureDesktop() || !automatic || Paused) return;
+        CancelSettled(); CloseJoinCues();
         CancelDrag();
         if (!history.Current.Windows.Any(w => w.WindowId == id)) return;
         nativeResizeWindow = id; dragStart = history.Current;
+        var monitor = monitors.FirstOrDefault(m => LayoutEngine.Windows(history.Current.Roots.GetValueOrDefault(m.Id)).Any(w => w.WindowId == id));
+        if (monitor is not null) { gestureHandles = Handles(monitor, history.Current); gestureHandlesRoot = history.Current.Roots[monitor.Id]; }
         timer.Interval = TimeSpan.FromMilliseconds(16);
         foreach (var handle in dividers) handle.Hide();
     }
     public void PreviewDrag(PixelPoint point) { if (touchPoint.HasValue) touchPoint = point; UpdatePreview(point); }
     private void Tick()
     {
-        if (disposed) return;
+        if (!EnsureDesktop()) return;
+        RefreshFullscreenReservations();
+        if (Paused)
+        {
+            Windows = DiscoverWindows();
+            var live = session.Pause.Members.Where(id => WindowCatalog.Exists(id) && !WindowCatalog.IsMinimized(id)).ToHashSet();
+            session.Pause.Retain(live);
+            foreach (var missing in history.Current.Windows.Where(w => !WindowCatalog.Exists(w.WindowId) || WindowCatalog.IsMinimized(w.WindowId)).ToArray()) history.Commit(history.Current.Remove(missing.WindowId));
+            RefreshPausedShades(); ApplyPendingInteractionState(); return;
+        }
         if (Dragging)
         {
             long id = incoming?.WindowId ?? nativeResizeWindow;
@@ -346,7 +421,7 @@ public sealed class BentoController : IDisposable
         RememberActiveWindow();
         RefreshMonitorGeometry();
         Windows = DiscoverWindows();
-        Synchronize();
+        ReapplyCurrentSession(); Synchronize();
         PlaceDividersBelowInterface();
     }
     private void RefreshMonitorGeometry()
@@ -356,18 +431,15 @@ public sealed class BentoController : IDisposable
         if (monitors.SequenceEqual(latest) || activeNativeDrag != 0 || Dragging) return;
         foreach (var monitor in monitors)
             if (history.Current.Roots.GetValueOrDefault(monitor.Id) is { } root && !workAreaBaseline.ContainsKey(monitor.Id))
-                workAreaBaseline[monitor.Id] = (root, Area(monitor));
+                workAreaBaseline[monitor.Id] = (root, Area(monitor), Gap(monitor));
         monitors = latest;
         foreach (var id in workAreaBaseline.Keys.Where(id => !latest.Any(m => m.Id == id)).ToArray()) workAreaBaseline.Remove(id);
-        if (!automatic) return;
+        if (!automatic || Paused) return;
         Windows = DiscoverWindows(useCache: false);
         reflowing = true;
         try
         {
-            var state = history.Current;
-            foreach (var monitor in monitors)
-                if (state.Roots.GetValueOrDefault(monitor.Id) is { } root && workAreaBaseline.TryGetValue(monitor.Id, out var reference))
-                    state = state.WithRoot(monitor.Id, LayoutReflow.PreservingSeams(root, reference.Root, reference.Area, Area(monitor), Settings.Gap));
+            var state = ReflowCurrentAreas(history.Current);
             if (Commit(state)) Synchronize();
         }
         catch (LayoutConstraintException) { Synchronize(rebuild: true); }
@@ -375,6 +447,7 @@ public sealed class BentoController : IDisposable
     }
     private void OnNativeDrag(long id, bool starting) => Dispatch(() =>
     {
+        if (!EnsureDesktop()) return;
         if (starting)
         {
             if (!automatic) return;
@@ -383,7 +456,7 @@ public sealed class BentoController : IDisposable
                 // Reuse known minimum sizes: querying every application synchronously here delays the native drag.
                 Windows = DiscoverWindows();
                 activeNativeDrag = id; nativeStartBounds = null;
-                if (!Windows.Any(w => w.Id == id))
+                if (Paused || released.Contains(id) || !Windows.Any(w => w.Id == id))
                 {
                     // Settings and floating/excluded windows still suppress grip
                     // input while their native title bar or border is held.
@@ -413,11 +486,11 @@ public sealed class BentoController : IDisposable
             else CancelDrag();
         }
         catch (Exception ex) { CancelDrag(); Report(ex.Message); }
-        finally { nativeStartBounds = null; }
+        finally { nativeStartBounds = null; ApplyPendingInteractionState(); }
     });
     private void UpdatePreview(PixelPoint? position = null)
     {
-        if (disposed) return;
+        if (!EnsureDesktop() || !automatic || Paused) return;
         var point = position ?? touchPoint ?? WindowCatalog.Cursor;
         previewDestination = null;
         preview = null; validPreview = false;
@@ -429,16 +502,20 @@ public sealed class BentoController : IDisposable
                     .Any(w => w.WindowId == nativeResizeWindow));
                 if (sourceMonitor is null || !WindowCatalog.Exists(nativeResizeWindow)) { dropPreview?.Hide(); return; }
                 var root = dragStart!.Roots[sourceMonitor.Id]!;
-                preview = dragStart.WithRoot(sourceMonitor.Id, LayoutEngine.ResizeWindow(root, nativeResizeWindow,
-                    native.VisibleBounds(nativeResizeWindow), Area(sourceMonitor), Settings.Gap));
+                var actual = native.VisibleBounds(nativeResizeWindow);
+                var window = Windows.First(w => w.Id == nativeResizeWindow);
+                var leaf = LayoutEngine.Windows(root).Single(w => w.WindowId == nativeResizeWindow);
+                var minimum = native.ObserveUserFrame(window, actual);
+                root = LayoutEngine.Replace(root, leaf.Id, leaf with { Minimum = minimum });
+                preview = dragStart.WithRoot(sourceMonitor.Id, LayoutEngine.ResizeWindow(root, nativeResizeWindow, actual, Area(sourceMonitor), Gap(sourceMonitor), (int)Math.Round(12 * sourceMonitor.Scale)));
             }
             else if (divider is not null && dividerMonitor is not null)
             {
                 var root = dragStart!.Roots[dividerMonitor]!;
-                var candidate = LayoutEngine.ResizeDivider(root, divider, point, dividerStart, Settings.Gap);
                 var monitor = monitors.Single(m => m.Id == dividerMonitor);
+                var candidate = LayoutEngine.ResizeDivider(root, divider, point, dividerStart, Gap(monitor));
                 preview = dragStart.WithRoot(dividerMonitor, ReferenceEquals(candidate, root) ? root : LayoutInteraction.SnapSeam(candidate, divider.SplitId,
-                    Area(monitor), Settings.Gap, (int)Math.Round(12 * monitor.Scale)));
+                    Area(monitor), Gap(monitor), (int)Math.Round(12 * monitor.Scale)));
             }
             else if (incoming is not null)
             {
@@ -452,7 +529,7 @@ public sealed class BentoController : IDisposable
                     previewDestination = (monitor.Id, null, sectionEdge, true);
                     if (!dropProposals.TryGetValue(previewDestination.Value, out var section))
                     {
-                        var moved = LayoutInteraction.MoveSection(sourceRoot, incoming.WindowId, sectionEdge, Area(monitor), Settings.Gap);
+                        var moved = LayoutInteraction.MoveSection(sourceRoot, incoming.WindowId, sectionEdge, Area(monitor), Gap(monitor));
                         section = moved is null ? null : history.Current.WithRoot(monitor.Id, moved);
                         dropProposals[previewDestination.Value] = section;
                     }
@@ -496,6 +573,11 @@ public sealed class BentoController : IDisposable
             }
             if (preview is null) return;
             Validate(preview); validPreview = true;
+            if (nativeResizeWindow != 0)
+            {
+                var monitor = monitors.FirstOrDefault(m => LayoutEngine.Windows(preview.Roots.GetValueOrDefault(m.Id)).Any(w => w.WindowId == nativeResizeWindow));
+                if (monitor is not null && preview.Roots[monitor.Id] is { } root) UpdateNativeJoinCue(monitor, root, nativeResizeWindow, native.VisibleBounds(nativeResizeWindow));
+            }
             if (incoming is not null && previewDestination is { } key) dropProposals[key] = preview;
             if (divider is not null && dividerMonitor is not null)
             {
@@ -523,7 +605,7 @@ public sealed class BentoController : IDisposable
     }
     public void FinishDrag(PixelPoint? position = null)
     {
-        if (disposed) return;
+        if (!EnsureDesktop() || !automatic || Paused) return;
         UpdatePreview(position);
         var next = validPreview ? preview : null;
         bool nativeGesture = nativeStartBounds.HasValue;
@@ -547,20 +629,22 @@ public sealed class BentoController : IDisposable
     private void ClearDrag(bool restoreLive)
     {
         var snapshots = liveResizeStart; liveResizeStart = null; liveBounds.Clear();
+        if (restoreLive) CloseJoinCues();
         if (restoreLive && snapshots is not null) RestoreLiveResize(snapshots);
         incoming = null; divider = null; dividerSurface = null; dividerMonitor = null; dragStart = null; preview = null;
         previewDestination = null; dropProposals.Clear();
         dragIntent.Reset(); intent = default; touchPoint = null;
-        nativeResizeWindow = 0; validPreview = false;
+        nativeResizeWindow = 0; validPreview = false; gestureHandles = null; gestureHandlesRoot = null;
         timer.Interval = TimeSpan.FromSeconds(1);
         dropPreview?.Hide();
         if (restoreLive)
             foreach (var handle in dividers) { handle.ResetPresentation(); handle.Show(); }
         PlaceDividersBelowInterface();
+        Dispatch(ApplyPendingInteractionState);
     }
     public void Remove(long id)
     {
-        if (disposed) return;
+        if (!EnsureDesktop() || !automatic || Paused) return;
         if (!history.Current.Windows.Any(w => w.WindowId == id)) return;
         CancelDrag(); if (Commit(history.Current.Remove(id))) released.Add(id);
     }
@@ -574,17 +658,25 @@ public sealed class BentoController : IDisposable
     private bool Commit(WorkspaceState state, bool restoreRemoved = true, bool animate = true)
     {
         rejectedWindow = null;
+        var owner = session;
         try
         {
-            Validate(state); Apply(history.Current, state, restoreRemoved, animate); history.Commit(state); failedMembership = null;
+            Validate(state); Apply(history.Current, state, restoreRemoved, animate); state = AlignNativeSeams(state);
+            if (!ReferenceEquals(owner, session)) throw new InvalidOperationException("Desktop changed before commit.");
+            history.Commit(state); failedMembership = null;
+            foreach (var region in monitors.SelectMany(m => Layout(m, state).Regions))
+                session.AppliedFrames[region.Window.WindowId] = (region.Bounds, WindowCatalog.HasCaption(region.Window.WindowId));
             if (!reflowing) workAreaBaseline.Clear();
             Status = "Windows arranged on the desktop.";
-            RefreshDesktopDividers(); return true;
+            RefreshDesktopDividers(); ScheduleSettled(); return true;
         }
         catch (Exception ex) { rejectedWindow = (ex as PlacementFailure)?.WindowId; if (rejectedWindow is null) Report(ex.Message); return false; }
     }
     private void Apply(WorkspaceState previous, WorkspaceState next, bool restoreRemoved = true, bool animate = true)
     {
+        var owner = session;
+        if (!EnsureDesktop() || !ReferenceEquals(owner, session)) throw new InvalidOperationException("Desktop changed; placement deferred.");
+        CancelSettled();
         var ids = previous.Windows.Concat(next.Windows).Select(w => w.WindowId).Distinct().Where(WindowCatalog.Exists).ToArray();
         var rollback = ids.Select(native.Capture).ToArray();
         foreach (var snapshot in rollback)
@@ -611,9 +703,9 @@ public sealed class BentoController : IDisposable
             }
             foreach (var original in removed) native.Restore(original);
             foreach (var region in regions)
-                if (WindowCatalog.IsMinimized(region.Window.WindowId) || native.VisibleBounds(region.Window.WindowId) != region.Bounds)
+                if (WindowCatalog.IsMinimized(region.Window.WindowId) || !native.Accepts(region.Window.WindowId, region.Bounds))
                 {
-                    try { native.Move(region.Window.WindowId, region.Bounds); }
+                    try { native.Move(region.Window.WindowId, region.Bounds, learnMinimum: !reflowing); }
                     catch (Exception ex) { throw new PlacementFailure(region.Window.WindowId, ex); }
                 }
             transition?.Play();
@@ -630,7 +722,7 @@ public sealed class BentoController : IDisposable
     public void Redo() => NavigateHistory(true);
     private void NavigateHistory(bool redo)
     {
-        if (!automatic) return;
+        if (!EnsureDesktop() || !automatic || Paused) return;
         CancelDrag(); monitors = WindowCatalog.Monitors();
         var before = history.Current;
         var next = redo ? history.Redo() : history.Undo();
@@ -651,41 +743,59 @@ public sealed class BentoController : IDisposable
     public void RestoreAll() => Deactivate(restorePositions: true);
     private void Deactivate(bool restorePositions)
     {
-        if (disposed) return;
-        CancelDrag();
+        if (!EnsureDesktop()) return;
+        CancelSettled(); session.Pause.Exit(); ClosePausedShades(); UpdatePausePointer(); CloseJoinCues(); CancelDrag();
         var previous = history.Current;
-        if (Commit(new WorkspaceState(), restoreRemoved: restorePositions))
-        {
-            if (previous.Windows.Any()) lastBento = new(previous, SessionWindows);
-            if (restorePositions)
-                foreach (var entry in originals.Where(e => !previous.Windows.Any(w => w.WindowId == e.Key)).ToArray())
-                    try { native.Restore(entry.Value); } catch (Exception ex) { Report(ex.Message); }
-            foreach (var (id, entry) in minimizedByBento.ToArray())
+        if (previous.Windows.Any() || session.FullscreenReference is not null) lastBento = session.FullscreenReference ?? new(previous, SessionWindows);
+        session.OverflowBeforeOff.Clear();
+        foreach (var (id, entry) in minimizedByBento) session.OverflowBeforeOff[id] = entry.Snapshot.ProcessId;
+        int failures = 0;
+        transition?.Dispose(); transition = null;
+        var returning = restorePositions ? originals.Values.Where(s => !session.Fullscreen.Contains(s.WindowId)).ToArray()
+            : minimizedByBento.Values.Select(e => e.Snapshot).ToArray();
+        if (Settings.Animate && SystemParameters.ClientAreaAnimation && returning.Length is > 0 and <= 16)
+            try { transition = new DesktopTransition(returning.Where(s => CanWriteNative(s.WindowId)).Select(s =>
+                (s.WindowId, native.VisibleBounds(s.WindowId), s.VisibleBounds)), Math.Max(320, Settings.AnimationMs)); }
+            catch { transition = null; }
+        var restored = new HashSet<long>();
+        if (restorePositions)
+            foreach (var (id, snapshot) in originals.ToArray())
             {
-                try { native.Restore(entry.Snapshot); minimizedByBento.Remove(id); }
-                catch (Exception ex) { Report(ex.Message); }
+                if (!WindowCatalog.Exists(id) || WindowCatalog.ProcessId(id) != snapshot.ProcessId) { originals.Remove(id); continue; }
+                if (session.Fullscreen.Contains(id)) continue; // Preserve its reservation; never force fullscreen to exit.
+                try { native.Restore(snapshot); restored.Add(id); originals.Remove(id); }
+                catch (Exception ex) { failures++; Status = ex.Message; }
             }
-            automatic = false; released.Clear(); reopened.Clear();
-            snapLease?.SetSuppressed(false);
-            Status = restorePositions ? "Windows restored · activate Bento again to resume" : "Bento off · session layout kept in place";
-            RefreshDesktopDividers();
-            if (restorePositions) originals.Clear();
-            trayInterface.Refresh();
+        foreach (var (id, entry) in minimizedByBento.ToArray())
+        {
+            if (restored.Contains(id)) { minimizedByBento.Remove(id); continue; }
+            if (restorePositions && originals.ContainsKey(id)) continue; // Original restoration failed; keep it retryable.
+            try { native.Restore(entry.Snapshot); minimizedByBento.Remove(id); }
+            catch (Exception ex) { failures++; Status = ex.Message; }
         }
+        if (failures > 0) { transition?.Dispose(); transition = null; }
+        else transition?.Play();
+        if (restorePositions) session.AppliedFrames.Clear();
+        automatic = false; session.NeedsReapply = false; CancelSettled(); reopened.Clear();
+        history.Commit(new WorkspaceState()); UpdateLeases(); RefreshDesktopDividers();
+        Status = failures > 0 ? $"Bento off · {failures} windows could not be restored; their snapshots were kept."
+            : restorePositions ? "Windows restored · activate Bento again to resume" : "Bento off · session layout kept in place";
+        trayInterface.Refresh();
     }
     internal bool SaveSettingsOnShutdown(BentoSettings settings)
     {
         if (!disposed || !settings.IsValid) return false;
-        try { settings.Save(); Settings = settings; return true; }
+        try { settings.Save(); Settings = settings; pendingSettings = null; return true; }
         catch (Exception ex) { Status = ex.Message; return false; }
     }
     public bool UpdateSettings(BentoSettings settings)
     {
         if (disposed) return false;
         if (!settings.IsValid) { Report("Please check the settings values."); return false; }
-        if (Dragging || activeNativeDrag != 0) { Report("Finish dragging before changing settings."); return false; }
+        if (Dragging || activeNativeDrag != 0) { pendingSettings = settings; Status = "Settings will apply after dragging."; return true; }
         var old = Settings;
-        workAreaBaseline.Clear();
+        foreach (var state in sessions.All.Append(session).Distinct()) state.WorkAreas.Clear();
+        resizeHandles.Clear();
         bool changed = settings.ShortcutEnabled != old.ShortcutEnabled || settings.Key != old.Key || settings.Modifiers != old.Modifiers;
         if (changed)
         {
@@ -699,15 +809,15 @@ public sealed class BentoController : IDisposable
         Settings = settings;
         try
         {
-            Validate(history.Current); Apply(history.Current, history.Current);
-            snapLease?.SetSuppressed(automatic && settings.SuppressWindowsSnap);
+            if (EnsureDesktop() && automatic && !Paused) { Validate(history.Current); Apply(history.Current, history.Current); }
+            UpdateLeases();
             settings.Save(); AppTheme.Apply(settings.Theme); RefreshDesktopDividers(); return true;
         }
         catch (Exception ex)
         {
             Settings = old;
             try { snapLease?.SetSuppressed(automatic && old.SuppressWindowsSnap); } catch { }
-            try { Apply(history.Current, history.Current); } catch { /* Preserve the original failure report. */ }
+            try { if (EnsureDesktop() && automatic && !Paused) Apply(history.Current, history.Current); } catch { /* Preserve the original failure report. */ }
             if (changed) { DesktopIntegration.UnregisterShortcut(source.Handle, 1); if (old.ShortcutEnabled) DesktopIntegration.RegisterShortcut(source.Handle, 1, old.Modifiers, old.Key); }
             Report(ex.Message); return false;
         }
@@ -726,6 +836,7 @@ public sealed class BentoController : IDisposable
             var monitor = monitors.Single(m => m.Id == dividerMonitor);
             var boundary = Layout(monitor, preview).Dividers.Single(d => d.SplitId == divider.SplitId);
             dividers.FirstOrDefault(h => h.SplitId == dividerSurface)?.PresentResize(boundary.Bounds);
+            if (preview.Roots[monitor.Id] is { } root) UpdateJoinCue(monitor, root, boundary);
             return;
         }
         foreach (var monitor in monitors)
@@ -742,7 +853,7 @@ public sealed class BentoController : IDisposable
         dropPreview?.Hide();
     }
     private IReadOnlyList<ResizeHandle> Handles(DesktopMonitor monitor, WorkspaceState state) =>
-        state.Roots.GetValueOrDefault(monitor.Id) is { } root ? resizeHandles.Get(monitor.Id, root, Area(monitor), Settings.Gap) : [];
+        state.Roots.GetValueOrDefault(monitor.Id) is { } root ? resizeHandles.Get(monitor.Id, root, Area(monitor), Gap(monitor)) : [];
     private void RefreshDesktopDividers()
     {
         if (disposed || Dragging) return;
@@ -750,7 +861,7 @@ public sealed class BentoController : IDisposable
         try
         {
             resizeHandles.Retain(monitors.Select(m => m.Id).ToHashSet());
-            var wanted = automatic ? monitors.SelectMany(m =>
+            var wanted = automatic && !Paused && HelpersAllowed ? monitors.SelectMany(m =>
             {
                 var handles = Handles(m, history.Current);
                 return handles.Where(h => ResizeHandles.IsUniversal(h, handles)).Select(h => (Monitor: m, Handle: h, All: handles));
@@ -764,8 +875,9 @@ public sealed class BentoController : IDisposable
                 if (handle is null) { handle = new DesktopDividerWindow(this, monitor, boundary); dividers.Add(handle); handle.Show(); }
                 else { handle.UpdateDivider(boundary); if (!handle.IsVisible) handle.Show(); }
                 handle.UpdateHandle(geometry, all);
+                handle.SuppressInkForJoin(joinCues.OfType<JoinedSeamCue>().Any(cue => cue.Bounds == boundary.Bounds));
             }
-            PlaceDividersBelowInterface();
+            PlaceDividersBelowInterface(); RefreshPausedShades();
         }
         catch (LayoutConstraintException) { /* Geometry may no longer fit after a display change. */ }
     }
@@ -776,13 +888,14 @@ public sealed class BentoController : IDisposable
     }
     private void RefreshBackdrops()
     {
-        if (disposed) return;
+        if (!HelpersAllowed) { CloseBackdrops(); return; }
         var occupied = automatic ? monitors.Where(m => history.Current.Roots.GetValueOrDefault(m.Id) is not null).ToArray() : [];
         foreach (string id in backdrops.Keys.Where(id => !occupied.Any(m => m.Id == id)).ToArray())
         { backdrops[id].Close(); backdrops.Remove(id); }
         var applications = Windows.Select(w => w.Id).ToList();
         if (appWindow?.IsVisible == true && appWindow.WindowState != WindowState.Minimized) applications.Add(new WindowInteropHelper(appWindow).Handle.ToInt64());
         applications.AddRange(dividers.Where(w => w.IsVisible).Select(w => new WindowInteropHelper(w).Handle.ToInt64()));
+        applications.AddRange(joinCues.Where(w => w.IsVisible).Select(w => new WindowInteropHelper(w).Handle.ToInt64()));
         foreach (var monitor in occupied)
         {
             if (!backdrops.TryGetValue(monitor.Id, out var backdrop)) backdrops[monitor.Id] = backdrop = new();
@@ -797,15 +910,19 @@ public sealed class BentoController : IDisposable
         // close handlers can otherwise roll back a live resize or apply settings.
         disposed = true;
         automatic = false;
-        timer.Stop();
+        timer.Stop(); platformTimer.Stop(); membershipTimer.Stop(); geometryTimer.Stop(); CancelSettled();
+        pointer?.Dispose(); pointer = null; ClosePausedShades(); CloseJoinCues();
         appWindow?.FlushSettingsForShutdown();
+        if (pendingSettings is { } settings) { SaveSettingsOnShutdown(settings); pendingSettings = null; }
         ClearDrag(restoreLive: false);
         activeNativeDrag = 0; nativeStartBounds = null;
         resizeHandles.Clear(); workAreaBaseline.Clear(); savedSession = null; lastBento = null;
         Microsoft.Win32.SystemEvents.UserPreferenceChanged -= AppearanceChanged;
         WallpaperContrast.Invalidate();
         events.Dispose(); transition?.Dispose(); CloseDesktopHelpers(); appWindow?.Close();
-        CloseBackdrops();
+        CloseBackdrops(); sessions.Clear();
+        desktopEnvironment?.Dispose();
+        try { taskbarLease?.Dispose(); } catch { /* Preserve recovery journal. */ }
         try { snapLease?.Dispose(); } catch { /* The recovery journal is kept for the next launch. */ }
         DesktopIntegration.UnregisterShortcut(source.Handle, 1); source.Dispose(); trayInterface.Dispose();
     }

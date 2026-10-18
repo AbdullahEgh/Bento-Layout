@@ -40,6 +40,7 @@ public static class AutoLayout
                     catch (LayoutConstraintException) { }
                 }
             }
+            if (previous is null && CapacityPlanner.Plan(candidates, area, gap) is { } initial) return initial;
             LayoutNode? retained = previous;
             foreach (var leaf in LayoutEngine.Windows(retained).Where(w => !candidates.Any(c => c.WindowId == w.WindowId)).ToArray())
                 retained = LayoutEngine.Remove(retained, leaf.WindowId);
@@ -53,6 +54,10 @@ public static class AutoLayout
             if (planned is not null) return planned;
             if (admission.Count == 0)
             {
+                // Unchanged overflow is not a new admission request. Retain the
+                // valid edited tree (plus any feasible local insertions) instead
+                // of generating a new subset/tree on every membership sample.
+                if (previous is not null && retained is not null) return retained;
                 planned = CapacityPlanner.Plan(candidates, area, gap, all: false);
                 if (planned is not null) return planned;
             }

@@ -241,7 +241,7 @@ internal static class NativeTests
                 Equal(3, controller.Layout(monitor).Regions.Count); VerifyBounds(controller.Layout(monitor), native);
                 var sourceBounds = controller.Layout(monitor).Regions.Single(r => r.Window.WindowId == fixtures[2].Id).Bounds;
                 var targetBounds = controller.Layout(monitor).Regions.Single(r => r.Window.WindowId == fixtures[0].Id).Bounds;
-                Equal(targetBounds.Bottom + controller.Settings.Gap, sourceBounds.Y); Equal(targetBounds.X, sourceBounds.X);
+                Equal(targetBounds.Bottom + controller.Gap(monitor), sourceBounds.Y); Equal(targetBounds.X, sourceBounds.X);
             });
             Run("Quick edge drop swaps without splitting before the hold threshold", () =>
             {
@@ -533,6 +533,60 @@ internal static class NativeTests
             });
             Run("Restore all empties layout", () =>
             { controller.RestoreAll(); Pump(); Equal(0, controller.Layout(monitor).Regions.Count); });
+            Run("Pause holds membership; resume minimizes a new floating fixture until it is restored", () =>
+            {
+                bool includeThird = false;
+                using var paused = new BentoController(() => WindowCatalog.Discover(includeMinimized: false)
+                    .Where(w => fixtures.Take(includeThird ? 3 : 2).Any(f => f.Id == w.Id)).ToArray(), new BentoSettings(Animate: false, ShortcutEnabled: false));
+                paused.AutoArrangeAll(); Pump();
+                var frames = fixtures.Take(2).Select(w => native.VisibleBounds(w.Id)).ToArray();
+                paused.SetPaused(true); Pump(); Check(paused.Paused);
+                Check(Application.Current!.Windows.Cast<Window>().Where(w => w.Title == "Bento paused window").All(w => !w.IsHitTestVisible && !w.ShowActivated));
+                includeThird = true; paused.Refresh(); Equal(2, paused.ManagedCount);
+                DesktopIntegration.PlaceAboveApplication((nint)fixtures[2].Id, fixtures[0].Id);
+                paused.SetPaused(false); Pump(); Check(!paused.Paused); Check(WindowCatalog.IsMinimized(fixtures[2].Id));
+                Check(frames.SequenceEqual(fixtures.Take(2).Select(w => native.VisibleBounds(w.Id))));
+                native.Restore(originals[2]); paused.Refresh(); Pump(); Equal(3, paused.ManagedCount);
+                paused.RestoreAll(); Pump();
+            });
+            Run("Desktop switch during grip invalidates stale release and leaves the new desktop off", () =>
+            {
+                var a = Guid.NewGuid(); var b = Guid.NewGuid(); var desktops = new FixtureDesktops { Current = a };
+                foreach (var window in fixtures.Take(2)) desktops.Owners[window.Id] = a;
+                desktops.Owners[fixtures[2].Id] = b;
+                using var scoped = new BentoController(() => WindowCatalog.Discover(includeMinimized: false)
+                    .Where(w => fixtures.Any(f => f.Id == w.Id)).ToArray(), new BentoSettings(Animate: false, ShortcutEnabled: false), desktopEnvironment: desktops);
+                scoped.AutoArrangeAll(); Pump(); Equal(2, scoped.ManagedCount);
+                var seam = scoped.Layout(monitor).Dividers.Single();
+                var press = new PixelPoint(seam.Bounds.X + seam.Bounds.Width / 2, seam.Bounds.Y + seam.Bounds.Height / 2);
+                scoped.BeginDivider(monitor, seam, press); scoped.PreviewDrag(new(press.X + 35, press.Y + 35));
+                var held = fixtures.Take(2).Select(w => native.VisibleBounds(w.Id)).ToArray();
+                desktops.Current = b; scoped.CheckDesktopContext(); Check(!scoped.Automatic); Equal(0, scoped.ManagedCount);
+                scoped.FinishDrag(press); scoped.CancelDrag(); Pump();
+                Check(held.SequenceEqual(fixtures.Take(2).Select(w => native.VisibleBounds(w.Id))));
+                scoped.AutoArrangeAll(); Equal(1, scoped.ManagedCount);
+                var bFrame = native.VisibleBounds(fixtures[2].Id);
+                desktops.Current = a; scoped.CheckDesktopContext(); scoped.Refresh(); Pump(); Check(scoped.Automatic); Equal(2, scoped.ManagedCount);
+                Equal(bFrame, native.VisibleBounds(fixtures[2].Id));
+                scoped.RestoreAll(); desktops.Current = b; scoped.CheckDesktopContext(); scoped.RestoreAll(); Pump();
+            });
+            Run("Fullscreen member retains a return slot without native writes to its fixture", () =>
+            {
+                var desktop = Guid.NewGuid(); var desktops = new FixtureDesktops { Current = desktop };
+                foreach (var window in fixtures) desktops.Owners[window.Id] = desktop;
+                using var reserved = new BentoController(() => WindowCatalog.Discover(includeMinimized: false)
+                    .Where(w => fixtures.Any(f => f.Id == w.Id)).ToArray(), new BentoSettings(Animate: false, ShortcutEnabled: false), desktopEnvironment: desktops);
+                reserved.AutoArrangeAll(); Pump();
+                var before = fixtures.Select(w => native.VisibleBounds(w.Id)).ToArray();
+                var presentation = monitor.Bounds; native.Move(fixtures[0].Id, presentation);
+                desktops.Full.Add(fixtures[0].Id); reserved.Refresh(); Pump();
+                Equal(presentation, native.VisibleBounds(fixtures[0].Id)); Equal(2, reserved.ManagedCount);
+                desktops.Full.Clear(); native.Move(fixtures[0].Id, before[0]); reserved.Refresh(); Pump(); Equal(3, reserved.ManagedCount);
+                Check(before.SequenceEqual(fixtures.Select(w => native.VisibleBounds(w.Id))));
+                desktops.Suspended = true; reserved.Refresh(); reserved.AutoArrangeAll();
+                Check(before.SequenceEqual(fixtures.Select(w => native.VisibleBounds(w.Id))));
+                desktops.Suspended = false; reserved.CheckDesktopContext(); reserved.Refresh(); reserved.RestoreAll(); Pump();
+            });
             Run("Overflow minimizes and taskbar restore reinserts a window", () =>
             {
                 bool oversized = true;
@@ -600,6 +654,19 @@ internal static class NativeTests
                 finally { process.Dispose(); }
             }
         }
+    }
+    private sealed class FixtureDesktops : IDesktopEnvironment
+    {
+        public Guid Current;
+        public bool Suspended;
+        public readonly Dictionary<long, Guid> Owners = new();
+        public readonly HashSet<long> Full = new();
+        public DesktopObservation Sample() => new(Current, Suspended, Suspended ? "Fixture transition" : null);
+        public bool IsCurrent(Guid desktop) => !Suspended && Current == desktop;
+        public bool Contains(Guid desktop, long window) => IsCurrent(desktop) && Owners.GetValueOrDefault(window) == desktop;
+        public bool Fullscreen(long window) => Full.Contains(window);
+        public bool MoveHelper(long window, Guid desktop) => IsCurrent(desktop);
+        public void Dispose() { }
     }
     private static void VerifyBounds(LayoutResult layout, WindowController native)
     {

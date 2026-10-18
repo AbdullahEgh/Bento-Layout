@@ -31,6 +31,7 @@ internal static class Program
         }
         SharedFixtureTests.RunAll();
         ParityGeometryTests.RunAll();
+        PlatformParityTests.RunAll();
         Run("Empty workspace", () => Equal(0, LayoutEngine.Calculate(null, Area).Regions.Count));
         Run("First window fills work area", () => Equal(Area, LayoutEngine.Calculate(W(1), Area).Regions.Single().Bounds));
         Run("Automatic empty layout", () => Check(AutoLayout.Arrange([], Area) is null));

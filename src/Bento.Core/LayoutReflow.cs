@@ -4,9 +4,9 @@ public static class LayoutReflow
 {
     // Match coincident seams using a common feasible interval instead of letting
     // independent minimum clamps pull joined rows/columns apart.
-    public static LayoutNode PreservingSeams(LayoutNode root, LayoutNode reference, PixelRect from, PixelRect to, int gap)
+    public static LayoutNode PreservingSeams(LayoutNode root, LayoutNode reference, PixelRect from, PixelRect to, int gap, int? referenceGap = null)
     {
-        var original = LayoutEngine.Calculate(reference, from, gap);
+        var original = LayoutEngine.Calculate(reference, from, referenceGap ?? gap);
         var result = root;
         var visited = new HashSet<Guid>();
         foreach (var seam in original.Dividers)
@@ -28,7 +28,7 @@ public static class LayoutReflow
                 low = Math.Max(low, h ? d.ParentBounds.X + a.Width : d.ParentBounds.Y + a.Height);
                 high = Math.Min(high, (h ? d.ParentBounds.Right - b.Width : d.ParentBounds.Bottom - b.Height) - gap);
             }
-            int oldLength = (h ? from.Width : from.Height) - gap;
+            int oldLength = (h ? from.Width : from.Height) - (referenceGap ?? gap);
             if (low > high || oldLength <= 0) continue;
             double fraction = (coordinate - (h ? from.X : from.Y)) / (double)oldLength;
             int target = Math.Clamp((h ? to.X : to.Y) + (int)Math.Round(fraction * ((h ? to.Width : to.Height) - gap)), low, high);

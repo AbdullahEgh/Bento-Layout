@@ -7,6 +7,7 @@ internal static class Program
     private static int Main()
     {
         ParityGeometryTests.RunAll();
+        PlatformParityTests.RunAll();
         Console.WriteLine($"RESULT: {passed} passed, {failed} failed");
         return failed == 0 ? 0 : 1;
     }

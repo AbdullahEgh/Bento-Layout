@@ -101,6 +101,6 @@ public static class LayoutEngine
     }
 
     // Translate resizing a real window's inner edges into changes to its ancestor dividers.
-    public static LayoutNode ResizeWindow(LayoutNode root, long windowId, PixelRect requested, PixelRect area, int gap = 8) =>
-        LayoutInteraction.ResizeWindow(root, windowId, requested, area, gap);
+    public static LayoutNode ResizeWindow(LayoutNode root, long windowId, PixelRect requested, PixelRect area, int gap = 8, int snapDistance = 12) =>
+        LayoutInteraction.ResizeWindow(root, windowId, requested, area, gap, snapDistance);
 }

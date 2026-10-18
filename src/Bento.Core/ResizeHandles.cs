@@ -111,6 +111,22 @@ public static class ResizeHandles
             : a.Bounds.Y == b.Bounds.Y && a.Bounds.X <= b.Bounds.X && a.Bounds.Right >= b.Bounds.Right && a.Bounds.Width > b.Bounds.Width);
     }
     public static bool IsUniversal(ResizeHandle handle, IReadOnlyList<ResizeHandle> handles) => !handles.Any(h => Contains(h, handle));
+    public static ResizeHandle? NewlyJoinedSection(IReadOnlyList<ResizeHandle> handles, IReadOnlyList<ResizeHandle> previous, Divider moving)
+    {
+        if (previous.Count == 0) return null;
+        return handles.Where(h => h.Shared && h.Divider.Axis == moving.Axis &&
+            !previous.Any(old => old.Shared && old.Divider.Axis == h.Divider.Axis &&
+                (old.Divider.SplitId == h.Divider.SplitId || old.Divider.Bounds == h.Divider.Bounds)))
+            .Where(h => moving.Axis == SplitAxis.Horizontal
+                ? h.Divider.Bounds.X == moving.Bounds.X && h.Divider.Bounds.Y <= moving.Bounds.Y && h.Divider.Bounds.Bottom >= moving.Bounds.Bottom
+                : h.Divider.Bounds.Y == moving.Bounds.Y && h.Divider.Bounds.X <= moving.Bounds.X && h.Divider.Bounds.Right >= moving.Bounds.Right)
+            .OrderByDescending(h => (long)h.Divider.Bounds.Width + h.Divider.Bounds.Height).FirstOrDefault();
+    }
+    public static double JoinOpacity(double elapsedSeconds)
+    {
+        double t = Math.Clamp((elapsedSeconds - .18) / .37, 0, 1);
+        return 1 - t * t * (3 - 2 * t);
+    }
     public static ResizeHandle? Hit(IReadOnlyList<ResizeHandle> handles, PixelPoint point, double scale = 1)
     {
         int Distance(ResizeHandle h) => Math.Abs(h.Divider.Axis == SplitAxis.Horizontal

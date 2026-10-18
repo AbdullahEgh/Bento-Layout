@@ -13,6 +13,10 @@ public sealed class SessionLayoutSnapshot
         this.state = state;
         owners = windows.ToDictionary(w => w.Id, w => w.ProcessId);
     }
+    private SessionLayoutSnapshot(WorkspaceState state, IReadOnlyDictionary<long, uint> owners)
+    { this.state = state; this.owners = owners; }
+    public bool Contains(long window) => owners.ContainsKey(window) && state.Windows.Any(w => w.WindowId == window);
+    public SessionLayoutSnapshot Without(long window) => new(state.Remove(window), owners.Where(e => e.Key != window).ToDictionary(e => e.Key, e => e.Value));
     public WorkspaceState Reconcile(IEnumerable<SessionWindow> windows, IEnumerable<string> displays)
     {
         var live = windows.ToDictionary(w => w.Id);

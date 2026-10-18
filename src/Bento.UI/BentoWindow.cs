@@ -14,9 +14,11 @@ public sealed class BentoWindow : Window
     private readonly ComboBox compactNavigation = new();
     private TextBlock status = new(), count = new();
     private Button? pause;
+    private CheckBox? pauseToggle, taskbarToggle;
+    private bool refreshingState;
     private readonly TextBlock feedback = new();
     private readonly DispatcherTimer refresh = new() { Interval = TimeSpan.FromSeconds(1) };
-    private readonly DispatcherTimer autoSave = new() { Interval = TimeSpan.FromMilliseconds(350) };
+    private readonly DispatcherTimer autoSave = new() { Interval = TimeSpan.FromMilliseconds(120) };
     private bool pendingSave;
     private BentoSettings draft;
     private string page = "Workspace";
@@ -40,7 +42,7 @@ public sealed class BentoWindow : Window
         root.RowDefinitions.Add(new() { Height = GridLength.Auto }); root.RowDefinitions.Add(new());
         var compactHeader = new DockPanel { Margin = new Thickness(16, 12, 16, 0), Visibility = Visibility.Collapsed };
         compactHeader.Children.Add(new Image { Source = AppIcons.Image, Width = 28, Height = 28, Margin = new Thickness(0, 0, 12, 0) });
-        compactNavigation.ItemsSource = new[] { "Workspace", "Gestures", "Updates", "What's New" };
+        compactNavigation.ItemsSource = new[] { "Workspace", "Gestures", "Updates", "What's New", "About" };
         AutomationProperties.SetName(compactNavigation, "Settings page");
         compactNavigation.SelectionChanged += (_, _) => { if (compactNavigation.SelectedItem is string selected && selected != (page == "Update Log" ? "What's New" : page)) SelectPage(selected); };
         compactHeader.Children.Add(compactNavigation); Grid.SetColumnSpan(compactHeader, 2); root.Children.Add(compactHeader);
@@ -53,7 +55,7 @@ public sealed class BentoWindow : Window
         var version = Label($"Bento {UpdateService.CurrentVersion}\nMade for your desktop.", true); version.Margin = new Thickness(8, 0, 0, 0);
         DockPanel.SetDock(version, Dock.Bottom); side.Children.Add(version);
         var nav = new StackPanel();
-        foreach (string name in new[] { "Workspace", "Gestures", "Updates", "What's New" })
+        foreach (string name in new[] { "Workspace", "Gestures", "Updates", "What's New", "About" })
         {
             var caption = new StackPanel { Orientation = Orientation.Horizontal }; caption.Children.Add(Symbols.Create(name));
             caption.Children.Add(new TextBlock { Text = name, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
@@ -91,7 +93,7 @@ public sealed class BentoWindow : Window
         bool reading = name is "What's New" or "Update Log";
         feedback.Visibility = reading ? Visibility.Collapsed : Visibility.Visible;
         foreach (var (key, button) in navigation) button.SetResourceReference(BackgroundProperty, key == (name == "Update Log" ? "What's New" : name) ? "Selection" : "Sidebar");
-        switch (name) { case "Gestures": Gestures(); break; case "Updates": Updates(); break; case "What's New": WhatsNew(); break; case "Update Log": UpdateLog(); break; default: Workspace(); break; }
+        switch (name) { case "Gestures": Gestures(); break; case "Updates": Updates(); break; case "What's New": WhatsNew(); break; case "Update Log": UpdateLog(); break; case "About": About(); break; case "Welcome": Welcome(); break; default: Workspace(); break; }
     }
     private static TextBlock Label(string text, bool secondary = false)
     {
@@ -163,20 +165,31 @@ public sealed class BentoWindow : Window
             if (!string.IsNullOrWhiteSpace(draft.UpdateRepository)) draft = draft with { UpdateRepository = UpdateService.NormalizeRepository(draft.UpdateRepository) };
             if (!(apply ? controller.UpdateSettings(draft) : controller.SaveSettingsOnShutdown(draft))) { feedback.Text = controller.Status; return false; }
             if (draftStartAtLogin is bool startAtLogin) { LoginStartup.SetEnabled(startAtLogin); draftStartAtLogin = null; }
-            pendingSave = false; feedback.Text = "Saved automatically"; return true;
+            pendingSave = false; feedback.Text = controller.Interacting ? "Applies after dragging" : "Saved automatically"; return true;
         }
         catch (Exception ex) { feedback.Text = ex.Message; return false; }
     }
     private void RefreshWorkspaceStatus()
     {
-        status.Text = controller.Automatic ? "Bento is active" : "Bento is off";
-        count.Text = $"{controller.ManagedCount} arranged · {controller.MinimizedCount} minimized";
+        status.Text = controller.Suspended ? "Waiting for this desktop" : controller.Paused ? "Bento is paused" : controller.Automatic ? "Bento is active" : "Bento is off";
+        count.Text = $"{controller.ManagedCount} arranged · {controller.MinimizedCount} minimized · {controller.OutsideCount} outside";
+        refreshingState = true;
+        if (pauseToggle is not null) pauseToggle.IsChecked = controller.Paused;
+        if (taskbarToggle is not null) taskbarToggle.IsChecked = controller.HideTaskbar;
+        refreshingState = false;
         string caption = controller.Automatic ? "Turn off" : "Turn on";
         if (pause is not null && AutomationProperties.GetName(pause) != caption)
         {
             pause.Content = Symbols.Caption(caption, caption);
             AutomationProperties.SetName(pause, caption);
         }
+    }
+    private CheckBox SessionToggle(bool value, Action<bool> changed)
+    {
+        var toggle = new CheckBox { IsChecked = value, HorizontalAlignment = HorizontalAlignment.Right };
+        toggle.Checked += (_, _) => { if (!refreshingState) { changed(true); RefreshWorkspaceStatus(); } };
+        toggle.Unchecked += (_, _) => { if (!refreshingState) { changed(false); RefreshWorkspaceStatus(); } };
+        return toggle;
     }
     private Button SessionAction(string label, Action action)
     {
@@ -188,8 +201,8 @@ public sealed class BentoWindow : Window
     {
         status = new(); count = new();
         Heading("Your workspace", "A little structure. More room to focus.");
-        var hero = Card(); status.Text = controller.Automatic ? "Bento is active" : "Bento is off"; status.FontSize = 18; status.FontWeight = FontWeights.SemiBold;
-        count.Text = $"{controller.ManagedCount} arranged · {controller.MinimizedCount} minimized"; count.SetResourceReference(TextBlock.ForegroundProperty, "Secondary"); count.Margin = new Thickness(0, 4, 0, 16);
+        var hero = Card(); status.Text = controller.Suspended ? "Waiting for this desktop" : controller.Paused ? "Bento is paused" : controller.Automatic ? "Bento is active" : "Bento is off"; status.FontSize = 18; status.FontWeight = FontWeights.SemiBold;
+        count.Text = $"{controller.ManagedCount} arranged · {controller.MinimizedCount} minimized · {controller.OutsideCount} outside"; count.SetResourceReference(TextBlock.ForegroundProperty, "Secondary"); count.Margin = new Thickness(0, 4, 0, 16);
         var intro = new StackPanel { Margin = new Thickness(2, 16, 2, 15) }; intro.Children.Add(status); intro.Children.Add(count);
         var actions = new WrapPanel { Orientation = Orientation.Horizontal };
         var arrange = new Button { Content = Symbols.Caption("Arrange windows", "Workspace"), Style = (Style)FindResource("Primary"), Margin = new Thickness(0, 0, 8, 0) };
@@ -199,14 +212,22 @@ public sealed class BentoWindow : Window
         AutomationProperties.SetName(pause, controller.Automatic ? "Turn off" : "Turn on");
         pause.Click += (_, _) => { controller.ToggleBento(); RefreshWorkspaceStatus(); };
         actions.Children.Add(arrange); actions.Children.Add(pause); intro.Children.Add(actions); hero.Children.Add(intro);
+        var desktop = Card("Desktop space");
+        pauseToggle = SessionToggle(controller.Paused, controller.SetPaused);
+        taskbarToggle = SessionToggle(controller.HideTaskbar, controller.SetTaskbarHidden);
+        Row(desktop, "Pause Bento", "Keep the layout while new apps float. A single click brings a paused app forward.", pauseToggle);
+        Row(desktop, "Hide Taskbar", "Use Windows autohide while active. Your taskbar setting returns on Off or quit.", taskbarToggle);
         var session = Card("Layout memory");
         Row(session, "Save for This Session", "Keep this layout until Bento quits. Turning Bento off keeps saved window positions.", SessionAction("Save", controller.SaveBento));
         Row(session, "Use Session Save", "Restore the saved layout for windows still open in this session.", SessionAction("Use", controller.UseSessionSave));
         Row(session, "Clear Session Save", "Turning Bento off will restore original positions again.", SessionAction("Clear", controller.ClearSessionSave));
         Row(session, "Restore Window Positions", "Return to original positions even when a session save exists.", SessionAction("Restore", controller.RestoreAll));
+        Row(session, "Undo Layout Change", "Return to the previous layout in this desktop session.", SessionAction("Undo", controller.Undo));
+        Row(session, "Redo Layout Change", "Reapply an undone layout change.", SessionAction("Redo", controller.Redo));
+        Row(session, "Stop Arranging Selected Window", "The last selected app stays outside Bento until Arrange windows.", SessionAction("Stop arranging", controller.StopArrangingSelectedWindow));
         var layout = Card("Layout");
-        Row(layout, "Space between windows", "Physical pixels", Range(draft.Gap, 4, 32, 2, " px", n => draft = draft with { Gap = n }));
-        Row(layout, "Desktop margin", "Keep a little room around the edges", Range(draft.Margin, 0, 64, 2, " px", n => draft = draft with { Margin = n }));
+        Row(layout, "Space between windows", "DIPs scale with each display", Range(draft.Gap, 4, 32, 2, " DIP", n => draft = draft with { Gap = n }));
+        Row(layout, "Desktop margin", "Keep a little room around the edges", Range(draft.Margin, 0, 64, 2, " DIP", n => draft = draft with { Margin = n }));
         Row(layout, "Background darkness", "Behind windows and grabbers · clear to black", Range(draft.BackgroundDarkness, 0, 100, 5, "%", n => draft = draft with { BackgroundDarkness = n }));
         Row(layout, "Minimize windows that do not fit", "Reopen from the taskbar to give a window priority. Restored when Bento turns off.", Toggle(draft.MinimizeOverflow, v => draft = draft with { MinimizeOverflow = v }));
         var appearance = new ComboBox { ItemsSource = new[] { "System", "Light", "Dark" }, SelectedItem = draft.Theme };
@@ -221,6 +242,37 @@ public sealed class BentoWindow : Window
         var restore = new Button { Content = Symbols.Caption("Restore original window positions", "Restore"), HorizontalAlignment = HorizontalAlignment.Left };
         AutomationProperties.SetName(restore, "Restore original window positions");
         restore.Click += (_, _) => { controller.RestoreAll(); feedback.Text = controller.Status; SelectPage(page); }; content.Children.Add(restore);
+    }
+    private void About()
+    {
+        Heading("About Bento", $"Bento {UpdateService.CurrentVersion} · Native Windows layouts");
+        var info = Card(); info.Children.Add(Label("Bento arranges real application windows on the current desktop. Settings stay local; layouts, Pause and taskbar hiding belong to this running session."));
+        Row(info, "Getting started", "Review controls and a preview without moving any apps.", SessionAction("Open guide", () => SelectPage("Welcome")));
+    }
+    private void Welcome()
+    {
+        Heading("A little structure for your desktop", "Bento arranges your actual app windows into adaptable spaces.");
+        var guide = Card();
+        guide.Children.Add(Label("Use Ctrl+Alt+B or the tray icon to turn Bento on or off. Drag a title bar to swap; hold at an edge to split. Short grips resize two apps, and long grips move joined groups."));
+        guide.Children.Add(Label("Pause keeps the layout and dims its apps while new windows float. Click a paused app once to use it. Hold the tray icon for 550 ms to toggle taskbar autohide while Bento is active."));
+        guide.Children.Add(Label("Ordinary apps need no administrator access. Elevated, protected or unusually constrained windows may refuse control. Bento reports failures and leaves a recoverable layout. Quit and updates keep current window positions; Restore Window Positions explicitly returns originals."));
+        var preview = new Grid { Height = 150, Margin = new Thickness(0, 20, 0, 16) };
+        preview.ColumnDefinitions.Add(new()); preview.ColumnDefinitions.Add(new());
+        preview.RowDefinitions.Add(new()); preview.RowDefinitions.Add(new());
+        foreach (var (column, row, span) in new[] { (0, 0, 2), (1, 0, 1), (1, 1, 1) })
+        {
+            var cell = new Border { Margin = new Thickness(4), CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1) };
+            cell.SetResourceReference(Border.BackgroundProperty, "Selection"); cell.SetResourceReference(Border.BorderBrushProperty, "Line");
+            Grid.SetColumn(cell, column); Grid.SetRow(cell, row); Grid.SetRowSpan(cell, span); preview.Children.Add(cell);
+        }
+        AutomationProperties.SetName(preview, "Preview of a three-window Bento layout"); guide.Children.Add(preview);
+        guide.Children.Add(SessionAction("Finish", () =>
+        {
+            draft = draft with { OnboardingComplete = true };
+            if (!Save()) return;
+            if (!controller.Automatic) controller.ArrangeDesktop();
+            SelectPage("Workspace");
+        }));
     }
     private void Gestures()
     {
@@ -237,7 +289,7 @@ public sealed class BentoWindow : Window
         Row(gestures, "Smooth transitions", "Respects Windows reduced-motion settings", Toggle(draft.Animate, v => draft = draft with { Animate = v }));
         Row(gestures, "Transition duration", "Short and quiet", Range(draft.AnimationMs, 80, 400, 20, " ms", n => draft = draft with { AnimationMs = n }));
         var windows = Card("Windows integration");
-        Row(windows, "Let Bento handle edge snapping", "Temporarily disables Windows Snap for all apps.\nRestored when Bento pauses or exits.", Toggle(draft.SuppressWindowsSnap, v => draft = draft with { SuppressWindowsSnap = v }));
+        Row(windows, "Let Bento handle edge snapping", "Temporarily disables Windows Snap for all apps.\nRestored when Bento turns off or exits.", Toggle(draft.SuppressWindowsSnap, v => draft = draft with { SuppressWindowsSnap = v }));
         var hotkey = new TextBox { Text = draft.Shortcut, IsReadOnly = true, IsEnabled = draft.ShortcutEnabled, Width = 140, ToolTip = "Click, then press a modifier plus a letter or number." };
         AutomationProperties.SetName(hotkey, "Shortcut keys");
         hotkey.PreviewKeyDown += (_, e) =>

@@ -27,7 +27,7 @@ public static class LayoutInteraction
         return root;
     }
 
-    public static LayoutNode ResizeWindow(LayoutNode root, long id, PixelRect requested, PixelRect area, int gap)
+    public static LayoutNode ResizeWindow(LayoutNode root, long id, PixelRect requested, PixelRect area, int gap, int snapDistance = 12)
     {
         var before = LayoutEngine.Calculate(root, area, gap).Regions.FirstOrDefault(r => r.Window.WindowId == id);
         if (before is null) return root;
@@ -54,7 +54,7 @@ public static class LayoutInteraction
             int length = (h ? seam.ParentBounds.Width : seam.ParentBounds.Height) - gap;
             if (length <= 0) continue;
             int offset = (h ? seam.Bounds.X - seam.ParentBounds.X : seam.Bounds.Y - seam.ParentBounds.Y) + delta;
-            result = SnapSeam(LayoutEngine.Resize(local.Root, seam.SplitId, offset / (double)length), seam.SplitId, area, gap);
+            result = SnapSeam(LayoutEngine.Resize(local.Root, seam.SplitId, offset / (double)length), seam.SplitId, area, gap, snapDistance);
         }
         return result;
     }

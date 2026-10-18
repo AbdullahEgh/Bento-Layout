@@ -12,6 +12,7 @@ public sealed class DesktopDividerWindow : Window
     private bool finishing;
     private readonly Border grip;
     private bool resizing;
+    private bool cueSuppressesInk;
     private PixelRect presentedBounds;
     private ResizeHandle? geometry;
     private IReadOnlyList<ResizeHandle>? geometryGroup;
@@ -55,7 +56,7 @@ public sealed class DesktopDividerWindow : Window
         };
         var area = new Grid { Background = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0)) };
         area.Children.Add(grip); Content = area;
-        MouseEnter += (_, _) => { RefreshContrast(); Animate(OpacityProperty, 1); };
+        MouseEnter += (_, _) => { RefreshContrast(); if (!cueSuppressesInk) Animate(OpacityProperty, 1); };
         MouseLeave += (_, _) => { if (!resizing && !IsMouseCaptured && !AreAnyTouchesCaptured) Animate(OpacityProperty, 0); };
         SourceInitialized += (_, _) =>
         {
@@ -63,6 +64,12 @@ public sealed class DesktopDividerWindow : Window
             DesktopIntegration.ConfigureOverlay(handle, false);
             DesktopIntegration.PositionOverlay(handle, divider.Bounds, topmost: false);
         };
+    }
+    public void SuppressInkForJoin(bool suppress)
+    {
+        if (cueSuppressesInk == suppress) return;
+        cueSuppressesInk = suppress;
+        Animate(OpacityProperty, !suppress && IsMouseOver ? 1 : 0);
     }
     public void UpdateHandle(ResizeHandle value, IReadOnlyList<ResizeHandle> all)
     {
@@ -116,7 +123,7 @@ public sealed class DesktopDividerWindow : Window
         bool moved = presentedBounds != divider.Bounds;
         resizing = false; presentedBounds = divider.Bounds;
         RenderInk(divider.Bounds, geometry?.Shared == true);
-        Animate(OpacityProperty, IsMouseOver ? 1 : 0);
+        Animate(OpacityProperty, !cueSuppressesInk && IsMouseOver ? 1 : 0);
         if (moved) DesktopIntegration.MoveOverlay(new WindowInteropHelper(this).Handle, divider.Bounds);
     }
 

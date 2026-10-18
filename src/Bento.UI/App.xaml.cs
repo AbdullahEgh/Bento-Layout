@@ -21,10 +21,10 @@ public partial class App : Application
         {
             controller = e.Args.Contains("--smoke") ? new BentoController(() => []) : new BentoController();
             AppTheme.Apply(controller.Settings.Theme);
-            controller.ArrangeDesktop();
+            if (controller.Settings.OnboardingComplete || e.Args.Contains("--smoke") || e.Args.Contains("--login")) controller.ArrangeDesktop();
             if (!e.Args.Contains("--smoke"))
             {
-                if (!e.Args.Contains("--login")) controller.ShowInterface(e.Args.Contains("--updates") ? "Updates" : "Workspace");
+                if (!e.Args.Contains("--login")) controller.ShowInterface(!controller.Settings.OnboardingComplete ? "Welcome" : e.Args.Contains("--updates") ? "Updates" : "Workspace");
                 if (controller.Settings.CheckUpdates && !string.IsNullOrWhiteSpace(controller.Settings.UpdateRepository)) _ = CheckForUpdates();
             }
             if (e.Args.Contains("--smoke"))
