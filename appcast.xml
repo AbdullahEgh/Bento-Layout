@@ -4,25 +4,25 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.38</title>
-            <pubDate>Sun, 18 Oct 2026 11:05:46 +0000</pubDate>
-            <sparkle:version>155</sparkle:version>
-            <sparkle:shortVersionString>0.2.38</sparkle:shortVersionString>
+            <title>0.2.39</title>
+            <pubDate>Sun, 18 Oct 2026 12:51:22 +0000</pubDate>
+            <sparkle:version>158</sparkle:version>
+            <sparkle:shortVersionString>0.2.39</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.38
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.39
 
-- Separated full grips reveal local handles with larger grab areas.
-- Snapping briefly lights all enabled full grips at full opacity.
-- Grips stay hidden and inactive in Mission Control.
-- A gentle dim layer makes destination slots stand out.
-- Reuse unchanged grip geometry and stop pointer polling while Bento is off.
+- Shared grips work across partial slot groups, from startup.
+- Snap feedback follows your divider; full lines stay 45%, short grips 100%.
+- Glass slots stand out above a full-screen dim.
+- Grips hide during window drags; previews follow the committed desktop area.
+- Full-screen apps keep macOS Dock behavior and remember their Bento slots.
 
-Downloads include macOS and the current Windows portable app (Windows 11 x64, .NET 10 Desktop Runtime). Windows feature improvements follow separately.
+Downloads include macOS and the current Windows portable app (Windows 11 x64, .NET 10 Desktop Runtime).
 ]]></description>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.38/Bento-macos-universal.zip" length="4451619" type="application/octet-stream" sparkle:edSignature="Q7b8YW1QFZ9qRqLsGx98IDzJSaELvoKXjIWuNs2DrJgH3FvZp35caQa02TmXZzkprPeaMEzbgJv2PVAWxtw5Bw=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.39/Bento-macos-universal.zip" length="4478814" type="application/octet-stream" sparkle:edSignature="fkgtnmKxUbk55lt9S/L/LKmaAoWqMGeVMf9546u3/Y+rdGOr3D5Ezzr7tvp/lDhjsVQQnDlwRgpXELbfH+NgAw=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: 09jvrf/VPxNU4oiHonZ79nYK87PuXK+5cmYc9cE/dsnFjBaJ7F3XDxJmf4FNtwRBQ8eMlM6D/44/kfcC38EjBQ==
-length: 1638
+edSignature: F2iyQVioHOCzBdaImXKSEiHPxH/xHfX2cdVlxIuZKWVuwh85BN8yzPQYwFeVKIuUUOwugRV4xC4J+3CRjJr/DQ==
+length: 1612
 -->
