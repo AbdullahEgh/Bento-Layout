@@ -29,7 +29,7 @@ import BentoCore
         cue.showJoinCue()
         try? await Task.sleep(for: .milliseconds(150))
         try check(cue.visibleJoinCue == 1 && cue.bounds == cueBounds && cue.visibleInk == 0,
-            "Joined boundary cue starts fully opaque without changing hit areas or idle hover ink")
+            "Joined boundary cue starts fully visible without changing hit areas or idle hover ink")
         if let bitmap = cue.bitmapImageRepForCachingDisplay(in: cue.bounds) {
             cue.cacheDisplay(in: cue.bounds, to: bitmap)
             try bitmap.representation(using: .png, properties: [:])?.write(to: output.appendingPathComponent("segmented-grip.png"))

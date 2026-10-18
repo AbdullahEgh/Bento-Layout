@@ -134,7 +134,20 @@ struct DesktopInput {
             guard let area = displays[display], let handles = try? handleCache.handles(display: display, root: root, area: area, gap: model.layoutGap) else { continue }
             let previous = resizeHandles[display] ?? []
             resizeHandles[display] = handles
-            let joined = Set(ResizeHandles.newlyJoined(handles, previous: previous).map { $0.divider.id })
+            // Only announce the joined seam being slid, never perpendicular or
+            // unrelated universal handles that became available in the same snap.
+            let joined = ResizeHandles.newlyJoined(handles, previous: previous).filter { handle in
+                guard let grip, grip.display == display, handle.divider.axis == grip.divider.axis else { return false }
+                let a = handle.divider.bounds, b = grip.divider.bounds
+                return grip.divider.axis == .horizontal
+                    ? a.y <= b.y && a.bottom >= b.bottom
+                    : a.x <= b.x && a.right >= b.right
+            }.min { a, b in
+                let point = input().point
+                return a.divider.axis == .horizontal
+                    ? abs(a.divider.bounds.x - point.x) < abs(b.divider.bounds.x - point.x)
+                    : abs(a.divider.bounds.y - point.y) < abs(b.divider.bounds.y - point.y)
+            }?.divider.id
             for handle in handles {
                 let divider = handle.divider
                 retained.insert(divider.id)
@@ -161,7 +174,7 @@ struct DesktopInput {
                     let b = DesktopCoordinates.appKit(local.divider.bounds)
                     return divider.axis == .horizontal ? Double(b.midY - frame.minY) : Double(b.midX - frame.minX)
                 } : []
-                if joined.contains(divider.id) { panel.gripView.showJoinCue() }
+                if joined == divider.id { panel.gripView.showJoinCue() }
                 panel.gripView.animate = model.settings.animate
                 panel.gripView.duration = Double(model.settings.animationMS) / 1000
                 let lightInk = true
@@ -671,12 +684,12 @@ struct DesktopInput {
             : [(span - min(displayedLength, span)) / 2 ... (span + min(displayedLength, span)) / 2]
         for segment in segments {
             // Short section pills stay prominent against the quieter universal seam.
-            // Join feedback still reaches full opacity across the affected seam.
+            // Snap feedback preserves the same 45% seam / 100% pill hierarchy.
             let isLocalPill = localCenters.contains { center in
                 segment.lowerBound >= max(4, center - 40) && segment.upperBound <= min(span - 4, center + 40)
             }
             let emphasis = shared && !isLocalPill ? 0.45 : 1.0
-            let inkAlpha = max(joinAlpha, interactionAlpha * emphasis)
+            let inkAlpha = alpha * emphasis
             (lightInk ? NSColor.white : .black).withAlphaComponent(inkAlpha).setFill()
             let rect = axis == .horizontal
                 ? NSRect(x: bounds.midX - 2, y: segment.lowerBound, width: 4, height: segment.upperBound - segment.lowerBound)
