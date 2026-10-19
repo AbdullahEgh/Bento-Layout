@@ -46,6 +46,7 @@ import BentoCore
     var nativeMinimum: [UUID: Size] = [:]
     var nativeGrid: [UUID: Size] = [:]
     var writes: [UUID: Int] = [:]
+    var writtenFrames: [(UUID, Rect)] = []
     var minimized = Set<UUID>()
     var denyMinimize = false
     override func isMinimized(_ window: ManagedWindow) -> Bool { minimized.contains(window.id) }
@@ -90,6 +91,7 @@ import BentoCore
     override func write(_ window: ManagedWindow, frame: Rect) throws {
         if let areaChangeOnWrite { areaOverride = areaChangeOnWrite; self.areaChangeOnWrite = nil }
         writes[window.id, default: 0] += 1
+        writtenFrames.append((window.id, frame))
         if rejectAlways == window.id || rejectedWindows.contains(window.id) { throw WindowFailure.rejected(window.title) }
         if rejectOnce == window.id { rejectOnce = nil; throw WindowFailure.rejected(window.title) }
         guard let actual = records.first(where: { $0.0.id == window.id })?.1 else { throw WindowFailure.unavailable(window.title) }
@@ -297,14 +299,19 @@ final class FixturePreferences: PreferenceBackend {
                 try system.write(pair.0, frame: Rect(40 + index * 70, 60 + index * 40, max(420, realLimits[index].width), max(342, realLimits[index].height)))
             }
             model.settings.minimizeOverflow = true
+            system.writes.removeAll()
             await model.arrange()
+            try check(system.writes.values.allSatisfy { $0 == 1 }, "Known small-screen constraints apply one final frame per app without trial placements")
             try check(try model.active && model.history.current.windows.count == 4 && system.minimized.isEmpty && matchingGeometry(), "A constrained browser and chat app keep both smaller apps usable on a small screen")
             let fullCapacity = model.history.current, capacityWrites = system.writes
             await model.arrange(preserving: true)
             try check(model.history.current == fullCapacity && system.writes == capacityWrites, "A full constrained workspace stays still on routine reconciliation")
             await model.restore()
             system.records.forEach { $0.0.minimum = Size(160, 120) }
+            let preActivationFrames = Dictionary(uniqueKeysWithValues: system.records.map { ($0.0.id, system.frame(of: $0.0.element)!) })
+            system.writtenFrames.removeAll()
             await model.arrange()
+            try check(!system.writtenFrames.contains { preActivationFrames[$0.0] == $0.1 }, "Learning activation limits never rolls the batch back between calculated corrections")
             try check(try model.active && model.history.current.windows.count == 4 && system.minimized.isEmpty && matchingGeometry(), "Independent unknown native limits are learned without sacrificing a fitting app")
             try check(system.records[0].0.minimum.height == 120 && model.history.current.windows.first { $0.windowID == system.records[0].0.id }?.minimum.height == 120, "A preferred native primary size never becomes a stored size restriction")
             await model.restore()
@@ -851,7 +858,10 @@ final class FixturePreferences: PreferenceBackend {
             try check(try model.history.current.windows.count == 3 && matchingGeometry(), "Previously skipped window can rejoin when it fits")
             await model.restore()
             system.rejectAlways = oversized.id
+            model.settings.minimizeOverflow = true
             await model.arrange()
+            try check(!system.minimized.contains(oversized.id), "A control refusal is not evidence of capacity overflow and never causes minimization")
+            model.settings.minimizeOverflow = false
             try check(try model.active && model.history.current.windows.count == 2 && matchingGeometry() && system.accepted(oversized, initial[0]), "A window that refuses a resize is restored and skipped while other windows arrange")
             await model.restore()
             system.rejectAlways = nil

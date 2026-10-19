@@ -372,6 +372,7 @@ struct MacSettings: Codable {
             let now = ProcessInfo.processInfo.systemUptime
             if now - started >= 0.35 && now - stableSince >= 0.16 && hostsReady && system.desktopSpaceReady() { return }
         } while ProcessInfo.processInfo.systemUptime - started < 2
+        throw WindowFailure.workAreaChanged
     }
     func saveSettings() {
         guard settings.shortcut.valid else { message = "Choose at least one modifier for the shortcut."; onSettingsChange?(); return }
@@ -592,11 +593,13 @@ struct MacSettings: Codable {
         let generation = activationGeneration
         let wasActive = active
         var attemptedInput: ArrangementInput?
+        var activationRollback: [(ManagedWindow, Rect)] = []
+        var activationAreas: [DisplayArea] = []
         trace?("arrangement start preserving=\(preserving) resuming=\(resuming) active=\(wasActive)")
         do {
             if !preserving { released = resuming ? lastReleased : [] }
             reserveFullScreenSlots()
-            let current = try discoverWindows(); windows = current
+            var current = try discoverWindows(); windows = current
             let returningFullScreen = Set(current.filter { fullScreenWindows[$0.id] != nil && !system.isFullScreen($0) }.map(\.id))
             guard !current.isEmpty else {
                 if preserving && wasActive {
@@ -612,8 +615,18 @@ struct MacSettings: Codable {
             }
             if !wasActive {
                 try activateDesktop(); try await settleDesktopSpace()
+                // Native limits and frames captured before a shell transition can
+                // be stale. Plan only from the settled desktop's fresh snapshot.
+                current = try discoverWindows(); windows = current
             }
             let displays = displayAreas()
+            if !wasActive {
+                activationAreas = displays
+                activationRollback = try current.map { window in
+                    guard let frame = system.frame(of: window.element) else { throw WindowFailure.unavailable(window.title) }
+                    return (window, frame)
+                }
+            }
             let areaChanged = preserving && displays != lastDisplays
             if !preserving { areaLayout = nil }
             if areaChanged && areaLayout == nil { areaLayout = history.current; areaLayoutAreas = lastDisplays }
@@ -753,7 +766,7 @@ struct MacSettings: Codable {
                 attemptedInput = arrangementInput(current, areas: displays)
                 // One coordinated transition for normal actions; corrections are
                 // bounded final-frame transactions, never repeated visible probing.
-                do { try await apply(next, displays: displays, allowSkipping: true, animate: attempt == 0, validateIndividually: wasActive, learnMinimum: !areaChanged) }
+                do { try await apply(next, displays: displays, allowSkipping: true, animate: attempt == 0, validateIndividually: wasActive, learnMinimum: !areaChanged, retainForReplan: !wasActive && attempt < attemptLimit) }
                 catch ArrangementFailure.window(let id) where attempt == 0 && skipRefusingWindows && !areaChanged {
                     excluded.insert(id); continue
                 }
@@ -769,7 +782,7 @@ struct MacSettings: Codable {
                 // Keep originals for overflow minimized in place. Floating exclusions
                 // are forgotten so restoration cannot undo later user movement.
                 let currentIDs = Set(current.map(\.id))
-                floatingForSize = floatingForSize.intersection(currentIDs).subtracting(included)
+                floatingForSize = floatingForSize.intersection(currentIDs).union(excluded).subtracting(included)
                 for window in current where reopenedWindows.contains(window.id) && !included.contains(window.id) {
                     if let area = display(for: window, displays: displays),
                        window.minimum.width > area.bounds.width || window.minimum.height > area.bounds.height || excluded.contains(window.id) {
@@ -777,6 +790,13 @@ struct MacSettings: Codable {
                     }
                 }
                 originals = originals.filter { !floatingForSize.contains($0.key) && (included.contains($0.key) || !currentIDs.contains($0.key) || settings.minimizeOverflow) }
+                if !wasActive {
+                    // A rejected size may have moved a window which the final
+                    // plan leaves outside. Restore only those discarded probes.
+                    for (window, frame) in activationRollback where !included.contains(window.id) && system.isAlive(window) && system.frame(of: window.element) != frame {
+                        try? system.write(window, frame: frame)
+                    }
+                }
                 minimizeOverflow(included: included, current: current.filter { !released.contains($0.id) })
                 trace?("arrangement committed attempt=\(attempt + 1) tiled=\(included.count) overflow=\(current.count - included.count)")
                 if !areaChanged && (!reopenedWindows.isEmpty || !preserving) { areaLayout = nil }
@@ -787,10 +807,16 @@ struct MacSettings: Codable {
                 if fullScreenWindows.isEmpty { fullScreenLayout = nil }
                 lastDisplays = displays; history.commit(committed); active = !included.isEmpty || !minimizedByBento.isEmpty || (pinned && wasActive)
                 if !active { try desktopPreferences.restore() }
-                message = active ? (floatingForSize.isEmpty ? nil : "A restored app stays outside Bento because it cannot use a slot on this display.") : "No windows fit on this display. Your windows were left in their original positions."
+                message = active ? (floatingForSize.isEmpty ? nil : "An app stays outside Bento because it could not be arranged on this display.") : "No windows fit on this display. Your windows were left in their original positions."
                 scheduleSettledValidation(); onStateChange?(); return active
             }
         } catch {
+            // Failed activation has one recovery boundary, not a rollback/replay
+            // between each newly learned constraint. Never write on another Space.
+            if !wasActive, generation == activationGeneration, desktopIsCurrent(), displayAreas() == activationAreas {
+                let recovery = activationRollback.filter { system.isAlive($0.0) && system.frame(of: $0.0.element) != $0.1 }
+                try? await move(recovery, animated: false) { window, frame in try self.system.write(window, frame: frame) }
+            }
             trace?("arrangement stopped error=\(String(reflecting: type(of: error)))")
             // Cache only the area actually attempted. A Dock/display change
             // during an AX transaction must remain eligible for a fresh plan.
@@ -803,7 +829,7 @@ struct MacSettings: Codable {
         }
         return false
     }
-    func apply(_ workspace: Workspace, displays: [DisplayArea], allowSkipping: Bool = false, liveResize: Bool = false, animate: Bool = true, validateIndividually: Bool = true, returning: Bool = false, learnMinimum: Bool = true) async throws {
+    func apply(_ workspace: Workspace, displays: [DisplayArea], allowSkipping: Bool = false, liveResize: Bool = false, animate: Bool = true, validateIndividually: Bool = true, returning: Bool = false, learnMinimum: Bool = true, retainForReplan: Bool = false) async throws {
         guard !busy, desktopIsCurrent() else { throw LayoutError.invalidInput }; busy = true; defer { busy = false }
         guard displayAreas() == displays else { throw WindowFailure.workAreaChanged }
         let restoreAXMode = system.beginFrameAdjustment(windows)
@@ -874,6 +900,13 @@ struct MacSettings: Codable {
             guard displayAreas() == displays else { throw WindowFailure.workAreaChanged }
             try validate(plan, allowSkipping: allowSkipping, learnMinimum: learnMinimum)
         } catch {
+            if retainForReplan, case WindowFailure.minimumSize = error,
+               desktopIsCurrent(), displayAreas() == displays {
+                // The whole batch has already learned every observed refused axis.
+                // Leave accepted frames in place for the next calculated plan.
+                // The activation owner restores its original snapshot on failure.
+                throw error
+            }
             // Never roll old desktop windows into the newly visible desktop.
             guard desktopIsCurrent(), displayAreas() == displays else { throw WindowFailure.workAreaChanged }
             let recovery = rollback.filter { system.isAlive($0.0) }
@@ -955,8 +988,8 @@ struct MacSettings: Codable {
             if learnMinimum && (widthClamped || heightClamped) {
                 // A clamp proves a minimum only on that axis. The accepted
                 // other dimension is not a permanent limit.
-                if widthClamped { window.minimum.width = max(window.minimum.width, actual.width) }
-                if heightClamped { window.minimum.height = max(window.minimum.height, actual.height) }
+                if widthClamped { window.learnMinimum(width: actual.width) }
+                if heightClamped { window.learnMinimum(height: actual.height) }
                 constrained.insert(window.application)
             }
         }

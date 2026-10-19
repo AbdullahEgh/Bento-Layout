@@ -1,3 +1,11 @@
+# Activation measurement and bounded correction — 2026-10-19
+
+Activation now refreshes window frames and constraints after the desktop work area settles, and aborts safely if the area never stabilizes. Reported minimum sizes no longer erase stronger observed axis limits; a verified smaller frame can still lower those limits. Reported sizes below the fallback are respected.
+
+Known constraints are planned before native placement. When an app reveals an unknown minimum only after resizing, activation retains accepted frames for up to two calculated corrections instead of rolling the whole batch back between attempts. Final failure restores changed windows; discarded probes return to their original positions. A control refusal leaves the app floating and is not treated as capacity overflow for minimization. The existing planner searches alternate groupings before selecting overflow.
+
+92 core tests, the debug app build, and 268 disposable native checks passed. Added checks cover one final placement per app for known small-screen constraints, no original-frame rollback between unknown-limit corrections, no minimization for a control refusal, and reported versus observed minimum evidence. Evidence: `/tmp/bento-activation-core.log`, `/tmp/bento-activation-build.log`, and `/tmp/bento-activation-native/results.json`. This change does not guarantee a single write for apps which conceal constraints until resized, and fixture checks do not certify all third-party app behavior. Not yet released or installed.
+
 # Quit/update keeps windows in place — 0.2.40
 
 Update preparation and application termination now use a separate shutdown path, not Bento Off. It stops sampling/reconciliation, drains an already-running divider write without rolling the gesture back, removes helper surfaces, and releases session preferences. It never restores frames or unminimizes windows on this or another desktop. Explicit Bento Off/Restore behavior remains unchanged. If preference cleanup prevents installation or the user keeps Bento open, monitoring can resume and Bento can be activated again.

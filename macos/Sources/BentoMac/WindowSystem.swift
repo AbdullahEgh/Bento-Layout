@@ -99,6 +99,14 @@ final class ManagedWindow {
     // AX has no universal minimum-size attribute. Start small enough for narrow
     // displays, then learn actual app constraints from verified native writes.
     var minimum = Size(160, 120)
+    private var observedMinimum = Size(1, 1)
+    func updateReportedMinimum(_ reported: Size) {
+        minimum = Size(max(observedMinimum.width, reported.width), max(observedMinimum.height, reported.height))
+    }
+    func learnMinimum(width: Int? = nil, height: Int? = nil) {
+        if let width { observedMinimum.width = max(observedMinimum.width, width); minimum.width = max(minimum.width, width) }
+        if let height { observedMinimum.height = max(observedMinimum.height, height); minimum.height = max(minimum.height, height) }
+    }
     var serverNumber: Int?
     init(id: UUID = UUID(), element: AXUIElement, pid: pid_t, title: String, application: String, bundleID: String, frame: Rect) {
         self.id = id; self.element = element; self.pid = pid; self.title = title; self.application = application; self.bundleID = bundleID; self.frame = frame
@@ -107,6 +115,7 @@ final class ManagedWindow {
         let frame = observed ?? self.frame
         guard frame.width > 0, frame.height > 0 else { return }
         minimum = Size(min(minimum.width, frame.width), min(minimum.height, frame.height))
+        observedMinimum = Size(min(observedMinimum.width, frame.width), min(observedMinimum.height, frame.height))
     }
     var leaf: WindowLeaf { WindowLeaf(windowID: id, minimum: minimum) }
 }
@@ -330,7 +339,11 @@ struct MotionWrite: @unchecked Sendable {
             }
         }
         for window in found {
-            if let minimum = reportedMinimum(window.element) { window.minimum = minimum }
+            if let minimum = reportedMinimum(window.element) {
+                // Some clients advertise optimistic limits. Preserve stronger
+                // observed refusals until a genuinely smaller frame disproves them.
+                window.updateReportedMinimum(minimum)
+            }
             // A real smaller frame is stronger evidence than an earlier refused
             // write (which may have been a transient animation or content state).
             // Never raise a minimum from an observation of a larger frame.
