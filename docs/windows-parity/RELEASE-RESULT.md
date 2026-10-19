@@ -12,7 +12,9 @@ Earlier untouched CloudPC tests produced 182/3 then 183/2. Two edge-drag test po
 
 Installed CloudPC 0.3.6 was preserved and starts active. Separate unpublished shortcut/backdrop changes at `76cc4a6` remain excluded from this activation hotfix.
 
-Hosted CI run `39194155322` built successfully and passed 186 checks; its only failure was the live desktop adapter, because that runner exposes no usable Explorer desktop identity. The live regression now requires explicit `Bento.Tests.exe --native --real-desktop` on an interactive Windows desktop. Ordinary headless native runs print an explicit NOT RUN line; they do not count this regression as passing. The separately recorded CloudPC 187/0 is required release evidence. Production identity checks are unchanged. CI, packaged OTA verification and publication for 0.3.11 are pending.
+Hosted CI run `39194155322` built successfully and passed 186 checks; its only failure was the live desktop adapter, because that runner exposes no usable Explorer desktop identity. The live regression now requires explicit `Bento.Tests.exe --native --real-desktop` on an interactive Windows desktop. Ordinary headless native runs print an explicit NOT RUN line; they do not count this regression as passing. The separately recorded CloudPC 187/0 is required release evidence. Production identity checks are unchanged.
+
+CI [39194442467](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/39194442467), source `e19de4f012be3fdac7253975ff0f790592774988`, passed build/package, headless native fixtures, portable core, settings smoke and the actual package compatibility check against the shipped OTA selector. Tag publication repeats these gates. Public asset digest/latest-feed verification remains pending until publication.
 
 ## Historical 0.3.10 release
 

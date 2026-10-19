@@ -2,4 +2,4 @@ Windows 0.3.11 fixes activation being deferred when Windows cannot assign Bento'
 
 This release keeps the Windows OTA asset name and package identity used by existing installations. The included Mac ZIP is the unchanged published macOS 0.2.40 asset.
 
-Build and validation evidence must be recorded in RELEASE-RESULT.md before publication. Full mixed-DPI, virtual-desktop switching and on-device OTA certification remain separate from automated fixture coverage.
+Windows CI passed build/package, native fixtures, portable core, settings smoke and packaged legacy-updater compatibility. CloudPC separately passed the real desktop adapter and controller activation regression with disposable windows (187 checks total). Hosted CI has no initialized Explorer desktop identity and explicitly reports that live-desktop check as not run. See RELEASE-RESULT.md for evidence and scope. Physical clicks, virtual-desktop switching, mixed-DPI hardware and on-device OTA replacement remain unverified.
