@@ -542,11 +542,17 @@ struct DesktopInput {
         transitions = panels.enumerated().map { index, panel in
             let destination = index < rectangles.count ? DesktopCoordinates.appKit(rectangles[index]) : panel.frame
             if !panel.isVisible && index < rectangles.count {
-                panel.alphaValue = 0; panel.setFrame(destination, display: true); panel.orderFrontRegardless()
+                panel.alphaValue = 0; panel.setFrame(panel.splitStart ?? destination, display: true); panel.orderFrontRegardless()
+                panel.splitStart = nil
             }
             if index < rectangles.count, let dim = dimPanels.last(where: \.isVisible) { panel.order(.above, relativeTo: dim.windowNumber) }
-            // Only a stable window identity may animate between slot positions.
-            if panel.identity == nil && index < rectangles.count { panel.setFrame(destination, display: true) }
+            // Animate moving boundaries, never transport a slot across the desktop.
+            let from = panel.frame
+            let horizontalResize = abs(from.minY - destination.minY) < 1 && abs(from.height - destination.height) < 1
+                && (abs(from.minX - destination.minX) < 1 || abs(from.maxX - destination.maxX) < 1)
+            let verticalResize = abs(from.minX - destination.minX) < 1 && abs(from.width - destination.width) < 1
+                && (abs(from.minY - destination.minY) < 1 || abs(from.maxY - destination.maxY) < 1)
+            if index < rectangles.count && !horizontalResize && !verticalResize { panel.setFrame(destination, display: true) }
             return Transition(panel: panel, from: panel.frame, to: destination, alpha: panel.alphaValue, targetAlpha: index < rectangles.count ? 1 : 0)
         }
         orderLayers()
@@ -555,7 +561,7 @@ struct DesktopInput {
         motion = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in
             MainActor.assumeIsolated {
                 guard let self else { timer.invalidate(); return }
-                let t = min(1, (ProcessInfo.processInfo.systemUptime - self.started) / 0.12)
+                let t = min(1, (ProcessInfo.processInfo.systemUptime - self.started) / (self.hiding ? 0.18 : 0.30))
                 self.advance(progress: t)
                 if t >= 1 { timer.invalidate(); self.motion = nil }
             }
@@ -604,24 +610,33 @@ struct DesktopInput {
         let anchorChanged = self.belowWindow != belowWindow
         self.belowWindow = belowWindow; lastSelected = selected
         lastRectangles = rectangles; lastProposal = proposal; lastConflict = conflict ? rectangles.first : nil
+        let previousFrames = panels.filter(\.isVisible).map(\.frame)
         var remaining = panels
         var ordered: [PreviewSlotPanel] = []
         for rect in rectangles {
             let identity = windowFrames.first(where: { $0.value == rect })?.key
-            let match = remaining.firstIndex { panel in
-                if let identity { return panel.identity == identity }
-                return panel.identity == nil && DesktopCoordinates.engine(panel.frame) == rect
-            }
+            let match = remaining.firstIndex { DesktopCoordinates.engine($0.frame) == rect }
+                ?? remaining.firstIndex { panel in
+                    identity != nil && panel.identity == identity && !rectangles.contains(DesktopCoordinates.engine(panel.frame))
+                }
             // Reuse anonymous surfaces only after protecting exact destination
             // matches. Repeated pointer movement must not allocate one panel per frame.
             let reusable = match ?? remaining.firstIndex { panel in
-                guard let oldIdentity = panel.identity else {
-                    return !rectangles.contains(DesktopCoordinates.engine(panel.frame))
-                }
-                return !identities.contains(oldIdentity)
+                guard !rectangles.contains(DesktopCoordinates.engine(panel.frame)) else { return false }
+                return panel.identity.map { !identities.contains($0) } ?? true
             }
             let panel = reusable.map { remaining.remove(at: $0) } ?? PreviewSlotPanel()
-            if panel.identity != identity { panel.orderOut(nil) }
+            let destination = DesktopCoordinates.appKit(rect)
+            if panel.identity != identity && panel.frame != destination { panel.orderOut(nil) }
+            if !panel.isVisible, let parent = previousFrames.first(where: { $0.contains(destination) && $0 != destination }) {
+                if parent.minY == destination.minY && parent.height == destination.height {
+                    panel.splitStart = NSRect(x: destination.minX == parent.minX ? destination.minX : destination.maxX - 1,
+                        y: destination.minY, width: 1, height: destination.height)
+                } else if parent.minX == destination.minX && parent.width == destination.width {
+                    panel.splitStart = NSRect(x: destination.minX,
+                        y: destination.minY == parent.minY ? destination.minY : destination.maxY - 1, width: destination.width, height: 1)
+                }
+            }
             panel.identity = identity; ordered.append(panel)
         }
         for panel in remaining where !panel.isVisible { panel.close() }
@@ -642,6 +657,7 @@ struct DesktopInput {
 @MainActor private final class PreviewSlotPanel: NSPanel {
     let slotView = PreviewSlotView()
     var identity: UUID?
+    var splitStart: NSRect?
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isReleasedWhenClosed = false; isOpaque = false; backgroundColor = .clear

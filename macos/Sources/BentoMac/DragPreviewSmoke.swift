@@ -33,13 +33,36 @@ import BentoCore
             repeat {
                 RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
                 previewOrder = (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []).compactMap { ($0[kCGWindowNumber as String] as? NSNumber)?.intValue }
-                if softPreview.previewWindowNumbers.allSatisfy({ previewOrder.contains($0) }) { break }
+                if let dragIndex = previewOrder.firstIndex(of: draggedPanel.windowNumber),
+                   softPreview.previewWindowNumbers.allSatisfy({ number in previewOrder.firstIndex(of: number).map { $0 > dragIndex } == true }) { break }
             } while Date() < deadline
             let dragIndex = previewOrder.firstIndex(of: draggedPanel.windowNumber)
             try check(dragIndex != nil && softPreview.previewWindowNumbers.allSatisfy { number in
                 previewOrder.firstIndex(of: number).map { $0 > dragIndex! } == true
             }, "The dragged native window stays above every blurred destination panel")
             softPreview.hideImmediately()
+        let resizing = DestinationPanel(reduceMotion: { false })
+        let firstID = UUID(), secondID = UUID()
+        let left = Rect(40, 40, 240, 220), right = Rect(290, 40, 240, 220)
+        resizing.animate = false
+        resizing.windowFrames = [firstID: left, secondID: right]
+        resizing.presentSlots([left, right])
+        resizing.animate = true
+        resizing.windowFrames = [firstID: right, secondID: left]
+        resizing.presentSlots([right, left])
+        try check(Set(resizing.visibleSlotFrames.map { "\($0)" }) == Set([left, right].map { "\($0)" }),
+            "Swapping window identities keeps slot surfaces at their destinations without travel")
+        let smaller = Rect(290, 40, 180, 220)
+        resizing.windowFrames[firstID] = smaller
+        resizing.presentSlots([smaller, left])
+        try check(resizing.visibleSlotFrames.contains(right), "Resizing starts from the existing anchored slot boundary")
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.16))
+        let intermediate = resizing.visibleSlotFrames.first { $0.x == right.x }!
+        try check(intermediate.width > smaller.width && intermediate.width < right.width,
+            "Slot resizing is still gently interpolating after the previous 120ms duration")
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.25))
+        try check(resizing.visibleSlotFrames.contains(smaller), "Gentle slot resizing reaches exact planned bounds")
+        resizing.hideImmediately()
         let tint = PausedTintView(frame: NSRect(x: 0, y: 0, width: 80, height: 80))
         let bitmap = tint.bitmapImageRepForCachingDisplay(in: tint.bounds)!
         tint.cacheDisplay(in: tint.bounds, to: bitmap)

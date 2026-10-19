@@ -1,3 +1,11 @@
+# Gentle slot boundaries and native blue interface — 2026-10-20
+
+Destination panels match existing slot geometry before window identity, so swaps keep their surfaces stationary. Only anchored width/height changes interpolate; relocations adopt their destination directly. New split children grow from an anchored edge. Preview boundary motion is 300 ms with smooth easing; dismissal remains 180 ms. Reduce Motion and disabled animation still use immediate final geometry. macOS interface accent and selection tint use native systemBlue.
+
+312 disposable native checks passed, including new checks for stationary swapped surfaces, anchored resize start, interpolation beyond the former 120 ms duration, and exact final bounds. The WindowServer layering check now waits for the actual relative order rather than merely panel presence; an initial run exposed delayed order publication and subsequent/final runs passed. Evidence: `/tmp/bento-gentle-blue-native/results.json`, `/tmp/bento-gentle-blue-build.log`.
+
+Installed signed universal 0.2.42 build 161 locally. SHA-256: `07a321fd11190c8fcd1a9be081fef338683dcb1667e687c2bbb462fe2664467a`. Backup: `/Users/abdullah/Library/Application Support/BentoBackups/Bento-before-gentle-slots-20261020-001640.app`. Opened the installed Settings window with Accessibility connected and visually verified blue selected navigation and accent text. No Windows changes or GitHub push.
+
 # First-press grip routing and waiting recovery — 2026-10-19
 
 Grip mouse-down now uses the event's screen coordinates and accepts capture when hit testing selects a different overlapping panel. Both the native receiver and pointer sampler continue the same gesture. Locked dividers remain present and briefly shake without moving their input surface. A held divider-gap window drag can request a center swap. Preview motion follows stable window identities; anonymous surfaces reuse exact geometry without index-based movement or unbounded panel allocation.

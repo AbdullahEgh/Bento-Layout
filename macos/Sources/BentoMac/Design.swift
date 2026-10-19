@@ -13,7 +13,8 @@ enum BentoStyle {
     static let page = color(0xF6F7F9, 0x202428), sidebar = color(0xEEF0F3, 0x191D21)
     static let surface = color(0xFFFFFF, 0x2A3035), text = color(0x20262C, 0xEEF3F4)
     static let secondary = color(0x6E7782, 0xA3AFB7), line = color(0xE2E6EA, 0x394249)
-    static let accent = color(0x168574, 0x41AD98), selection = color(0xDCEEE9, 0x243F39)
+    static let accent = Color(nsColor: .systemBlue)
+    static let selection = Color(nsColor: .systemBlue).opacity(0.12)
     static var icon: NSImage { NSImage(contentsOf: Bundle.module.url(forResource: "bento", withExtension: "png")!)! }
 }
 
