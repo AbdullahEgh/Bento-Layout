@@ -1,6 +1,8 @@
 name: Windows contracts
 on:
   push:
+    branches: ['**']
+    tags: ['v*']
     paths: ['src/**', 'tests/**', 'shared/**', '*.props', '*.slnx', '.github/workflows/windows.yml']
   pull_request:
     paths: ['src/**', 'tests/**', 'shared/**', '*.props', '*.slnx', '.github/workflows/windows.yml']
@@ -17,6 +19,10 @@ jobs:
           dotnet-version: '10.0.x'
       - name: Build, test and package Windows app
         run: ./build.ps1 -NativeTests -Publish
+      - name: Verify built package against the shipped OTA selector
+        run: ./tests/Bento.Tests/bin/Release/net10.0-windows/Bento.Tests.exe --verify-update-package artifacts/Bento-win-x64.zip
+      - name: Portable core regressions
+        run: dotnet run --project tests/Bento.Core.Tests -c Release --no-build
       - name: Settings window stacking regression
         run: ./tests/Bento.Tests/bin/Release/net10.0-windows/Bento.Tests.exe --settings-order-smoke
       - uses: actions/upload-artifact@v4

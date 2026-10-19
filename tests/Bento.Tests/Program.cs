@@ -10,6 +10,32 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.FirstOrDefault() == "--verify-update-package")
+        {
+            Run("Built package remains compatible with the shipped Windows OTA selector", () =>
+            {
+                string folder = Path.Combine(Path.GetTempPath(), "Bento-package-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    var manifest = UpdatePackage.Extract(args[1], folder);
+                    Equal("Bento.Windows", manifest.AppId); Equal("win-x64", manifest.Platform); Equal(Bento.UI.UpdateService.CurrentVersion, manifest.Version);
+                    string digest = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(args[1])));
+                    using var release = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(new {
+                        tag_name = "v" + manifest.Version, draft = false, prerelease = false, body = "Windows update", html_url = "https://github.com/AbdullahEgh/Bento-Layout/releases/tag/v" + manifest.Version,
+                        assets = new[] {
+                            new { name = "Bento-macos-universal.zip", browser_download_url = "https://github.com/AbdullahEgh/Bento-Layout/releases/download/v" + manifest.Version + "/Bento-macos-universal.zip", digest = "sha256:" + new string('0',64) },
+                            new { name = "Bento-win-x64.zip", browser_download_url = "https://github.com/AbdullahEgh/Bento-Layout/releases/download/v" + manifest.Version + "/Bento-win-x64.zip", digest = "sha256:" + digest }
+                        }
+                    }));
+                    var legacy = LegacyWindowsUpdateSelector.ParseRelease(release.RootElement, "0.3.9");
+                    Check(legacy is not null); Equal(manifest.Version, legacy!.Version); Equal(digest, legacy.Digest);
+                    Equal(legacy, Bento.UI.UpdateService.ParseRelease(release.RootElement, "0.3.9"));
+                    Check(LegacyWindowsUpdateSelector.ParseRelease(release.RootElement, manifest.Version) is null);
+                }
+                finally { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
+            });
+            Console.WriteLine($"RESULT: {passed} passed, {failed} failed"); return failed == 0 ? 0 : 1;
+        }
         if (args.FirstOrDefault() == "--fixture") return NativeTests.Fixture(args[1]);
         if (args.Contains("--settings-order-smoke"))
         {

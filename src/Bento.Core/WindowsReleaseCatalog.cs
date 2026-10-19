@@ -38,7 +38,7 @@ public static class WindowsReleaseCatalog
             if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "https" || uri.Host != "github.com" ||
                 !Regex.IsMatch(digest, @"^sha256:[0-9a-fA-F]{64}$"))
                 throw new InvalidDataException("This release needs a GitHub asset with a SHA-256 digest.");
-            if (metadata is not null && !metadata.Sha256.Equals(digest[7..], StringComparison.OrdinalIgnoreCase))
+            if (metadata is not null && !string.Equals(metadata.Sha256, digest[7..], StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("The Windows metadata does not match its archive digest.");
             return new(version, release.GetProperty("body").GetString() ?? "", release.GetProperty("html_url").GetString() ?? "", url, digest[7..]);
         }
