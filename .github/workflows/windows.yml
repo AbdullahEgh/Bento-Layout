@@ -25,6 +25,8 @@ jobs:
         run: dotnet run --project tests/Bento.Core.Tests -c Release --no-build
       - name: Settings window stacking regression
         run: ./tests/Bento.Tests/bin/Release/net10.0-windows/Bento.Tests.exe --settings-order-smoke
+      - name: Five-window drag preview regression
+        run: ./tests/Bento.Tests/bin/Release/net10.0-windows/Bento.Tests.exe --preview-smoke
       - uses: actions/upload-artifact@v4
         with:
           name: Bento-windows

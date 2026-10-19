@@ -1,5 +1,13 @@
 # Windows release results — 2026-10-19
 
+## Drag preview and Windows Snap 0.3.12 — validation in progress
+
+Focused CloudPC commit `17d84345561469c0af3c48d7a3973d5447761add` is integrated as `77bc9bb`; transferred source and test blobs match. Drag previews now include every projected target-monitor slot, plus changed source-monitor regions. The moving window has a stronger outline; pooled panels share one dimmer per affected monitor. The existing `SuppressWindowsSnap` preference is exposed in Workspace as “Disable Windows Snap,” using the same restore-on-Off/quit lease. Grips and desktop membership code are unchanged.
+
+The regression first failed against released behavior with “Expected 2; got 1” (186 passed, one failed). Final CloudPC build has zero warnings/errors; real-desktop native 190/0, portable core 43/0, settings smoke 6/0 and five-window real-desktop preview smoke 6/0. The latter checks all five slots through swap, held split and reentry, native frames unchanged until drop, one shared dimmer below every panel, cleanup, and native pointer hit-through. It also verifies the Workspace toggle against the actual Windows Snap setting and exact restoration on toggle-off, Bento Off and disposal; user preferences were restored afterward.
+
+A new pointer assertion exposed real interception by preview HWNDs lacking the layered style. WPF-owned `AllowsTransparency=true` fixes it; native style/opacity experiments were removed. CloudPC visually inspected the translucent rounded previews; physical mouse routing was not certified. CI and packaged OTA verification remain pending. The installed application and unpublished `76cc4a6` work are preserved.
+
 ## Activation hotfix 0.3.11 — published
 
 Release: https://github.com/AbdullahEgh/Bento-Layout/releases/tag/v0.3.11
