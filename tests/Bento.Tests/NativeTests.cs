@@ -59,8 +59,12 @@ internal static class NativeTests
                     foreach (var nested in Descendants<T>(child)) yield return nested;
                 }
             }
-            Run("Settings have no manual Save button", () => Check(!Descendants<Button>(settings)
-                .Any(b => System.Windows.Automation.AutomationProperties.GetName(b).StartsWith("Save", StringComparison.Ordinal))));
+            Run("Preferences save automatically while session layout has an explicit Save action", () =>
+            {
+                var names = Descendants<Button>(settings).Select(System.Windows.Automation.AutomationProperties.GetName).ToArray();
+                Check(!names.Any(name => name is "Save" or "Save settings" or "Save preferences"));
+                Check(names.Contains("Save for This Session"));
+            });
             Run("Changing a setting saves automatically", () =>
             {
                 var slider = Descendants<Slider>(settings).First();
