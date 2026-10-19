@@ -378,6 +378,34 @@ internal static class NativeTests
                 timeout.Start(); Application.Current!.Run(); return;
             }
             Run("Desktop arrangement keeps the active application focused", () => Equal(foreground, WindowCatalog.Foreground));
+            Run("Delayed native move events restore a managed window dropped in its own slot", () =>
+            {
+                var region = controller.Layout(monitor).Regions.First();
+                var center = new PixelPoint(region.Bounds.X + region.Bounds.Width / 2, region.Bounds.Y + region.Bounds.Height / 2);
+                // Both queued callbacks run after the native window has moved.
+                controller.QueueNativeDrag(region.Window.WindowId, true, center);
+                native.Move(region.Window.WindowId, region.Bounds with { X = region.Bounds.X + 40, Y = region.Bounds.Y + 40 });
+                controller.QueueNativeDrag(region.Window.WindowId, false, center);
+                Pump(); Pump();
+                Equal(region.Bounds, native.VisibleBounds(region.Window.WindowId));
+                Check(!controller.Dragging);
+                VerifyBounds(controller.Layout(monitor), native);
+            });
+            Run("Queued native release uses its captured destination and creates one undo step", () =>
+            {
+                var before = controller.Layout(monitor).Regions.ToArray();
+                var source = before[0]; var target = before[1];
+                var start = new PixelPoint(source.Bounds.X + source.Bounds.Width / 2, source.Bounds.Y + source.Bounds.Height / 2);
+                var release = new PixelPoint(target.Bounds.X + target.Bounds.Width / 2, target.Bounds.Y + target.Bounds.Height / 2);
+                controller.QueueNativeDrag(source.Window.WindowId, true, start);
+                native.Move(source.Window.WindowId, source.Bounds with { X = source.Bounds.X + 40, Y = source.Bounds.Y + 40 });
+                controller.QueueNativeDrag(source.Window.WindowId, false, release);
+                Pump(); Pump();
+                Equal(target.Bounds, native.VisibleBounds(source.Window.WindowId));
+                VerifyBounds(controller.Layout(monitor), native);
+                controller.Undo(); Pump(); Pump();
+                foreach (var region in before) Equal(region.Bounds, native.VisibleBounds(region.Window.WindowId));
+            });
             Run("Desktop arrangement has no blueprint or visible drop preview", () =>
             {
                 Check(!Application.Current!.Windows.OfType<DropPreviewWindow>().Any(w => w.IsVisible));

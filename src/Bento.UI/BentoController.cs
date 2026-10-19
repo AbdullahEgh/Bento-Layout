@@ -478,7 +478,8 @@ public sealed partial class BentoController : IDisposable
         catch (LayoutConstraintException) { Synchronize(rebuild: true); }
         finally { reflowing = false; }
     }
-    private void OnNativeDrag(long id, bool starting) => Dispatch(() =>
+    private void OnNativeDrag(long id, bool starting) => QueueNativeDrag(id, starting, WindowCatalog.Cursor);
+    internal void QueueNativeDrag(long id, bool starting, PixelPoint point) => Dispatch(() =>
     {
         if (!EnsureDesktop()) return;
         if (starting)
@@ -497,8 +498,12 @@ public sealed partial class BentoController : IDisposable
                     foreach (var handle in dividers) handle.Hide();
                     return;
                 }
-                nativeStartBounds = native.VisibleBounds(id);
-                if (native.IsResizeInteraction(id, WindowCatalog.Cursor)) BeginNativeResize(id);
+                // WinEvent delivery and this dispatcher callback can both trail a
+                // quick native move. A managed window's start is its committed
+                // slot, not the already-moved frame observed when we catch up.
+                nativeStartBounds = monitors.SelectMany(m => Layout(m, history.Current).Regions)
+                    .FirstOrDefault(r => r.Window.WindowId == id)?.Bounds ?? native.VisibleBounds(id);
+                if (native.IsResizeInteraction(id, point)) BeginNativeResize(id);
                 else BeginDrag(id);
             }
             catch (Exception ex)
@@ -515,7 +520,7 @@ public sealed partial class BentoController : IDisposable
                 var end = native.VisibleBounds(id);
                 bool changed = Math.Abs(end.X - start.X) > 2 || Math.Abs(end.Y - start.Y) > 2 ||
                     Math.Abs(end.Width - start.Width) > 2 || Math.Abs(end.Height - start.Height) > 2;
-                if (changed) FinishDrag(); else CancelDrag();
+                if (changed) FinishDrag(point); else CancelDrag();
             }
             else CancelDrag();
         }

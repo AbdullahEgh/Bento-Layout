@@ -12,18 +12,21 @@ Baseline: ca56e6e74e9d83d6adaf6cfa9744bc0af5dd84d6, paired Windows 0.3.13 / macO
 | Drop preview acrylic ignored disabled Windows transparency and could retain an old backdrop after preference changes. | Honor the Windows preference, explicitly clear the native backdrop, and provide an opaque, readable contrast fallback. | Code-path review and existing native preview checks; physically changing OS accessibility settings was not part of this run. |
 | Organizing cover was always dark and its spinner ignored reduced-motion/app-animation settings. | Follow OS light/dark/contrast appearance and stop animation when disabled. | Native organizing-cover regression and code-path review. |
 | The shortcut field was below the initial view in Gestures. | Place Keyboard first and use direct Windows Settings headings. | Computer Use screenshot of the visible recorder and actual keyboard interaction. |
+| A quick native caption drag remained outside the layout after release because its queued start sampled the already-moved frame. | Use the committed slot as a managed window's starting frame and capture the native release pointer before dispatch. | Actual physical drag failed before the fix and returned correctly afterward; queued-event regressions cover restoration, destination capture and undo. |
 
 ## Results
 
 - Baseline native tests:192passed,0failed.
 - Revised Release build:0warnings,0errors.
-- Revised native suite with real desktop adapter:195passed,0failed.
+- Final native suite:197passed,0failed, including queued-event restoration, destination capture and undo.
 - Portable core:43passed,0failed.
 - Settings smoke:8passed,0failed. Existing settings were restored after inspection.
 - Five external-process windows:7passed,0failed, including projected slots, split hold, native hit-through, placement and Windows Snap restoration.
 - Physical input through Computer Use: recorded Ctrl+Alt+K, enabled it, observed Off→Active, disabled it, pressed it again and observed Active unchanged. The settings file independently showed disabled with the recorded combination.
 
 Source logs in the owning PC checkout: qa-baseline-native.log, qa-build.log, qa-native.log, qa-core.log, qa-settings-final.log, qa-five.log.
+
+Physical replay used five arranged external windows. Dragging the first caption from relative(200,15) to(400,300) moved it from(8,8,655,551) to(208,293,655,551). Before the fix, it remained displaced six seconds later. After the fix, the native observer recorded the same start/end movement and the frame returned to(8,8,655,551). Evidence: qa-physical-drag-failure.json and qa-physical-drag-fixed.json. Cross-window physical swap could not run because Computer Use rejected the end point outside the source window; no physical swap/long-hold pass is claimed.
 
 ## Remaining QA coverage
 
