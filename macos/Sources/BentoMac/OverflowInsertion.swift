@@ -45,7 +45,7 @@ import BentoCore
         canvas?.toolTip = windows.map { "\($0.application): \($0.title)" }.joined(separator: "\n")
         canvas?.slots = slots(model.history.current)
         canvas?.selected = nil; canvas?.dragged = nil
-        canvas?.needsDisplay = true
+        canvas?.refreshAppearance()
         model.insertingOverflow = true
         if let panel, !panel.isVisible {
             panel.alphaValue = 0; panel.makeKeyAndOrderFront(nil)
@@ -83,20 +83,22 @@ import BentoCore
               model.history.current == snapshot, model.system.isAlive(source) else { return }
         let pointer = DesktopCoordinates.pointer()
         let areas = Dictionary(uniqueKeysWithValues: model.interactionAreas().map { ($0.id, $0.bounds) })
-        candidate = nil; canvas?.selected = nil
+        candidate = nil; canvas?.selected = nil; canvas?.rejected = false
         do {
             // Waiting apps replace one complete slot. No split or reflow is
             // attempted: the old occupant becomes the next minimized candidate.
             for (display, area) in areas where area.contains(pointer) {
                 let regions = try LayoutEngine.calculate(snapshot.roots[display], in: area, gap: model.layoutGap).regions
                 guard let target = regions.first(where: { $0.bounds.contains(pointer) }) else { continue }
+                canvas?.selected = target.bounds; canvas?.rejected = true
                 let next = try snapshot.placing(source.leaf, on: display, target: target.window.id, placement: .center)
-                _ = try LayoutEngine.calculate(next.roots[display], in: area, gap: model.layoutGap)
-                candidate = next; canvas?.selected = target.bounds
+                let result = try LayoutEngine.calculate(next.roots[display], in: area, gap: model.layoutGap)
+                candidate = next; canvas?.rejected = false
+                canvas?.selected = result.regions.first { $0.window.windowID == source.id }?.bounds
             }
         } catch { candidate = nil }
         canvas?.slots = slots(candidate ?? snapshot)
-        canvas?.needsDisplay = true
+        canvas?.refreshAppearance()
     }
     private func end() {
         timer?.invalidate(); timer = nil; update()
@@ -119,6 +121,9 @@ import BentoCore
 @MainActor private final class InsertionCanvas: NSView {
     var windows: [ManagedWindow] = []
     var slots: [Rect] = [], selected: Rect?, dragged: UUID?
+    var rejected = false
+    private var slotViews: [PreviewSlotView] = []
+    private var tileViews: [WaitingTileView] = []
     var begin: ((UUID) -> Void)?, move: (() -> Void)?, end: (() -> Void)?, cancel: (() -> Void)?
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -130,40 +135,50 @@ import BentoCore
         // Keep the queue centered on the pointer's display, not between monitors.
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
         let area = (screen?.frame ?? bounds).offsetBy(dx: -(window?.frame.minX ?? 0), dy: -(window?.frame.minY ?? 0))
-        let columns = max(1, min(windows.count, Int(area.width / 100)))
+        let columns = max(1, min(windows.count, Int(area.width / 124)))
         let rows = max(1, (windows.count + columns - 1) / columns)
         return windows.enumerated().map { index, window in
             let row = index / columns, col = index % columns
             let count = min(columns, windows.count - row * columns)
-            return (window, NSRect(x: area.midX - CGFloat(count * 96) / 2 + CGFloat(col * 96) + 7,
-                                  y: area.midY + CGFloat(rows * 96) / 2 - CGFloat((row + 1) * 96) + 7, width: 82, height: 82))
+            return (window, NSRect(x: area.midX - CGFloat(count * 124) / 2 + CGFloat(col * 124) + 7,
+                                  y: area.midY + CGFloat(rows * 124) / 2 - CGFloat((row + 1) * 124) + 7, width: 110, height: 110))
         }
     }
-    override func draw(_ dirtyRect: NSRect) {
-        NSColor.black.withAlphaComponent(0.48).setFill(); bounds.fill()
-        if dragged != nil {
-            for slot in slots {
-                let r = local(slot).insetBy(dx: 1, dy: 1)
-                let active = slot == selected
-                NSColor.white.withAlphaComponent(active ? 0.22 : 0.035).setFill()
-                let path = NSBezierPath(roundedRect: r, xRadius: 12, yRadius: 12); path.fill()
-                NSColor.white.withAlphaComponent(active ? 0.65 : 0.15).setStroke(); path.lineWidth = 1; path.stroke()
-            }
+    func refreshAppearance() {
+        let shownSlots = dragged == nil ? [] : slots
+        while slotViews.count < shownSlots.count {
+            let view = PreviewSlotView(); addSubview(view); slotViews.append(view)
         }
-        for (app, tile) in tiles where dragged == nil || dragged == app.id {
+        for (index, view) in slotViews.enumerated() {
+            view.isHidden = index >= shownSlots.count
+            guard index < shownSlots.count else { continue }
+            view.frame = local(shownSlots[index])
+            view.primary = shownSlots[index] == selected
+            view.conflict = view.primary && rejected
+        }
+        let shownTiles = tiles.filter { dragged == nil || dragged == $0.0.id }
+        while tileViews.count < shownTiles.count {
+            let view = WaitingTileView(); addSubview(view); tileViews.append(view)
+        }
+        for (index, view) in tileViews.enumerated() {
+            view.isHidden = index >= shownTiles.count
+            guard index < shownTiles.count else { continue }
+            let (app, tile) = shownTiles[index]
             var rect = tile
             if dragged == app.id {
                 let point = convert(window?.convertPoint(fromScreen: NSEvent.mouseLocation) ?? .zero, from: nil)
-                rect.origin = NSPoint(x: point.x - 41, y: point.y - 41)
+                rect.origin = NSPoint(x: point.x - 55, y: point.y - 55)
             }
-            NSColor.white.withAlphaComponent(0.16).setFill()
-            NSBezierPath(roundedRect: rect, xRadius: 16, yRadius: 16).fill()
-            let icon = NSRunningApplication(processIdentifier: app.pid)?.icon ?? NSImage(named: NSImage.applicationIconName)
-            icon?.draw(in: NSRect(x: rect.minX + 19, y: rect.minY + 26, width: 44, height: 44))
-            let textStyle = NSMutableParagraphStyle(); textStyle.alignment = .center; textStyle.lineBreakMode = .byTruncatingTail
-            (app.title as NSString).draw(in: NSRect(x: rect.minX + 5, y: rect.minY + 6, width: 72, height: 15),
-                withAttributes: [.font: NSFont.systemFont(ofSize: 10), .foregroundColor: NSColor.white.withAlphaComponent(0.9), .paragraphStyle: textStyle])
+            view.frame = rect
+            view.icon.image = NSRunningApplication(processIdentifier: app.pid)?.icon ?? NSImage(named: NSImage.applicationIconName)
+            view.label.stringValue = app.title
+            addSubview(view, positioned: .above, relativeTo: nil)
         }
+        needsDisplay = true
+    }
+    override func hitTest(_ point: NSPoint) -> NSView? { bounds.contains(point) ? self : nil }
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.black.withAlphaComponent(0.48).setFill(); bounds.fill()
     }
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
@@ -173,4 +188,24 @@ import BentoCore
     override func mouseDragged(with event: NSEvent) { if dragged != nil { move?() } }
     override func mouseUp(with event: NSEvent) { if dragged != nil { end?() } }
     override func keyDown(with event: NSEvent) { if event.keyCode == 53 { cancel?() } else { super.keyDown(with: event) } }
+}
+
+@MainActor private final class WaitingTileView: NSView {
+    private let frost = BentoFrostView(radius: 20)
+    let icon = NSImageView()
+    let label = NSTextField(labelWithString: "")
+    init() {
+        super.init(frame: .zero)
+        addSubview(frost); addSubview(icon); addSubview(label)
+        icon.imageScaling = .scaleProportionallyUpOrDown
+        label.alignment = .center; label.lineBreakMode = .byTruncatingTail
+        label.font = .systemFont(ofSize: 10); label.textColor = .white
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
+    override func layout() {
+        super.layout()
+        frost.frame = bounds
+        icon.frame = NSRect(x: 15, y: 25, width: 80, height: 80)
+        label.frame = NSRect(x: 6, y: 6, width: 98, height: 15)
+    }
 }

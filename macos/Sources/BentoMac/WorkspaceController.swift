@@ -74,6 +74,12 @@ struct MacSettings: Codable {
         if value && !active { await arrange(resuming: lastBento != nil) }
         guard active, pinned != value else { return }
         if !value {
+            activating = true
+            let generation = activationGeneration
+            defer {
+                activating = false
+                onStateChange?()
+            }
             // Native edits during Pause are temporary. Restore the saved tree
             // before admitting interaction again; never derive it from moved frames.
             do {
@@ -82,10 +88,19 @@ struct MacSettings: Codable {
                         try system.setMinimized(window, false)
                     }
                 }
+                try await settleDesktopSpace()
+                let retained = pinnedWindowIDs.compactMap { originals[$0]?.0 }.filter { system.isAlive($0) }
+                for _ in 0..<40 {
+                    if retained.allSatisfy({ !system.isMinimized($0) }) && !system.hasMissingVisibleWindows(retained) { break }
+                    guard generation == activationGeneration, desktopIsCurrent(), !shuttingDown else { throw LayoutError.invalidInput }
+                    try await Task.sleep(for: .milliseconds(30))
+                }
+                guard retained.allSatisfy({ !system.isMinimized($0) }) && !system.hasMissingVisibleWindows(retained) else { throw WindowFailure.workAreaChanged }
                 windows = try discoverWindows()
+                for window in retained where !windows.contains(where: { $0.id == window.id }) { windows.append(window) }
                 let members = windows.filter { pinnedWindowIDs.contains($0.id) }
-                let restored = history.current.reconciled(with: members.map(\.leaf))
                 let areas = displayAreas()
+                let restored = history.current.reconciled(with: members.map(\.leaf))
                 try await apply(restored, displays: areas, learnMinimum: false)
                 history.commit(restored); lastDisplays = areas
                 pendingDrift = nil; driftSamples = 0
@@ -465,6 +480,7 @@ struct MacSettings: Codable {
             let geometryChanged = oldGap != settings.gap || oldMargin != settings.margin
             let requestedGap = settings.gap, requestedMargin = settings.margin
             layoutGap = requestedGap; layoutMargin = requestedMargin
+            if pinned { return } // Keep paused native edits untouched; Resume uses these settings and the settled area.
             if geometryChanged || desktopChanged || overflowChanged {
                 activating = false
                 if !(await arrange(preserving: true, skipRefusingWindows: false)) && geometryChanged {
@@ -729,7 +745,7 @@ struct MacSettings: Codable {
             }
             // Production activation measures hidden native constraints first and
             // applies one final plan. Existing desktop reflows retain bounded recovery.
-            let attemptLimit = preparation == nil ? 2 : 0
+            let attemptLimit = preparation == nil ? 2 : current.count + 1
             var excluded = preparation?.excluded ?? Set<UUID>()
             for attempt in 0...attemptLimit {
                 guard generation == activationGeneration else { return false }
@@ -830,8 +846,9 @@ struct MacSettings: Codable {
                 attemptedInput = arrangementInput(current, areas: displays)
                 // One coordinated transition for normal actions; corrections are
                 // bounded final-frame transactions, never repeated visible probing.
-                do { try await apply(next, displays: displays, allowSkipping: true, animate: attempt == 0 && preparation == nil, validateIndividually: wasActive, learnMinimum: !areaChanged, retainForReplan: !wasActive && attempt < attemptLimit, retrySettling: preparation == nil) }
-                catch ArrangementFailure.window(let id) where attempt < attemptLimit && attempt == 0 && skipRefusingWindows && !areaChanged {
+                do { try await apply(next, displays: displays, allowSkipping: true, animate: attempt == 0 && preparation == nil, validateIndividually: wasActive, learnMinimum: !areaChanged, retainForReplan: !wasActive && attempt < attemptLimit, retrySettling: true, retryExactTarget: preparation != nil) }
+                catch ArrangementFailure.window(let id) where attempt < attemptLimit && (attempt == 0 || preparation != nil) && skipRefusingWindows && !areaChanged {
+                    trace?("native slot refusal excluded under organizing cover=\(preparation != nil)")
                     excluded.insert(id); continue
                 }
                 catch WindowFailure.minimumSize where attempt < attemptLimit {
@@ -913,7 +930,7 @@ struct MacSettings: Codable {
         }
         return false
     }
-    func apply(_ workspace: Workspace, displays: [DisplayArea], allowSkipping: Bool = false, liveResize: Bool = false, animate: Bool = true, validateIndividually: Bool = true, returning: Bool = false, learnMinimum: Bool = true, retainForReplan: Bool = false, retrySettling: Bool = true) async throws {
+    func apply(_ workspace: Workspace, displays: [DisplayArea], allowSkipping: Bool = false, liveResize: Bool = false, animate: Bool = true, validateIndividually: Bool = true, returning: Bool = false, learnMinimum: Bool = true, retainForReplan: Bool = false, retrySettling: Bool = true, retryExactTarget: Bool = false) async throws {
         guard !busy, desktopIsCurrent() else { throw LayoutError.invalidInput }; busy = true; defer { busy = false }
         guard displayAreas() == displays else { throw WindowFailure.workAreaChanged }
         let restoreAXMode = system.beginFrameAdjustment(windows)
@@ -980,7 +997,7 @@ struct MacSettings: Codable {
                 await Task.yield()
                 return
             }
-            await settle(plan, retry: retrySettling, displays: displays)
+            await settle(plan, retry: retrySettling, displays: displays, retryExactTarget: retryExactTarget)
             guard displayAreas() == displays else { throw WindowFailure.workAreaChanged }
             try validate(plan, allowSkipping: allowSkipping, learnMinimum: learnMinimum)
         } catch {
@@ -1083,7 +1100,7 @@ struct MacSettings: Codable {
             throw WindowFailure.rejected(first.0.title)
         }
     }
-    private func settle(_ plan: [(ManagedWindow, Rect)], retry: Bool = true, displays: [DisplayArea]? = nil) async {
+    private func settle(_ plan: [(ManagedWindow, Rect)], retry: Bool = true, displays: [DisplayArea]? = nil, retryExactTarget: Bool = false) async {
         // AX writes may return before a remote app finishes its native animation.
         // Wait for two accepted samples and retry a contained target once after the
         // intermediate writes have drained. Never learn minima from a moving frame.
@@ -1110,7 +1127,7 @@ struct MacSettings: Codable {
                     let fitted = NativeFrameFit.inwardTarget(actual: actual, slot: target)
                     // Never repeat the target an app has already refused. Only
                     // a different inward target can solve whole-cell rounding.
-                    if fitted != target { try? system.write(window, frame: fitted) }
+                    if fitted != target || retryExactTarget { try? system.write(window, frame: fitted) }
                 }
             }
         }

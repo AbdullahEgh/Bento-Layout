@@ -121,7 +121,7 @@ public struct DropSession {
     public private(set) var conflictBounds: Rect?
     private var intent = DragIntent()
     private struct GeometryKey: Equatable { let display: String; let target: UUID?; let placement: Placement; var section = false }
-    private struct Geometry { let workspace: Workspace; let bounds: Rect; let neighbors: [Rect] }
+    private struct Geometry { let workspace: Workspace; let bounds: Rect; let neighbors: [Rect]; var placement: Placement? = nil }
     private var cachedAreas: [String: Rect] = [:]
     private var cachedGap: Int?
     private var layouts: [String: LayoutResult] = [:]
@@ -183,24 +183,48 @@ public struct DropSession {
         let key = GeometryKey(display: display, target: target?.window.id, placement: placement)
         if geometryKey != key {
             geometryKey = key; geometry = nil; cachedConflict = nil; geometryBuildCount += 1
-            let next = try original.placing(source, on: display, target: target?.window.id, placement: placement)
-            var destination: Rect?, neighbors: [Rect] = []
-            do {
-                for id in next.roots.keys.sorted() {
-                    guard let workArea = areas[id], let node = next.roots[id] else { throw LayoutError.missingTarget }
-                    let before = Dictionary(uniqueKeysWithValues: (layouts[id]?.regions ?? []).map { ($0.window.windowID, $0.bounds) })
-                    for region in try LayoutEngine.calculate(node, in: workArea, gap: gap).regions {
-                        if region.window.windowID == source.windowID { destination = region.bounds }
-                        else if before[region.window.windowID] != region.bounds { neighbors.append(region.bounds) }
+            var bases = [original]
+            var placements = [placement]
+            if floating && target != nil && gesture.placement == .center {
+                placements.append(placement == .right ? .bottom : .right)
+            }
+            search: for direction in placements {
+                var baseIndex = 0
+                while baseIndex < bases.count {
+                    let base = bases[baseIndex]; baseIndex += 1
+                    let next = try base.placing(source, on: display, target: target?.window.id, placement: direction)
+                    var destination: Rect?, neighbors: [Rect] = []
+                    do {
+                        for id in next.roots.keys.sorted() {
+                            guard let workArea = areas[id], let node = next.roots[id] else { throw LayoutError.missingTarget }
+                            let before = Dictionary(uniqueKeysWithValues: (layouts[id]?.regions ?? []).map { ($0.window.windowID, $0.bounds) })
+                            for region in try LayoutEngine.calculate(node, in: workArea, gap: gap).regions {
+                                if region.window.windowID == source.windowID { destination = region.bounds }
+                                else if before[region.window.windowID] != region.bounds { neighbors.append(region.bounds) }
+                            }
+                        }
+                        guard let destination else { throw LayoutError.missingTarget }
+                        geometry = Geometry(workspace: next, bounds: destination, neighbors: neighbors, placement: direction)
+                        break search
+                    } catch LayoutError.cannotFit {
+                        if baseIndex == 1 && bases.count == 1 {
+                            if let root = original.roots[display], let area = areas[display] {
+                                for handle in try ResizeHandles.calculate(root, in: area, gap: gap) {
+                                    var alternate = original; alternate.roots[display] = handle.root
+                                    if !bases.contains(alternate) { bases.append(alternate) }
+                                }
+                            }
+                        }
+                        continue
                     }
                 }
-                guard let destination else { throw LayoutError.missingTarget }
-                geometry = Geometry(workspace: next, bounds: destination, neighbors: neighbors)
-            } catch LayoutError.cannotFit { cachedConflict = targetBounds }
+            }
+            if geometry == nil { cachedConflict = targetBounds }
+
         }
         conflictBounds = cachedConflict
         guard let geometry else { return nil }
-        return DropProposal(workspace: geometry.workspace, bounds: geometry.bounds, placement: placement, neighbors: geometry.neighbors,
+        return DropProposal(workspace: geometry.workspace, bounds: geometry.bounds, placement: geometry.placement ?? placement, neighbors: geometry.neighbors,
                             progress: gesture.progress, waitingForSplit: gesture.waitingForSplit)
     }
 }

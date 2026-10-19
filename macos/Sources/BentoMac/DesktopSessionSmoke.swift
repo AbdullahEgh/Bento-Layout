@@ -111,6 +111,24 @@ import BentoCore
         try check([first, second].allSatisfy { system.frame(of: $0.element) == savedFrames[$0.id] },
             "Resume restores the saved positions and sizes after temporary paused edits")
         try check(model.history.current == pinned && system.isMinimized(incoming), "Unpinning minimizes floating windows and preserves the pinned layout")
+        let resumeArea = model.displayAreas()[0]
+        system.areaOverride = [DisplayArea(id: resumeArea.id, name: resumeArea.name,
+            bounds: Rect(resumeArea.bounds.x, resumeArea.bounds.y + 30, resumeArea.bounds.width, resumeArea.bounds.height - 90))]
+        await model.arrange(preserving: true)
+        await model.setPinned(true)
+        let pausedTree = model.history.current
+        let expanded = resumeArea
+        system.areaOverride = [expanded]; system.writes.removeAll()
+        await model.applyLiveSettings(); model.tick()
+        try check(model.pinned && model.history.current == pausedTree && system.writes.isEmpty,
+            "Hidden shell area changes during Pause do not move saved Bento windows")
+        await model.setPinned(false)
+        let resumedRegions = try LayoutEngine.calculate(model.history.current.roots[expanded.id], in: expanded.bounds, gap: model.layoutGap).regions
+        try check(!model.pinned && model.history.current == pausedTree && resumedRegions.allSatisfy { region in
+            system.records.first(where: { $0.0.id == region.window.windowID }).map { system.accepted($0.0, region.bounds) } == true
+        }, "Resume fills the expanded hidden-shell area using the same saved split tree")
+        system.areaOverride = nil
+        await model.arrange(preserving: true)
         let compactArea = model.displayAreas()[0]
         let originalTree = model.history.current
         system.areaOverride = [DisplayArea(id: compactArea.id, name: compactArea.name,

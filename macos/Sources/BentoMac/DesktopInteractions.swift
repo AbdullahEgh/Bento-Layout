@@ -527,10 +527,13 @@ struct DesktopInput {
         transitions = panels.enumerated().map { index, panel in
             let destination = index < rectangles.count ? DesktopCoordinates.appKit(rectangles[index]) : panel.frame
             if !panel.isVisible && index < rectangles.count {
-                panel.alphaValue = 0; panel.setFrame(destination.insetBy(dx: 5, dy: 5), display: true); panel.orderFrontRegardless()
+                panel.alphaValue = 0; panel.setFrame(destination, display: true); panel.orderFrontRegardless()
             }
             if index < rectangles.count, let dim = dimPanels.last(where: \.isVisible) { panel.order(.above, relativeTo: dim.windowNumber) }
-            return Transition(panel: panel, from: panel.frame, to: destination, alpha: panel.alphaValue, targetAlpha: index < rectangles.count ? 1 : 0)
+            // Panel order changes when selection changes; never animate an indexed
+            // panel across unrelated slots. Geometry always matches the drop result.
+            if index < rectangles.count { panel.setFrame(destination, display: true) }
+            return Transition(panel: panel, from: destination, to: destination, alpha: panel.alphaValue, targetAlpha: index < rectangles.count ? 1 : 0)
         }
         orderLayers()
         started = ProcessInfo.processInfo.systemUptime
@@ -623,6 +626,7 @@ struct DesktopInput {
     private let outline = CALayer()
     var isSplitting: Bool { !conflict && !swapsSections && (placement != .center || progress != nil) }
     var materialKind: BentoFrostView.Kind { frost.kind }
+    var materialBounds: NSRect { frost.frame }
     // Fixture overrides exercise both native glass and the macOS 15 / accessibility fallback.
     init(frame: NSRect = .zero, allowGlass: Bool = true, reduceTransparency: Bool? = nil) {
         frost = BentoFrostView(radius: 18, allowGlass: allowGlass, reduceTransparency: reduceTransparency)
@@ -638,7 +642,7 @@ struct DesktopInput {
     override func setFrameSize(_ newSize: NSSize) { super.setFrameSize(newSize); updateGeometry() }
     private func updateGeometry() {
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        let frame = NSRect(x: 6, y: 6, width: max(0, bounds.width - 12), height: max(0, bounds.height - 12))
+        let frame = bounds
         frost.frame = frame
         outline.frame = NSRect(origin: .zero, size: frame.size).insetBy(dx: 0.5, dy: 0.5)
         CATransaction.commit()

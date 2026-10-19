@@ -19,6 +19,13 @@ import BentoCore
             softPreview.presentConflict(allPreviewSlots[1], slots: allPreviewSlots, belowWindow: draggedPanel.windowNumber)
             try check(softPreview.visibleSlotFrames.count == 3 && softPreview.selectedSlotCount == 1,
                 "Selecting a destination keeps unchanged slots visible and highlights only the selected slot")
+            softPreview.animate = true
+            softPreview.presentConflict(allPreviewSlots[2], slots: allPreviewSlots, belowWindow: draggedPanel.windowNumber)
+            try check(softPreview.visibleSlotFrames.count == allPreviewSlots.count && allPreviewSlots.allSatisfy { softPreview.visibleSlotFrames.contains($0) },
+                "Changing selected slots never moves previews through unrelated positions")
+            let exactSlot = PreviewSlotView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+            try check(exactSlot.materialBounds == exactSlot.bounds,
+                "Slot material fills the exact native window bounds without an inset")
             // WindowServer publishes newly ordered windows after AppKit flushes
             // the current event. Wait for those fixture panels, then check order.
             var previewOrder: [Int] = []

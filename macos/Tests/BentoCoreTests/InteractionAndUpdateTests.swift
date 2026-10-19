@@ -3,6 +3,58 @@ import CryptoKit
 @testable import BentoCore
 
 final class InteractionAndUpdateTests: XCTestCase {
+    func testFloatingDropTriesOtherSplitAxisBeforeRejecting() throws {
+        let a = WindowLeaf(windowID: UUID(), minimum: Size(500, 120))
+        let b = WindowLeaf(windowID: UUID(), minimum: Size(500, 120))
+        var session = DropSession(workspace: Workspace(roots: ["A": .window(a)]), source: b)
+        let proposal = try XCTUnwrap(session.propose(pointer: Point(400, 300), areas: ["A": Rect(0, 0, 800, 600)], gap: 8, hold: 900, now: 0))
+        XCTAssertEqual(proposal.placement, .bottom)
+        XCTAssertEqual(proposal.workspace.windows.count, 2)
+        XCTAssertNil(session.conflictBounds)
+    }
+    func testUnequalSlotsSwapWhenBothWindowConstraintsFit() throws {
+        let a = WindowLeaf(windowID: UUID(), minimum: Size(400, 150))
+        let b = WindowLeaf(windowID: UUID(), minimum: Size(200, 150))
+        let root = LayoutNode.split(id: UUID(), axis: .horizontal, ratio: 0.7, first: .window(a), second: .window(b))
+        let state = Workspace(roots: ["A": root]), area = Rect(0, 0, 1000, 600)
+        var session = DropSession(workspace: state, source: a)
+        let proposal = try XCTUnwrap(session.propose(pointer: Point(850, 300), areas: ["A": area], gap: 8, hold: 900, now: 0))
+        let regions = try LayoutEngine.calculate(proposal.workspace.roots["A"], in: area, gap: 8).regions
+        XCTAssertEqual(regions.first?.window.windowID, b.windowID)
+        XCTAssertEqual(regions.last?.window.windowID, a.windowID)
+        XCTAssertGreaterThanOrEqual(regions.last!.bounds.width, a.minimum.width)
+    }
+    func testAlignedSlotsCanSplitThroughEquivalentRows() throws {
+        let a = WindowLeaf(windowID: UUID(), minimum: Size(450, 100))
+        let b = WindowLeaf(windowID: UUID(), minimum: Size(100, 350))
+        let c = WindowLeaf(windowID: UUID(), minimum: Size(100, 350))
+        let d = WindowLeaf(windowID: UUID(), minimum: Size(450, 100))
+        let incoming = WindowLeaf(windowID: UUID(), minimum: Size(600, 100))
+        let left = LayoutNode.split(id: UUID(), axis: .vertical, ratio: 0.5, first: .window(a), second: .window(b))
+        let right = LayoutNode.split(id: UUID(), axis: .vertical, ratio: 0.5, first: .window(c), second: .window(d))
+        let state = Workspace(roots: ["A": .split(id: UUID(), axis: .horizontal, ratio: 0.5, first: left, second: right)])
+        var session = DropSession(workspace: state, source: incoming)
+        let proposal = try XCTUnwrap(session.propose(pointer: Point(250, 200), areas: ["A": Rect(0, 0, 1008, 808)], gap: 8, hold: 900, now: 0))
+        XCTAssertEqual(proposal.placement, .bottom)
+        XCTAssertEqual(proposal.workspace.windows.count, 5)
+    }
+    func testAlignedUnequalColumnsCanSwapThroughEquivalentRows() throws {
+        let a = WindowLeaf(windowID: UUID(), minimum: Size(650, 150))
+        let b = WindowLeaf(windowID: UUID(), minimum: Size(650, 550))
+        let c = WindowLeaf(windowID: UUID(), minimum: Size(200, 150))
+        let d = WindowLeaf(windowID: UUID(), minimum: Size(250, 550))
+        let left = LayoutNode.split(id: UUID(), axis: .vertical, ratio: 0.25, first: .window(a), second: .window(b))
+        let right = LayoutNode.split(id: UUID(), axis: .vertical, ratio: 0.25, first: .window(c), second: .window(d))
+        let state = Workspace(roots: ["A": .split(id: UUID(), axis: .horizontal, ratio: 0.7, first: left, second: right)])
+        let area = Rect(0, 0, 1008, 808)
+        let oldSwap = try state.placing(a, on: "A", target: c.id, placement: .center)
+        XCTAssertThrowsError(try LayoutEngine.calculate(oldSwap.roots["A"], in: area, gap: 8))
+        var session = DropSession(workspace: state, source: a)
+        let proposal = try XCTUnwrap(session.propose(pointer: Point(850, 100), areas: ["A": area], gap: 8, hold: 900, now: 0))
+        XCTAssertEqual(proposal.placement, .center)
+        XCTAssertEqual(proposal.workspace.windows.count, 4)
+        XCTAssertGreaterThanOrEqual(proposal.bounds.width, 650)
+    }
     func testStatusHoldConsumesReleaseAndFiresOnce() {
         var press = StatusPress()
         press.begin(at: 1)
