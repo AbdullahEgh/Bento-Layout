@@ -76,7 +76,7 @@ struct SettingsView: View {
             BentoCard {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack { Circle().fill(!model.permission ? .orange : model.active ? BentoStyle.accent : BentoStyle.secondary).frame(width: 8, height: 8); Text(!model.permission ? "Accessibility access needed" : model.active ? (model.pinned ? "Bento is paused on this desktop" : "Bento is arranging this desktop") : "Bento is off on this desktop").font(.system(size: 14, weight: .medium)); Spacer() }
-                    Text(model.active ? "\(model.history.current.windows.count) arranged · \(model.minimizedByBento.count) minimized · \(model.floatingWindows.count - model.minimizedByBento.count) outside layout · \(model.settings.shortcut.label)" : "\(model.windows.count) available windows · \(model.settings.shortcut.label)").font(.system(size: 12)).foregroundStyle(BentoStyle.secondary)
+                    Text(model.active ? "\(model.history.current.windows.count) arranged · \(model.minimizedByBento.count) minimized · \(model.floatingWindows.filter { !model.system.isMinimized($0) }.count) outside layout · \(model.settings.shortcut.label)" : "\(model.windows.count) available windows · \(model.settings.shortcut.label)").font(.system(size: 12)).foregroundStyle(BentoStyle.secondary)
                     rowLayout {
                         Button {
                             if model.permission { model.toggle() }

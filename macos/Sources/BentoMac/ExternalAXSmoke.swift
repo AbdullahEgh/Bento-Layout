@@ -8,9 +8,14 @@ private final class ExternalFixturePreferences: PreferenceBackend {
     func refresh(_ keys: [PreferenceKey]) {}
 }
 
+@MainActor private final class InsertionAXSystem: MacWindowSystem {
+    var testAreas: [DisplayArea]?
+    override func displayAreas(margin: Int) -> [DisplayArea] { testAreas ?? super.displayAreas(margin: margin) }
+}
+
 @MainActor enum ExternalAXSmoke {
     static func run(pid: pid_t, output: URL) async throws {
-        let system = MacWindowSystem(allowedPIDs: [pid])
+        let system = InsertionAXSystem(allowedPIDs: [pid])
         var settings = MacSettings(); settings.onboardingComplete = true
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let preferences = ActivationOverrides(backend: ExternalFixturePreferences(), journal: output.appendingPathComponent("fixture-preferences.json"))
@@ -84,6 +89,34 @@ private final class ExternalFixturePreferences: PreferenceBackend {
             await model.restore(); try await waitForDiscovery(); await model.toggleLayout()
             try check(try model.history.current == floating && matches() && system.accepted(initial[0], originals[initial[0].id]!), "Real AX resume retains a floating window and edited slot membership")
             await model.restore()
+            try await waitForDiscovery()
+            do {
+            let model = WorkspaceController(system: system, settings: settings, preferences: preferences, persistSettings: { _ in }, backgroundMonitoring: false, trace: { print("INSERT TRACE: \($0)") })
+            let insertionArea = system.displayAreas(margin: model.layoutMargin)[0]
+            system.testAreas = [DisplayArea(id: insertionArea.id, name: insertionArea.name, bounds: Rect(insertionArea.bounds.x, insertionArea.bounds.y, 300, 200))]
+            await model.arrange()
+            print("INSERT COUNTS tiles=\(model.history.current.windows.count) minimized=\(model.minimizedByBento.count) waiting=\(model.waitingForInsertion.count) message=\(model.message ?? "none")")
+            try check(model.history.current.windows.count == 1 && model.minimizedByBento.count == 2,
+                "Real AX queues only non-fitting windows on a small work area")
+            // A person reaches the waiting tiles after Dock minimization completes.
+            for _ in 0..<40 {
+                if model.minimizedByBento.values.allSatisfy({ system.isMinimized($0) }) { break }
+                try await Task.sleep(for: .milliseconds(30))
+            }
+            let snapshot = model.history.current
+            let waiting = model.minimizedByBento.values.first!
+            let previous = snapshot.windows[0]
+            let next = try snapshot.placing(waiting.leaf, on: insertionArea.id, target: previous.id, placement: .center)
+            let inserted = await model.insertOverflow(waiting.id, into: next, from: snapshot)
+            print("INSERT RESULT accepted=\(inserted) waiting=\(model.waitingForInsertion.count) message=\(model.message ?? "none") sourceMin=\(system.isMinimized(waiting))")
+            let target = try LayoutEngine.calculate(next.roots[insertionArea.id], in: system.testAreas![0].bounds, gap: model.layoutGap).regions[0].bounds
+            try check(inserted && system.accepted(waiting, target) && !system.isMinimized(waiting)
+                && model.minimizedByBento[previous.windowID].map { system.isMinimized($0) } == true,
+                "Real AX restores a queued Dock window before replacing and minimizing the occupied slot")
+            try check(model.waitingForInsertion.count == 2,
+                "Real AX retains the remaining and displaced windows in the waiting queue")
+            await model.restore(); system.testAreas = nil
+            }
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
             try JSONSerialization.data(withJSONObject: ["passed": passed, "onlyFixturePID": pid, "realAccessibilityAdapter": true], options: [.prettyPrinted, .sortedKeys]).write(to: output.appendingPathComponent("results.json"))
             print("External Accessibility checks: \(passed.count) passed; only fixture PID \(pid).")

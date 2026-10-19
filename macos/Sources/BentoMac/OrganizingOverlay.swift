@@ -1,13 +1,16 @@
 import AppKit
+import QuartzCore
 
 /// A nonactivating cover: native fitting stays behind a full-display material,
 /// without screenshots, screen-recording permission, or changing application focus.
 @MainActor final class OrganizingOverlay {
     private var panels: [NSPanel] = []
+    private var shownAt = 0.0
     var visibleCount: Int { panels.filter(\.isVisible).count }
 
     func show() async {
-        hide(animated: false)
+        guard panels.isEmpty else { return }
+        shownAt = ProcessInfo.processInfo.systemUptime
         for screen in NSScreen.screens {
             let panel = NSPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             panel.isReleasedWhenClosed = false
@@ -35,7 +38,8 @@ import AppKit
         }
         let animate = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         await NSAnimationContext.runAnimationGroup { context in
-            context.duration = animate ? 0.14 : 0
+            context.duration = animate ? 0.34 : 0
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             for panel in panels { panel.animator().alphaValue = 1 }
         }
         // Present the cover before any window measurements or desktop changes.
@@ -48,11 +52,15 @@ import AppKit
         guard animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             retiring.forEach { $0.orderOut(nil) }; return
         }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.18
-            retiring.forEach { $0.animator().alphaValue = 0 }
-        } completionHandler: {
-            MainActor.assumeIsolated { retiring.forEach { $0.orderOut(nil) } }
+        let delay = max(0, 0.55 - (ProcessInfo.processInfo.systemUptime - shownAt))
+        Task { @MainActor in
+            if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
+            await NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.34
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                retiring.forEach { $0.animator().alphaValue = 0 }
+            }
+            retiring.forEach { $0.orderOut(nil) }
         }
     }
 }

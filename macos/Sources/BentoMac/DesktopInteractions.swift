@@ -30,6 +30,7 @@ struct DesktopInput {
     private var spaceObserver: NSObjectProtocol?
     private var grips: [UUID: GapPanel] = [:]
     private let preview = DestinationPanel()
+    private lazy var overflowInsertion = OverflowInsertion(model: model, changed: { [weak self] in self?.synchronize() })
     private let backdrop = DesktopBackdrop()
     private let pinnedTint = PinnedWindowTint()
     private var wasPressed = false, waitForRelease = false, finishing = false
@@ -103,7 +104,7 @@ struct DesktopInput {
             pending = nil; waitForRelease = true
             grips.values.forEach { $0.ignoresMouseEvents = true; $0.orderOut(nil) }
             model.system.dividerWindowNumbers.removeAll()
-            preview.hideImmediately(); backdrop.hide(animated: false); pinnedTint.hide()
+            preview.hideImmediately(); backdrop.hide(animated: false); pinnedTint.hide(); overflowInsertion.hide()
         } else if !model.desktopIsCurrent() {
             Task { await self.model.desktopDidChange(); self.synchronize() }
         } else if snapshot != nil {
@@ -114,7 +115,12 @@ struct DesktopInput {
         guard !model.shuttingDown else { removeHelpers(); updateSampling(); return }
         overviewMonitor?.connect()
         updateSampling()
-        guard !model.desktopOverviewActive else { return }
+        guard !model.desktopOverviewActive else { overflowInsertion.hide(); return }
+        overflowInsertion.synchronize()
+        if overflowInsertion.visible {
+            grips.values.forEach { $0.orderOut(nil) }; model.system.dividerWindowNumbers.removeAll()
+            preview.hideImmediately(); return
+        }
         guard model.active, model.permission, model.desktopIsCurrent(), !model.switchingDesktop, !model.interacting else { if !model.interacting { removeHelpers() }; return }
         let visible = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
         if model.pinned {
@@ -128,7 +134,7 @@ struct DesktopInput {
         } else { updateGrips(model.history.current, visible: visible); pinnedTint.hide() }
     }
     private func areas() -> [String: Rect] { if let gestureAreas { return gestureAreas }; return Dictionary(uniqueKeysWithValues: model.interactionAreas().map { ($0.id, $0.bounds) }) }
-    private func removeHelpers() { suppressGripsUntilRelease = false; handleCache.removeAll(); model.system.dividerWindowNumbers.removeAll(); resizeHandles.removeAll(); pinnedTint.hide(); grips.values.forEach { $0.orderOut(nil) }; grips.removeAll(); preview.orderOut(nil); backdrop.hide(animated: model.settings.animate) }
+    private func removeHelpers() { overflowInsertion.hide(); suppressGripsUntilRelease = false; handleCache.removeAll(); model.system.dividerWindowNumbers.removeAll(); resizeHandles.removeAll(); pinnedTint.hide(); grips.values.forEach { $0.orderOut(nil) }; grips.removeAll(); preview.orderOut(nil); backdrop.hide(animated: model.settings.animate) }
     private func updateGrips(_ workspace: Workspace, visible: [[String: Any]]? = nil) {
         guard !model.pinned, !model.desktopOverviewActive, !suppressGripsUntilRelease else { return }
         let visible = visible ?? (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? [])
@@ -200,7 +206,7 @@ struct DesktopInput {
         model.system.dividerWindowNumbers = Set(grips.values.map(\.windowNumber))
     }
     func sample() {
-        guard !model.shuttingDown, !model.desktopOverviewActive else { return }
+        guard !model.shuttingDown, !model.desktopOverviewActive, !model.insertingOverflow else { return }
         let state = input(), pressed = state.pressed
         defer { wasPressed = pressed; lastSamplePoint = state.point }
         guard !finishing else { return }

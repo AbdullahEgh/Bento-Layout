@@ -35,12 +35,11 @@ import BentoCore
         }
         try await Task.sleep(for: .milliseconds(150))
         guard isCurrent() else { throw WindowFailure.workAreaChanged }
-        for (window, original) in measured {
+        for (window, _) in measured {
             guard system.applicationHidden(window.pid), let actual = system.frame(of: window.element),
-                  actual.width > 0, actual.height > 0,
-                  actual.width <= original.width, actual.height <= original.height,
-                  actual.width != original.width || actual.height != original.height else {
-                // An unchanged or expanded frame is not proof of a minimum.
+                  actual.width > 0, actual.height > 0 else {
+                // Use this fresh native response, including a window already at
+                // its minimum. Equality with its old frame is not a fitting failure.
                 excluded.insert(window.id); continue
             }
             window.replaceMeasuredMinimum(Size(actual.width, actual.height))
@@ -54,8 +53,7 @@ import BentoCore
         for (window, original) in held where system.isAlive(window) {
             if !included.contains(window.id), system.frame(of: window.element) != original { try? system.write(window, frame: original) }
             if keepOverflow && !included.contains(window.id) {
-                try? system.setMinimized(window, true)
-                if system.isMinimized(window) { overflow.append(window) }
+                overflow.append(window)
             }
         }
         // Reveal once per app. No minimize/restore animation or cached minimized

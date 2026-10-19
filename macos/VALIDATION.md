@@ -1,3 +1,13 @@
+# Waiting overflow insertion and smooth organizing — 2026-10-19
+
+Valid splits are planned before capacity overflow enters the waiting queue. Fresh native measurements accept a window already at its minimum. Capacity overflow has separate ownership from Pause-minimized windows. Centered waiting tiles appear over a black dim layer; dropping a tile replaces one occupied slot, minimizes the displaced window, and returns to the remaining queue. Invalid/stale drops preserve the current layout. The organizing cover fades over 0.34 seconds with a minimum presentation lifetime.
+
+Real AX testing exposed unhide canceling minimization requested while an application was hidden. Overflow minimization now occurs after reveal, under the organizing cover. Replacement waits for native Dock restoration and confirms displacement. Tests use disposable windows and isolated preferences; installed-manager interference was excluded from passing runs.
+
+298 native checks and 19 separate-process Accessibility checks passed on the installed build. These include valid-split admission, small-work-area overflow, native Dock restoration, occupied-slot replacement, remaining/displaced queue membership, stale-drop rejection, and Pause regressions. Evidence: `/tmp/bento-insertion-native/results.json`, `/tmp/bento-external-preparation/results/results.json`. Physical pointer dragging and animation feel have not been fully verified on the installed build.
+
+Installed and opened signed universal 0.2.42 build 161 locally, with Accessibility connected. SHA-256: `2014101726d42a88c01fd7e03958bd724f344b26c45c25a8f06325ce9ffbab96`. Backup: `/Users/abdullah/Library/Application Support/BentoBackups/Bento-before-insertion-20261019-214958.app`. No GitHub push or Windows changes.
+
 # Organizing cover and visible-desktop participation — 2026-10-19
 
 Manual organizing presents a nonactivating, screen-saver-level NSVisualEffectView on every display, with centered “Organizing Bento…” text and gentle appearance/removal. The cover is presented before desktop changes and preparation, and deferred cleanup removes it on success, refusal, cancellation or failure. No screenshot capture or new permission is required. Native material respects macOS accessibility transparency preferences.

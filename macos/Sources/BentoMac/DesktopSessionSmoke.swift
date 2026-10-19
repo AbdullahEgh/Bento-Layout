@@ -309,15 +309,41 @@ import BentoCore
             system.nativeMinimum[record.id] = Size(frame.width, frame.height)
         }
         await prepared.arrange()
-        try check(prepared.active && prepared.history.current.windows.isEmpty && system.minimized.count == system.records.count,
-            "Unmeasurable activation windows minimize to Dock instead of remaining outside Bento")
+        try check(prepared.active && prepared.history.current.windows.count == system.records.count && system.minimized.isEmpty,
+            "Windows already at their measured minimum use feasible splits instead of entering the waiting queue")
         await prepared.restore()
-        try check(system.minimized.isEmpty, "Turning Bento off restores excluded activation windows from Dock")
+        try check(system.minimized.isEmpty, "Turning Bento off preserves original minimization state after fitting all windows")
         let organizing = OrganizingOverlay()
         await organizing.show()
         try check(organizing.visibleCount == NSScreen.screens.count, "Organizing blur covers every connected display")
         organizing.hide(animated: false)
         try check(organizing.visibleCount == 0, "Organizing cover is removed on completion")
+        system.areaOverride = [DisplayArea(id: actualArea.id, name: actualArea.name, bounds: Rect(0, 30, 600, 400))]
+        for (record, _) in system.records { system.nativeMinimum[record.id] = Size(400, 300) }
+        await prepared.arrange()
+        try check(prepared.history.current.windows.count == 1 && prepared.minimizedByBento.count == 2,
+            "Small desktop queues only Bento-owned overflow for explicit insertion")
+        let beforeInsertion = prepared.history.current
+        let waiting = prepared.minimizedByBento.values.first!
+        let target = beforeInsertion.windows[0]
+        let replacement = try beforeInsertion.placing(waiting.leaf, on: actualArea.id, target: target.id, placement: .center)
+        let inserted = await prepared.insertOverflow(waiting.id, into: replacement, from: beforeInsertion)
+        try check(inserted && prepared.history.current.windows.count == 1
+            && prepared.history.current.windows[0].windowID == waiting.id
+            && !system.isMinimized(waiting) && system.minimized.contains(target.windowID),
+            "Dropping a queued app replaces exactly one slot and minimizes its previous occupant")
+        try check(prepared.minimizedByBento.count == 2 && prepared.minimizedByBento[target.windowID] != nil,
+            "Remaining overflow and the displaced app return to the insertion queue")
+        let queue = OverflowInsertion(model: prepared, changed: {})
+        queue.synchronize()
+        try check(queue.visible && prepared.insertingOverflow, "Waiting tiles reopen above the layout after insertion")
+        queue.hide()
+        try check(!prepared.insertingOverflow, "Leaving insertion restores normal Bento interactions")
+        let untouched = system.writes
+        let staleInsertion = await prepared.insertOverflow(target.windowID, into: beforeInsertion, from: beforeInsertion)
+        try check(!staleInsertion && system.writes == untouched, "A stale insertion cannot change the current layout or restore a Dock app")
+        await prepared.restore()
+        system.areaOverride = previousAreas
         system.hiddenPreparation = false; system.nativeMinimum.removeAll()
         for (record, _) in system.records { record.minimum = Size(160, 120) }
         return passed

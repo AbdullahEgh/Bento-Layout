@@ -120,12 +120,14 @@ struct MacSettings: Codable {
     @Published var interacting = false
     private let organizingOverlay = OrganizingOverlay()
     @Published var activating = false
+    var insertingOverflow = false
     @Published var windows: [ManagedWindow] = []
     @Published var message: String?
     @Published var page = "Workspace"
     private(set) var history = LayoutHistory()
     private var originals: [UUID: (ManagedWindow, Rect)] = [:]
     private(set) var minimizedByBento: [UUID: ManagedWindow] = [:]
+    private(set) var waitingForInsertion = Set<UUID>()
     private var reopenedWindows = Set<UUID>()
     private var floatingForSize = Set<UUID>()
     private var interactionSequence = 0
@@ -199,6 +201,7 @@ struct MacSettings: Codable {
         var windows: [ManagedWindow]
         var originals: [UUID: (ManagedWindow, Rect)]
         var minimized: [UUID: ManagedWindow]
+        var waiting: Set<UUID>
         var released: Set<UUID>
         var floating: Set<UUID>
         var saved: Workspace?
@@ -247,7 +250,7 @@ struct MacSettings: Codable {
         reserveFullScreenSlots()
         if let currentDesktop {
             desktopSessions[currentDesktop] = DesktopSession(active: active, history: history, windows: windows,
-                originals: originals, minimized: minimizedByBento, released: released, floating: floatingForSize,
+                originals: originals, minimized: minimizedByBento, waiting: waitingForInsertion, released: released, floating: floatingForSize,
                 saved: savedSessionLayout, remembered: lastBento, areaLayout: areaLayout, areaLayoutAreas: areaLayoutAreas, lastReleased: lastReleased, lastMinimized: lastMinimized,
                 edited: editedLayout, pinned: pinned, pinnedIDs: pinnedWindowIDs, displays: lastDisplays,
                 hideDock: settings.hideDock, hideMenu: settings.hideMenuBar,
@@ -258,6 +261,7 @@ struct MacSettings: Codable {
         fullScreenLayout = session?.fullScreenLayout; fullScreenWindows = session?.fullScreenWindows ?? [:]
         active = session?.active ?? false; history = session?.history ?? LayoutHistory()
         windows = session?.windows ?? []; originals = session?.originals ?? [:]
+        waitingForInsertion = session?.waiting ?? []
         minimizedByBento = session?.minimized ?? [:]; released = session?.released ?? []
         floatingForSize = session?.floating ?? []; savedSessionLayout = session?.saved
         lastBento = session?.remembered; areaLayout = session?.areaLayout; areaLayoutAreas = session?.areaLayoutAreas ?? []; lastReleased = session?.lastReleased ?? []
@@ -557,6 +561,7 @@ struct MacSettings: Codable {
             reopenedWindows.formUnion(visibleIDs.subtracting(Set(windows.map(\.id))).filter { canArrangeWindow($0) })
         }
         observeFocus(in: visible)
+        waitingForInsertion.subtract(visibleIDs)
         for (id, window) in minimizedByBento {
             guard system.isAlive(window) else { minimizedByBento.removeValue(forKey: id); continue }
             if visibleIDs.contains(id) && !system.isMinimized(window) {
@@ -572,7 +577,7 @@ struct MacSettings: Codable {
         for window in current where canArrangeWindow(window.id) && !included.contains(window.id) && minimizedByBento[window.id] == nil && !floatingForSize.contains(window.id) {
             // Only own minimizations made by Bento, never those made before activation.
             guard !system.isMinimized(window) else { continue }
-            do { try system.setMinimized(window, true); minimizedByBento[window.id] = window }
+            do { try system.setMinimized(window, true); minimizedByBento[window.id] = window; waitingForInsertion.insert(window.id) }
             catch { /* Unsupported windows stay visible; other apps still arrange. */ }
         }
     }
@@ -583,6 +588,7 @@ struct MacSettings: Codable {
         }
         try? await Task.sleep(for: .milliseconds(150))
         minimizedByBento = minimizedByBento.filter { system.isAlive($0.value) && system.isMinimized($0.value) }
+        waitingForInsertion.formIntersection(Set(minimizedByBento.keys))
         return minimizedByBento.count
     }
     func deferActivationUntilPermission() { activateAfterPermission = true }
@@ -624,13 +630,16 @@ struct MacSettings: Codable {
         return windows.filter { !tiled.contains($0.id) }
     }
     @discardableResult func arrange(preserving: Bool = false, resuming: Bool = false, automatic: Bool = false, skipRefusingWindows: Bool = true) async -> Bool {
-        guard !pinned, !shuttingDown, !system.fullScreenSpace, !desktopOverviewActive, !busy, !interacting, !activating, desktopIsCurrent() else { return false }
+        guard !pinned, !shuttingDown, !system.fullScreenSpace, !desktopOverviewActive, !busy, !interacting, !activating, desktopIsCurrent() else {
+            if !automatic { trace?("arrangement deferred paused=\(pinned) shutdown=\(shuttingDown) fullScreen=\(system.fullScreenSpace) overview=\(desktopOverviewActive) busy=\(busy) interacting=\(interacting) activating=\(activating) currentDesktop=\(desktopIsCurrent())") }
+            return false
+        }
         if automatic && system.pointerPressed { return false }
-        activating = true; defer { activating = false }
+        activating = true; defer { activating = false; onStateChange?() }
         let previousWindows = windows
         let generation = activationGeneration
         let wasActive = active
-        let showOrganizing = backgroundMonitoring && !automatic
+        let showOrganizing = backgroundMonitoring && !automatic && (!wasActive || !preserving)
         if showOrganizing { await organizingOverlay.show() }
         defer { if showOrganizing { organizingOverlay.hide() } }
         guard generation == activationGeneration, desktopIsCurrent(), !shuttingDown else { return false }
@@ -853,9 +862,7 @@ struct MacSettings: Codable {
                     }
                 }
                 if let stage = preparation {
-                    for window in stage.finish(included: included, keepOverflow: settings.minimizeOverflow) {
-                        minimizedByBento[window.id] = window
-                    }
+                    let pendingOverflow = stage.finish(included: included, keepOverflow: settings.minimizeOverflow)
                     // Unhide and WindowServer visibility are asynchronous. Do not
                     // hand the revealed layout to membership polling until its
                     // included windows have appeared; this never resizes them.
@@ -863,6 +870,14 @@ struct MacSettings: Codable {
                     for _ in 0..<20 {
                         if !system.hasMissingVisibleWindows(revealed) { break }
                         try? await Task.sleep(for: .milliseconds(30))
+                    }
+                    // Minimize only after unhide completes: unhide can cancel a
+                    // minimization requested while the application was concealed.
+                    for window in pendingOverflow {
+                        do {
+                            try system.setMinimized(window, true)
+                            minimizedByBento[window.id] = window; waitingForInsertion.insert(window.id)
+                        } catch { /* Leave refused windows outside the layout. */ }
                     }
                     preparation = nil
                 }
@@ -1211,7 +1226,7 @@ struct MacSettings: Codable {
         beginShutdownKeepingWindows()
         while busy || activating || switchingDesktop { try? await Task.sleep(for: .milliseconds(20)) }
         active = false; interacting = false; pinned = false
-        originals.removeAll(); minimizedByBento.removeAll(); desktopSessions.removeAll()
+        originals.removeAll(); minimizedByBento.removeAll(); waitingForInsertion.removeAll(); desktopSessions.removeAll()
         fullScreenWindows.removeAll(); fullScreenLayout = nil
         appliedDesktopOptions = [:]; message = nil
         onStateChange?()
@@ -1310,6 +1325,73 @@ struct MacSettings: Codable {
     func recoverDesktopPreferences() { do { try desktopPreferences.restore() } catch { message = error.localizedDescription } }
     func rememberOriginal(_ window: ManagedWindow, frame: Rect) {
         if originals[window.id] == nil { originals[window.id] = desktopSessions.values.compactMap { $0.originals[window.id] }.first ?? (window, frame) }
+    }
+    /// Explicit insertion is the only path that restores a waiting Dock window.
+    /// The existing workspace stays intact until both placement and displacement succeed.
+    func insertOverflow(_ id: UUID, into next: Workspace, from snapshot: Workspace) async -> Bool {
+        guard active, !pinned, !busy, !activating, !shuttingDown, desktopIsCurrent(),
+              !desktopOverviewActive, history.current == snapshot,
+              waitingForInsertion.contains(id), let source = minimizedByBento[id], system.isMinimized(source),
+              next.windows.contains(where: { $0.windowID == id }) else { return false }
+        let beforeWindows = windows, areas = displayAreas()
+        let generation = activationGeneration
+        let displaced = windows.filter { window in
+            snapshot.windows.contains { $0.windowID == window.id } && !next.windows.contains { $0.windowID == window.id }
+        }
+        if !windows.contains(where: { $0.id == id }) { windows.append(source) }
+        interacting = true
+        defer { interacting = false; onStateChange?() }
+        do {
+            // Reject invalid geometries before restoring anything from the Dock.
+            for (display, root) in next.roots {
+                guard let area = areas.first(where: { $0.id == display }) else { throw LayoutError.invalidInput }
+                _ = try LayoutEngine.calculate(root, in: area.bounds, gap: layoutGap)
+            }
+            try system.setMinimized(source, false)
+            var ready = false
+            for sample in 0..<30 {
+                guard !shuttingDown, generation == activationGeneration, desktopIsCurrent(), displayAreas() == areas, system.isAlive(source) else { throw LayoutError.invalidInput }
+                if sample >= 7, !system.isMinimized(source), system.frame(of: source.element) != nil,
+                   !system.hasMissingVisibleWindows([source]) { ready = true; break }
+                try await Task.sleep(for: .milliseconds(30))
+            }
+            guard ready else {
+                trace?("waiting restore timeout minimized=\(system.isMinimized(source)) hidden=\(system.applicationHidden(source.pid)) missing=\(system.hasMissingVisibleWindows([source]))")
+                throw WindowFailure.rejected(source.title)
+            }
+            minimizedByBento.removeValue(forKey: id)
+            try await apply(next, displays: areas, allowSkipping: true)
+            guard !shuttingDown, generation == activationGeneration, desktopIsCurrent() else { throw LayoutError.invalidInput }
+            for window in displaced {
+                try system.setMinimized(window, true)
+                for _ in 0..<30 {
+                    if system.isMinimized(window) { break }
+                    guard !shuttingDown, generation == activationGeneration, desktopIsCurrent() else { throw LayoutError.invalidInput }
+                    try await Task.sleep(for: .milliseconds(30))
+                }
+                guard system.isMinimized(window) else { throw WindowFailure.rejected(window.title) }
+                minimizedByBento[window.id] = window; waitingForInsertion.insert(window.id)
+            }
+            minimizedByBento.removeValue(forKey: id); waitingForInsertion.remove(id)
+            floatingForSize.remove(id); released.remove(id)
+            windows.removeAll { window in displaced.contains(where: { $0.id == window.id }) }
+            history.commit(next); areaLayout = nil; lastDisplays = areas; editedLayout = true
+            message = nil
+            return true
+        } catch {
+            trace?("waiting insertion failed: \(error)")
+            if !shuttingDown, generation == activationGeneration, desktopIsCurrent(), displayAreas() == areas {
+                for window in displaced where system.isMinimized(window) {
+                    try? system.setMinimized(window, false); minimizedByBento.removeValue(forKey: window.id); waitingForInsertion.remove(window.id)
+                }
+                try? await apply(snapshot, displays: areas, allowSkipping: true, animate: false)
+                try? system.setMinimized(source, true)
+                if system.isMinimized(source) { minimizedByBento[id] = source; waitingForInsertion.insert(id) }
+            }
+            windows = beforeWindows
+            message = "This app could not fit there. Try another slot."
+            return false
+        }
     }
     func finishInteraction(_ workspace: Workspace, commit: Bool, animate: Bool = true) async throws {
         guard !pinned, workspace.windows.allSatisfy({ canArrangeWindow($0.windowID) }) else { throw LayoutError.invalidInput }
