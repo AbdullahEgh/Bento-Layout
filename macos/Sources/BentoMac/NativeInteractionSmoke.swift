@@ -1121,7 +1121,7 @@ final class FixturePreferences: PreferenceBackend {
             softPreview.windowFrames = [previewIdentity: Rect(40, 40, 400, 300)]
             softPreview.presentConflict(Rect(40, 40, 400, 300))
             let softPanel = softPreview.previewWindow!
-            try check(softPanel.alphaValue == 0 && softPanel.ignoresMouseEvents, "Soft preview starts transparent and never intercepts app input")
+            try check(softPanel.alphaValue == 1 && softPanel.ignoresMouseEvents, "Static preview appears immediately and never intercepts app input")
             let retarget = Rect(120, 80, 520, 360)
             softPreview.windowFrames = [previewIdentity: retarget]
             softPreview.presentConflict(retarget)
@@ -1141,7 +1141,7 @@ final class FixturePreferences: PreferenceBackend {
             softPreview.orderOut(nil)
             for _ in 0..<12 { try? await Task.sleep(for: .milliseconds(20)); softPreview.orderOut(nil) }
             try check(!softPanel.isVisible && !softPreview.dimVisible && softPreview.dimOpacity == 0,
-                "Repeated hide requests finish one fade and remove both preview and dim layer")
+                "Repeated hide requests remove both static preview and dim layer")
             softPreview.animate = false; softPreview.presentConflict(retarget)
             try check(softPanel.frame == DesktopCoordinates.appKit(retarget) && softPanel.alphaValue == 1, "Disabling motion applies preview geometry immediately")
             softPreview.orderOut(nil)

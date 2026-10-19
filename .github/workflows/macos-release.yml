@@ -23,6 +23,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   publish:
+    needs: windows
     if: ${{ !inputs.notes_only }}
     runs-on: macos-15
     env:
@@ -59,9 +60,14 @@ jobs:
           validation_id="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow macos.yml --commit "$GITHUB_SHA" --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
           [[ -n "$validation_id" ]] || { echo 'No macOS compatibility run exists for this commit.' >&2; exit 1; }
           gh run watch "$validation_id" --repo "$GITHUB_REPOSITORY" --exit-status
+      - uses: actions/download-artifact@v4
+        with:
+          name: Bento-windows-release
+          path: artifacts/paired-windows
       - name: Sign and publish app and feed
         env:
           GH_TOKEN: ${{ github.token }}
+          BENTO_PAIRED_WINDOWS_DIR: artifacts/paired-windows
           BENTO_PRIVATE_UPDATE_KEY: ${{ secrets.BENTO_MACOS_ED25519_PRIVATE_KEY }}
         run: |
           set +x
@@ -100,6 +106,12 @@ jobs:
           dotnet-version: '10.0.x'
       - name: Build and validate Windows download
         run: ./build.ps1 -NativeTests -Publish
+      - name: Verify Windows preview and OTA contracts
+        run: |
+          ./tests/Bento.Tests/bin/Release/net10.0-windows/Bento.Tests.exe --verify-update-package artifacts/Bento-win-x64.zip
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          ./tests/Bento.Tests/bin/Release/net10.0-windows/Bento.Tests.exe --preview-smoke
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Validate settings window stacking
         run: ./tests/Bento.Tests/bin/Release/net10.0-windows/Bento.Tests.exe --settings-order-smoke
       - uses: actions/upload-artifact@v4
@@ -109,20 +121,6 @@ jobs:
             artifacts/Bento-win-x64.zip
             artifacts/Bento-windows-release.json
           if-no-files-found: error
-
-  attach-windows:
-    needs: [publish, windows]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: Bento-windows-release
-          path: download
-      - name: Attach tested Windows app to the same release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ inputs.version }}
-        run: gh release upload "macos-v$RELEASE_VERSION" download/Bento-win-x64.zip download/Bento-windows-release.json --repo "$GITHUB_REPOSITORY"
 
   refresh-notes:
     if: ${{ inputs.notes_only }}

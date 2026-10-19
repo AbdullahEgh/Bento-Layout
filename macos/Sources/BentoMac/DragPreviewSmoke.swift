@@ -55,34 +55,22 @@ import BentoCore
         let smaller = Rect(290, 40, 180, 220)
         resizing.windowFrames[firstID] = smaller
         resizing.presentSlots([smaller, left])
-        try check(resizing.visibleSlotFrames.contains(right), "Resizing starts from the existing anchored slot boundary")
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.16))
-        let intermediate = resizing.visibleSlotFrames.first { $0.x == right.x }!
-        try check(intermediate.width > smaller.width && intermediate.width < right.width,
-            "Slot resizing is still gently interpolating after the previous 120ms duration")
+        try check(resizing.visibleSlotFrames.contains(smaller), "Slot resize immediately shows exact final bounds with animations enabled")
         let stablePanels = Set(resizing.previewWindowNumbers)
-        let beforeSelection = resizing.visibleSlotFrames
-        resizing.presentConflict(left, slots: [smaller, left])
-        try check(Set(resizing.previewWindowNumbers) == stablePanels
-            && beforeSelection.allSatisfy(resizing.visibleSlotFrames.contains),
-            "Changing selection mid-resize preserves the moving surfaces without jumps")
         for index in 0..<4 {
             resizing.presentConflict(index.isMultiple(of: 2) ? smaller : left, slots: [smaller, left])
-            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+            try check(resizing.visibleSlotFrames.contains(smaller) && resizing.visibleSlotFrames.contains(left),
+                "Selection changes preserve exact static slot bounds \(index)")
         }
         try check(Set(resizing.previewWindowNumbers) == stablePanels && resizing.visibleSlotFrames.count == 2,
-            "Repeated highlight changes neither allocate ghost slots nor restart the boundary animation")
-        try check(resizing.visibleSlotFrames.contains(smaller), "Gentle slot resizing reaches exact planned bounds")
+            "Repeated highlights reuse panels without ghost slots")
         resizing.windowFrames[firstID] = right
         resizing.presentSlots([right, left])
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.10))
+        try check(resizing.visibleSlotFrames.contains(right), "A reversed resize applies immediately")
         resizing.windowFrames[firstID] = smaller
         resizing.presentSlots([smaller, left])
-        let interrupted = resizing.visibleSlotFrames.first { $0.x == right.x }!
-        try check(interrupted.width > smaller.width && interrupted.width < right.width,
-            "Reversing a resize starts from its current presentation instead of either endpoint")
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.35))
-        try check(resizing.visibleSlotFrames.contains(smaller), "Interrupted resizing settles at the latest target")
+        try check(resizing.visibleSlotFrames.contains(smaller), "No delayed preview animation overwrites the latest geometry")
         let merged = Rect(40, 40, 490, 220)
         resizing.windowFrames = [firstID: merged]
         resizing.presentSlots([merged])

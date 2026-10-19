@@ -210,7 +210,7 @@ public sealed partial class BentoController : IDisposable
         return 0;
     }
 
-    public void ArrangeDesktop()
+    private void ArrangeDesktopCore()
     {
         if (!EnsureDesktop()) return;
         if (activeNativeDrag != 0) return;
@@ -257,7 +257,7 @@ public sealed partial class BentoController : IDisposable
         if (!disposed) CancelDrag();
         foreach (var handle in dividers.ToArray()) handle.Close();
         dividers.Clear();
-        dropPreview.Close();
+        dropPreview.Close(); CloseWaiting();
     }
     public void Refresh()
     {
@@ -356,7 +356,7 @@ public sealed partial class BentoController : IDisposable
                     catch { /* Unsupported apps stay visible without blocking the rest. */ }
                 }
             failedMembership = excluded?.Count > 0 ? membership : null;
-            reopened.Clear();
+            reopened.Clear(); RefreshWaiting();
         }
         catch (Exception ex) { failedMembership = membership; Report(ex.Message); }
     }
@@ -565,7 +565,7 @@ public sealed partial class BentoController : IDisposable
                 intent = target is null ? new(Placement.Center, 0, false) :
                     dragIntent.Update(monitor.Id, target.Window.Id, bounds, point, clock(), Settings.SplitHoldMs, monitor.Scale);
                 var placement = intent.Placement;
-                if (placement == Placement.Center && target is not null && !history.Current.Windows.Any(w => w.WindowId == incoming.WindowId))
+                if (waitingIncoming == 0 && placement == Placement.Center && target is not null && !history.Current.Windows.Any(w => w.WindowId == incoming.WindowId))
                     placement = bounds.Width >= bounds.Height ? Placement.Right : Placement.Bottom;
                 var destinationKey = (monitor.Id, target?.Window.Id, placement, false);
                 previewDestination = destinationKey;
@@ -591,7 +591,11 @@ public sealed partial class BentoController : IDisposable
                 previewDestination = destinationKey;
             }
             if (preview is null) return;
-            Validate(preview); validPreview = true;
+            Validate(preview);
+            if (waitingIncoming != 0 && refusedWaiting.TryGetValue(waitingIncoming, out var refused) &&
+                monitors.SelectMany(m => Layout(m, preview).Regions).Any(r => r.Window.WindowId == waitingIncoming && refused.Contains(r.Bounds)))
+                throw new LayoutConstraintException("This window refused this slot. Choose a larger slot.");
+            validPreview = true;
             if (nativeResizeWindow != 0)
             {
                 var monitor = monitors.FirstOrDefault(m => LayoutEngine.Windows(preview.Roots.GetValueOrDefault(m.Id)).Any(w => w.WindowId == nativeResizeWindow));
@@ -617,7 +621,9 @@ public sealed partial class BentoController : IDisposable
             preview = null; previewDestination = null; validPreview = false;
             var monitor = monitors.FirstOrDefault(m => Area(m).Contains(point));
             if (incoming is not null && monitor is not null)
-                dropPreview.Present([new PreviewSlot(incoming.WindowId, monitor.Id, dropTargetBounds)], monitors, incoming.WindowId, false, conflict: true);
+                dropPreview.Present(monitors.SelectMany(m => Layout(m, history.Current).Regions
+                    .Where(r => r.Bounds != dropTargetBounds).Select(r => new PreviewSlot(r.Window.WindowId, m.Id, r.Bounds)))
+                    .Append(new PreviewSlot(incoming.WindowId, monitor.Id, dropTargetBounds)).ToArray(), monitors, incoming.WindowId, false, conflict: true);
             else dropPreview.Hide();
             Status = ex.Message;
         }
@@ -635,8 +641,9 @@ public sealed partial class BentoController : IDisposable
             var next = validPreview ? preview : null;
             bool nativeGesture = nativeStartBounds.HasValue;
             var liveStart = liveResizeStart;
+            long waiting = waitingIncoming;
             ClearDrag(restoreLive: false);
-            bool applied = next is not null && Commit(next, animate: liveStart is null);
+            bool applied = next is not null && (waiting != 0 ? CommitWaiting(next, waiting) : Commit(next, animate: liveStart is null));
             string failure = Status;
             if (ReferenceEquals(owner, session))
             {
@@ -646,7 +653,7 @@ public sealed partial class BentoController : IDisposable
                     try { Apply(history.Current, history.Current); }
                     catch (Exception ex) { Report(ex.Message); }
                 }
-                if (!applied && next is not null) Report(failure);
+                if (!applied && next is not null && waiting == 0) Report(failure);
             }
             if (!applied) { CloseJoinCues(); RefreshDesktopDividers(); }
         }
@@ -724,7 +731,7 @@ public sealed partial class BentoController : IDisposable
                 .Where(w => originals.ContainsKey(w.WindowId)).Select(w => originals[w.WindowId]).ToArray();
             var regions = monitors.SelectMany(m => Layout(m, next).Regions).ToArray();
             transition?.Dispose(); transition = null;
-            if (animate && Settings.Animate && SystemParameters.ClientAreaAnimation && regions.Length + removed.Length <= 16)
+            if (!organizing && animate && Settings.Animate && SystemParameters.ClientAreaAnimation && regions.Length + removed.Length <= 16)
             {
                 try
                 {
@@ -951,7 +958,7 @@ public sealed partial class BentoController : IDisposable
         // write must not leave input hooks/timers alive or make Quit abort.
         Cleanup(() => { timer.Stop(); platformTimer.Stop(); membershipTimer.Stop(); geometryTimer.Stop(); CancelSettled(); });
         Cleanup(() => { pointer?.Dispose(); pointer = null; });
-        Cleanup(ClosePausedShades); Cleanup(CloseJoinCues);
+        Cleanup(ClosePausedShades); Cleanup(CloseJoinCues); Cleanup(CloseOrganizing); Cleanup(CloseWaiting);
         Cleanup(() => appWindow?.FlushSettingsForShutdown());
         if (pendingSettings is { } settings) { SaveSettingsOnShutdown(settings); pendingSettings = null; }
         Cleanup(() => ClearDrag(restoreLive: false));

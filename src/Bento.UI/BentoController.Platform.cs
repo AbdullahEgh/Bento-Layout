@@ -234,14 +234,14 @@ public sealed partial class BentoController
     public int OutsideCount => Windows.Count(w => !history.Current.Windows.Any(leaf => leaf.WindowId == w.Id) && !WindowCatalog.IsMinimized(w.Id));
     public void TogglePause() { if (EnsureDesktop()) SetPaused(!Paused); }
     public void ToggleTaskbar() { if (EnsureDesktop()) SetTaskbarHidden(!HideTaskbar); }
-    public void TrayClick() { if (!EnsureDesktop()) return; if (Paused) SetPaused(false); else ToggleBento(); }
+    public void TrayClick() { if (!EnsureDesktop()) return; if (automatic) SetPaused(!Paused); else ArrangeDesktop(); }
     public void SetPaused(bool pause)
     {
         if (!EnsureDesktop()) return;
         if (Dragging || activeNativeDrag != 0) { pendingPause = pause; return; }
         if (pause && !automatic) ArrangeDesktop();
         if (!automatic || Paused == pause) return;
-        CancelSettled();
+        CancelSettled(); CloseWaiting();
         if (pause)
         {
             if (!history.Current.Windows.Any()) { Report("Open a supported window before pausing Bento."); return; }

@@ -5,8 +5,8 @@
     <SolidColorBrush x:Key="Text" Color="#20262C"/>
     <SolidColorBrush x:Key="Secondary" Color="#6E7782"/>
     <SolidColorBrush x:Key="Line" Color="#E2E6EA"/>
-    <SolidColorBrush x:Key="Accent" Color="#168574"/>
-    <SolidColorBrush x:Key="Selection" Color="#DCEEE9"/>
+    <SolidColorBrush x:Key="Accent" Color="#007AFF"/>
+    <SolidColorBrush x:Key="Selection" Color="#DFEDFF"/>
     <Style TargetType="Window"><Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI"/><Setter Property="FontSize" Value="13"/><Setter Property="Foreground" Value="{DynamicResource Text}"/></Style>
     <Style TargetType="TextBlock"><Setter Property="TextWrapping" Value="Wrap"/></Style>
     <Style TargetType="ScrollViewer"><Setter Property="Foreground" Value="{DynamicResource Text}"/></Style>

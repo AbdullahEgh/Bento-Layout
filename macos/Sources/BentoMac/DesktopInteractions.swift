@@ -529,69 +529,30 @@ struct DesktopInput {
         }
     }
     var animate = true
-    private var motion: Timer?
     private var hiding = false
-    private struct Transition { let panel: PreviewSlotPanel; let from: NSRect; let to: NSRect; let alpha: CGFloat; let targetAlpha: CGFloat }
-    private var transitions: [Transition] = []
-    private var started = 0.0
     private func transition(to rectangles: [Rect]) {
-        if motion != nil {
-            advance(progress: min(1, (ProcessInfo.processInfo.systemUptime - started) / (hiding ? 0.18 : 0.30)))
-        }
-        motion?.invalidate(); motion = nil
         hiding = rectangles.isEmpty
         while panels.count < rectangles.count { panels.append(PreviewSlotPanel()) }
         prepareDimming(for: rectangles)
-        transitions = panels.enumerated().map { index, panel in
-            let destination = index < rectangles.count ? DesktopCoordinates.appKit(rectangles[index]) : panel.frame
+        for item in dimTransitions {
+            item.panel.alphaValue = item.to
+            if item.to == 0 { item.panel.orderOut(nil) }
+        }
+        for (index, panel) in panels.enumerated() {
+            guard index < rectangles.count else { panel.orderOut(nil); continue }
+            let destination = DesktopCoordinates.appKit(rectangles[index])
             panel.targetFrame = destination
-            if !panel.isVisible && index < rectangles.count {
-                panel.alphaValue = 0; panel.setFrame(panel.splitStart ?? destination, display: true); panel.orderFrontRegardless()
-                panel.splitStart = nil
-            }
-            if index < rectangles.count, let dim = dimPanels.last(where: \.isVisible) { panel.order(.above, relativeTo: dim.windowNumber) }
-            // Animate moving boundaries, never transport a slot across the desktop.
-            let from = panel.frame
-            let horizontalResize = abs(from.minY - destination.minY) < 1 && abs(from.height - destination.height) < 1
-                && (abs(from.minX - destination.minX) < 1 || abs(from.maxX - destination.maxX) < 1)
-            let verticalResize = abs(from.minX - destination.minX) < 1 && abs(from.width - destination.width) < 1
-                && (abs(from.minY - destination.minY) < 1 || abs(from.maxY - destination.maxY) < 1)
-            if index < rectangles.count && !horizontalResize && !verticalResize { panel.setFrame(destination, display: true) }
-            return Transition(panel: panel, from: panel.frame, to: destination, alpha: panel.alphaValue, targetAlpha: index < rectangles.count ? 1 : 0)
+            if panel.frame != destination { panel.setFrame(destination, display: true) }
+            panel.alphaValue = 1
+            if !panel.isVisible { panel.orderFrontRegardless() }
         }
         orderLayers()
-        started = ProcessInfo.processInfo.systemUptime
-        if !animate || reduceMotion() { advance(progress: 1); return }
-        motion = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in
-            MainActor.assumeIsolated {
-                guard let self else { timer.invalidate(); return }
-                let t = min(1, (ProcessInfo.processInfo.systemUptime - self.started) / (self.hiding ? 0.18 : 0.30))
-                self.advance(progress: t)
-                if t >= 1 { timer.invalidate(); self.motion = nil }
-            }
-        }
-        RunLoop.main.add(motion!, forMode: .common)
-    }
-    private func advance(progress: Double) {
-        let t = progress * progress * (3 - 2 * progress)
-        for item in dimTransitions {
-            item.panel.alphaValue = item.from + (item.to - item.from) * t
-            if progress >= 1 && item.to == 0 { item.panel.orderOut(nil) }
-        }
-        for item in transitions {
-            func mix(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * t }
-            let frame = NSRect(x: mix(item.from.minX, item.to.minX), y: mix(item.from.minY, item.to.minY), width: mix(item.from.width, item.to.width), height: mix(item.from.height, item.to.height))
-            if item.panel.frame != frame { item.panel.setFrame(frame, display: true) }
-            let alpha = mix(item.alpha, item.targetAlpha)
-            if item.panel.alphaValue != alpha { item.panel.alphaValue = alpha }
-            if progress >= 1 && item.targetAlpha == 0 { item.panel.orderOut(nil) }
-        }
     }
     func hideImmediately() {
-        motion?.invalidate(); motion = nil; hiding = true
+        hiding = true
         for panel in dimPanels { panel.alphaValue = 0; panel.orderOut(nil) }
         for panel in panels { panel.alphaValue = 0; panel.orderOut(nil) }
-        transitions.removeAll(); dimTransitions.removeAll(); lastProposal = nil; lastConflict = nil; lastRectangles = []; belowWindow = nil
+        dimTransitions.removeAll(); lastProposal = nil; lastConflict = nil; lastRectangles = []; belowWindow = nil
     }
     private var lastProposal: DropProposal?
     private var lastConflict: Rect?
@@ -618,7 +579,6 @@ struct DesktopInput {
         let anchorChanged = self.belowWindow != belowWindow
         self.belowWindow = belowWindow; lastSelected = selected
         lastRectangles = rectangles; lastProposal = proposal; lastConflict = conflict ? rectangles.first : nil
-        let previousFrames = panels.filter(\.isVisible).map(\.targetFrame)
         var remaining = panels
         var ordered: [PreviewSlotPanel] = []
         for rect in rectangles {
@@ -636,15 +596,6 @@ struct DesktopInput {
             let panel = reusable.map { remaining.remove(at: $0) } ?? PreviewSlotPanel()
             let destination = DesktopCoordinates.appKit(rect)
             if panel.identity != identity && panel.targetFrame != destination { panel.orderOut(nil) }
-            if !panel.isVisible, let parent = previousFrames.first(where: { $0.contains(destination) && $0 != destination }) {
-                if parent.minY == destination.minY && parent.height == destination.height {
-                    panel.splitStart = NSRect(x: destination.minX == parent.minX ? destination.minX : destination.maxX - 1,
-                        y: destination.minY, width: 1, height: destination.height)
-                } else if parent.minX == destination.minX && parent.width == destination.width {
-                    panel.splitStart = NSRect(x: destination.minX,
-                        y: destination.minY == parent.minY ? destination.minY : destination.maxY - 1, width: destination.width, height: 1)
-                }
-            }
             panel.identity = identity; ordered.append(panel)
         }
         // Removed topology must not linger as overlapping ghost slots.
@@ -666,7 +617,6 @@ struct DesktopInput {
 @MainActor private final class PreviewSlotPanel: NSPanel {
     let slotView = PreviewSlotView()
     var identity: UUID?
-    var splitStart: NSRect?
     var targetFrame: NSRect = .zero
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)

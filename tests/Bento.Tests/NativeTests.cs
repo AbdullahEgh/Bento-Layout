@@ -187,7 +187,9 @@ internal static class NativeTests
                     foreach (var display in WindowCatalog.Monitors()) VerifyBounds(real.Layout(display), native);
                     toggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump(); Check(!real.Automatic);
                     real.TrayClick(); Pump(); Check(real.Automatic); Check(!real.Suspended); Equal(fixtureCount, real.ManagedCount);
-                    real.TrayClick(); Pump(); Check(!real.Automatic);
+                    real.TrayClick(); Pump(); Check(real.Automatic && real.Paused);
+                    real.TrayClick(); Pump(); Check(real.Automatic && !real.Paused);
+                    real.SetAutomatic(false); Pump(); Check(!real.Automatic);
                     for (int i = 0; i < fixtures.Length; i++) Equal(preBentoBounds[i], native.VisibleBounds(fixtures[i].Id));
                 }
                 finally { real.RestoreAll(); }
@@ -264,7 +266,11 @@ internal static class NativeTests
                         var panels = Application.Current!.Windows.OfType<DropPreviewWindow>().Where(w => w.IsVisible).ToArray();
                         if (panels.Length != 5) throw new Exception($"Expected five slots; got {panels.Length}; controller: {controller.Status}");
                         Equal(1, panels.Count(w => w.IsDestination));
-                        foreach (var region in controller.Layout(monitor).Regions) Equal(region.Bounds, panels.Single(w => w.SlotWindowId == region.Window.WindowId).PreviewBounds);
+                        foreach (var region in controller.Layout(monitor).Regions) {
+                            var panel = panels.Single(w => w.SlotWindowId == region.Window.WindowId);
+                            Equal(region.Bounds, panel.PreviewBounds);
+                            Equal(region.Bounds, native.VisibleBounds(new System.Windows.Interop.WindowInteropHelper(panel).Handle.ToInt64()));
+                        }
                         foreach (var window in fixtures) Equal(before[window.Id], native.VisibleBounds(window.Id));
                         var dims = Application.Current.Windows.Cast<Window>().Where(w => w.Title == "Bento preview dim" && w.IsVisible).ToArray();
                         Equal(1, dims.Length);

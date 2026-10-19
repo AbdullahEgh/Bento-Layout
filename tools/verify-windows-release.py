@@ -26,8 +26,8 @@ with zipfile.ZipFile(archive) as package:
 print('PASS: Windows tag, OTA identity, metadata, archive and every file hash')
 if len(sys.argv) > 2:
     source = json.loads(Path(sys.argv[2]).read_text())
-    assert source['tag_name'] == 'macos-v0.2.40' and not source['draft'] and not source['prerelease']
+    assert source['tag_name'] == 'macos-v0.2.42' and not source['draft'] and not source['prerelease']
     asset = next(a for a in source['assets'] if a['name'] == 'Bento-macos-universal.zip')
     assert asset['digest'].startswith('sha256:')
     assert hashlib.sha256((folder / asset['name']).read_bytes()).hexdigest() == asset['digest'][7:]
-    print('PASS: included Mac archive exactly matches existing macOS 0.2.40 asset')
+    print('PASS: included Mac archive exactly matches existing macOS 0.2.42 asset')

@@ -1,7 +1,8 @@
 Bento for macOS 0.2.42
 
-- Fewer repeated sizing attempts when fitting apps.
-- Show every drag slot, highlight the destination, and keep the dragged window above previews.
-- One menu-bar click pauses or resumes Bento.
+- Static, full-size drag slots with a clear selected destination.
+- Smoother organizing cover with a spinning indicator.
+- More reliable grips, Pause, and waiting-window replacement.
+- Apple Blue icon and controls.
 
-Downloads include macOS 0.2.42 and the unchanged Windows 0.3.12 portable app (Windows 11 x64, .NET 10 Desktop Runtime).
+Downloads: macOS 0.2.42 and Windows 0.3.13 (Windows 11 x64, .NET 10 Desktop Runtime).

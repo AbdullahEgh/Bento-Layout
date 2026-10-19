@@ -11,8 +11,8 @@ public static class AppTheme
     {
         bool dark = IsDark = theme == "Dark" || theme == "System" && SystemDark;
         var colors = dark
-            ? new[] { "#202428", "#191D21", "#2A3035", "#EEF3F4", "#A3AFB7", "#394249", "#41AD98", "#243F39" }
-            : new[] { "#F6F7F9", "#EEF0F3", "#FFFFFF", "#20262C", "#6E7782", "#E2E6EA", "#168574", "#DCEEE9" };
+            ? new[] { "#202428", "#191D21", "#2A3035", "#EEF3F4", "#A3AFB7", "#394249", "#0A84FF", "#183754" }
+            : new[] { "#F6F7F9", "#EEF0F3", "#FFFFFF", "#20262C", "#6E7782", "#E2E6EA", "#007AFF", "#DFEDFF" };
         string[] names = ["Page", "Sidebar", "Surface", "Text", "Secondary", "Line", "Accent", "Selection"];
         for (int i = 0; i < names.Length; i++) Application.Current.Resources[names[i]] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(colors[i]));
         Changed?.Invoke();

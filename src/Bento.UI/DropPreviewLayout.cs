@@ -29,6 +29,14 @@ internal sealed class DropPreviewLayout
             // A resized/reopened dimmer was raised; keep it below every slot,
             // including unchanged pooled panels whose Present call is a no-op.
             if (raisedDimmer) DesktopIntegration.PlaceBehindApplications(new WindowInteropHelper(dimmer).Handle, siblings);
+            // The actual dragged app stays above its destinations. Avoid changing
+            // its topmost style: helper windows are placed relative to it instead.
+            if (WindowCatalog.Exists(destination) && !WindowCatalog.IsMinimized(destination))
+            {
+                foreach (var slot in slots.Where(slot => slot.MonitorId == monitor.Id))
+                    DesktopIntegration.PlaceBelow(new WindowInteropHelper(panels[slot.WindowId]).Handle, (nint)destination);
+                DesktopIntegration.PlaceBehindApplications(new WindowInteropHelper(dimmer).Handle, siblings);
+            }
         }
     }
     public void Hide()

@@ -8,7 +8,8 @@ internal sealed class PausedWindowShade : Window
     public PausedWindowShade()
     {
         Title = "Bento paused window"; WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
-        AllowsTransparency = true; Background = new SolidColorBrush(Color.FromArgb(77, 0, 0, 0));
+        AllowsTransparency = true; Background = Brushes.Transparent;
+        Content = new Border { Background = new SolidColorBrush(Color.FromArgb(77, 0, 0, 0)), CornerRadius = new CornerRadius(8) };
         ShowInTaskbar = false; ShowActivated = false; IsHitTestVisible = false;
         SourceInitialized += (_, _) => DesktopIntegration.ConfigureOverlay(new WindowInteropHelper(this).Handle, true);
     }
