@@ -33,6 +33,12 @@ import BentoCore
                 previewOrder.firstIndex(of: number).map { $0 > dragIndex! } == true
             }, "The dragged native window stays above every blurred destination panel")
             softPreview.hideImmediately()
+        let tint = PausedTintView(frame: NSRect(x: 0, y: 0, width: 80, height: 80))
+        let bitmap = tint.bitmapImageRepForCachingDisplay(in: tint.bounds)!
+        tint.cacheDisplay(in: tint.bounds, to: bitmap)
+        try check((bitmap.colorAt(x: 0, y: 0)?.alphaComponent ?? 1) < 0.01
+            && (bitmap.colorAt(x: 40, y: 40)?.alphaComponent ?? 0) > 0.25,
+            "Paused tint keeps rounded corners transparent while dimming window content")
         return passed
     }
 }

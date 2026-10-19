@@ -14,7 +14,8 @@ private final class ExternalFixturePreferences: PreferenceBackend {
         var settings = MacSettings(); settings.onboardingComplete = true
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let preferences = ActivationOverrides(backend: ExternalFixturePreferences(), journal: output.appendingPathComponent("fixture-preferences.json"))
-        let model = WorkspaceController(system: system, settings: settings, preferences: preferences, persistSettings: { _ in }, backgroundMonitoring: false)
+        var activationTrace: [String] = []
+        let model = WorkspaceController(system: system, settings: settings, preferences: preferences, persistSettings: { _ in }, backgroundMonitoring: false, trace: { activationTrace.append($0); print("TRACE: \($0)") })
         var passed: [String] = []
         func check(_ value: Bool, _ title: String) throws {
             guard value else { throw NSError(domain: "ExternalAX", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(title): \(model.message ?? "geometry mismatch")"]) }
@@ -31,12 +32,25 @@ private final class ExternalFixturePreferences: PreferenceBackend {
                 return system.accepted(window, region.bounds)
             }
         }
+        // AX frame completion can precede the WindowServer snapshot used by
+        // discovery. Wait for fixture readiness, without moving any windows.
+        func waitForDiscovery() async throws {
+            for _ in 0..<40 {
+                if try system.discover().count == 3 { return }
+                try await Task.sleep(for: .milliseconds(30))
+            }
+        }
+        try await waitForDiscovery()
         let initial = try system.discover()
         try check(initial.count == 3, "Real AX discovers three external fixture windows")
         let originals = Dictionary(uniqueKeysWithValues: initial.map { ($0.id, $0.frame) })
         do {
             await model.arrange()
             try check(try model.active && matches(), "Real AX arranges external windows")
+            try check(activationTrace.filter { $0.contains("arrangement committed attempt=1") }.count == 1
+                && !activationTrace.contains { $0.contains("bounded correction=") }
+                && model.windows.allSatisfy { $0.minimum == Size(160, 140) },
+                "Real AX measures native minima and commits first activation once")
             for placement in [Placement.left, .right, .top, .bottom, .center] {
                 await model.arrange()
                 let (display, before) = try layout()
@@ -62,11 +76,12 @@ private final class ExternalFixturePreferences: PreferenceBackend {
             await model.applyLiveSettings()
             await model.restore()
             try check(initial.allSatisfy { system.accepted($0, originals[$0.id]!) }, "Real AX restores original external bounds")
+            try await waitForDiscovery()
             await model.toggleLayout()
             try check(try model.history.current == edited && matches(), "Real AX toggle resumes the exact edited tree")
             let floating = model.history.current.removing(initial[0].id)
             try await model.finishInteraction(floating, commit: true, animate: false)
-            await model.restore(); await model.toggleLayout()
+            await model.restore(); try await waitForDiscovery(); await model.toggleLayout()
             try check(try model.history.current == floating && matches() && system.accepted(initial[0], originals[initial[0].id]!), "Real AX resume retains a floating window and edited slot membership")
             await model.restore()
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)

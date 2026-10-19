@@ -1,3 +1,25 @@
+# Hidden first-activation preparation and Pause fixes — 2026-10-19
+
+First activation hides participating applications, verifies their hidden state, measures native minimum frames on the current display, calculates a layout, and applies final frames before revealing them. It does not minimize every app or reuse last accepted dimensions as minimum constraints. Unmeasurable windows remain outside the layout; only actual overflow is minimized. First activation disables both bounded replanning and settling corrections. Existing active-layout recovery remains separate.
+
+Real AX testing found that resizing before moving could clamp growth against the old screen position. The native writer now positions growing windows first, then sizes them and verifies the origin. Saved floating membership is retained across Off/On. Preparation restores original frames on failure and reveals concealed apps.
+
+Pause hides grips and hit surfaces, ignores layout changes during Pause, and restores saved positions and minimized members on Resume. Rounded tint avoids rectangular corner coverage; selected preview slots are brighter.
+
+Validation: 92 core tests, 286 disposable native checks, and all 16 real external Accessibility checks passed. The external test verifies measured 160×140 fixture minima and one first-activation commit, plus placement, resizing, undo/redo, spacing, original-frame restoration and saved floating membership. The native suite additionally tests fresh smaller-display measurements and hidden-preparation refusal without visible writes. Evidence: `/tmp/bento-preparation-core.log`, `/tmp/bento-preparation-final/results.json`, `/tmp/bento-external-preparation/results/results.json`.
+
+Installed the signed optimized universal local 0.2.42 build 161 at `/Applications/Bento.app`; stable identity and all architecture signatures verified. Installed executable SHA-256: `c6d2e9f5ce11e03f71509718ad4c2095f2680668063944f6986795313e4ca616`. Previous app backed up at `/Users/abdullah/Library/Application Support/BentoBackups/Bento-before-hidden-fit-20261019-202937.app`.
+
+Live installed activation at 20:29:45–46 measured three windows, excluded zero, and committed attempt=1 with tiled=3 and overflow=0. Settings confirms three arranged, none minimized, none outside. This verifies the current three-window desktop, not every third-party app or physical display. Windows and GitHub publication are unchanged.
+
+# Local 0.2.42 installation — 2026-10-19
+
+At the user's request, installed a local optimized universal build from `667283d`, marketing version 0.2.42 and local build 161. The lower build number permits the later OTA build 162 to replace this local build. Signed with the existing Bento identity and retained the public OTA key. Build and all 274 disposable native checks passed; installed stable identity/all architecture signatures passed, and executable SHA-256 matches the staged build: `f4dc68d299e5a1325f809d405744596248b8cb63ffbecfced0f7dcf415789821`.
+
+Quit the prior app through its normal UI, backed it up at `/Users/abdullah/Library/Application Support/BentoBackups/Bento-0.2.41-20261019-192435.app`, replaced `/Applications/Bento.app`, and relaunched. Settings visibly confirms macOS 0.2.42 and Accessibility connected. Bento is off on the current desktop with four available windows; no live window arrangement was triggered during installation. Evidence: `/tmp/bento-local-0242-build.log` and `/tmp/bento-local-0242-native/results.json`.
+
+Paused the release-check heartbeat and requested cancellation of queued publication run `39281964311`. No additional GitHub push was made for this local installation. Windows remains unchanged. These installation notes are local pending the user's later publication request.
+
 # Reduced fit retries and complete drag previews — 2026-10-19
 
 The macOS native writer repeats size after positioning only for an actual display transition. Settling no longer resends an identical refused target; a distinct inward correction remains available for terminal-style cell rounding. The existing wait for delayed native writes and bounded planning corrections for newly revealed limits remain. This reduces redundant trials without claiming that concealed application constraints can always be known before the first write.

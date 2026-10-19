@@ -107,6 +107,9 @@ final class ManagedWindow {
         if let width { observedMinimum.width = max(observedMinimum.width, width); minimum.width = max(minimum.width, width) }
         if let height { observedMinimum.height = max(observedMinimum.height, height); minimum.height = max(minimum.height, height) }
     }
+    func replaceMeasuredMinimum(_ size: Size) {
+        observedMinimum = size; minimum = size
+    }
     var serverNumber: Int?
     init(id: UUID = UUID(), element: AXUIElement, pid: pid_t, title: String, application: String, bundleID: String, frame: Rect) {
         self.id = id; self.element = element; self.pid = pid; self.title = title; self.application = application; self.bundleID = bundleID; self.frame = frame
@@ -231,6 +234,12 @@ struct MotionWrite: @unchecked Sendable {
     /// Finder). Suspend an already-enabled mode for the transaction on every app,
     /// restore its exact prior value, and leave built-in assistive technology alone.
     /// Unsupported attributes are ignored; this never enables an accessibility tree.
+    var supportsHiddenPreparation: Bool { true }
+    func applicationHidden(_ pid: pid_t) -> Bool { NSRunningApplication(processIdentifier: pid)?.isHidden == true }
+    func setApplicationHidden(_ pid: pid_t, _ hidden: Bool) -> Bool {
+        guard let app = NSRunningApplication(processIdentifier: pid) else { return false }
+        return hidden ? app.hide() : app.unhide()
+    }
     func beginFrameAdjustment(_ windows: [ManagedWindow]) -> () -> Void {
         guard !NSWorkspace.shared.isVoiceOverEnabled, !NSWorkspace.shared.isSwitchControlEnabled else { return {} }
         var restored: [AXUIElement] = [], seen = Set<pid_t>()
@@ -405,8 +414,13 @@ struct MotionWrite: @unchecked Sendable {
         guard let s = AXValueCreate(.cgSize, &size), let p = AXValueCreate(.cgPoint, &point) else { throw WindowFailure.rejected(window.title) }
         let resize = current.width != frame.width || current.height != frame.height
         let move = current.x != frame.x || current.y != frame.y
+        // Move to the destination before growing. AppKit clamps a growth at the
+        // old origin to the screen edge; moving afterwards cannot recover that
+        // lost size. This matters especially after measuring a small hidden frame.
+        let positionBeforeResize = move && (frame.width > current.width || frame.height > current.height)
+        if positionBeforeResize, AXUIElementSetAttributeValue(window.element, kAXPositionAttribute as CFString, p) != .success { throw WindowFailure.rejected(window.title) }
         if resize, AXUIElementSetAttributeValue(window.element, kAXSizeAttribute as CFString, s) != .success { throw WindowFailure.rejected(window.title) }
-        if move, AXUIElementSetAttributeValue(window.element, kAXPositionAttribute as CFString, p) != .success { throw WindowFailure.rejected(window.title) }
+        if move && !positionBeforeResize, AXUIElementSetAttributeValue(window.element, kAXPositionAttribute as CFString, p) != .success { throw WindowFailure.rejected(window.title) }
         // Only a real display transition can justify retrying size here. A
         // same-display clamp is evidence for the planner, not another AX trial.
         let crossesDisplay = NSScreen.screens.contains { screen in

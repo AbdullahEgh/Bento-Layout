@@ -75,7 +75,8 @@ import AppKit
                 panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
                 panel.isReleasedWhenClosed = false; panel.ignoresMouseEvents = true
                 panel.isOpaque = false; panel.hasShadow = false; panel.hidesOnDeactivate = false
-                panel.backgroundColor = NSColor.black.withAlphaComponent(0.30)
+                panel.backgroundColor = .clear
+                panel.contentView = PausedTintView()
                 panel.level = .normal; panel.collectionBehavior = [.stationary, .ignoresCycle]
                 panels[window.id] = panel
             }
@@ -102,5 +103,15 @@ import AppKit
                     && abs(rect.width - Double(window.frame.width)) <= 3 && abs(rect.height - Double(window.frame.height)) <= 3
             }
         }).flatMap { ($0[kCGWindowNumber as String] as? NSNumber)?.intValue }
+    }
+}
+
+// Match native window corners without tinting the transparent corner pixels.
+@MainActor final class PausedTintView: NSView {
+    override func setFrameSize(_ newSize: NSSize) { super.setFrameSize(newSize); needsDisplay = true }
+    override func draw(_ dirtyRect: NSRect) {
+        NSGraphicsContext.current?.shouldAntialias = true
+        NSColor.black.withAlphaComponent(0.30).setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 10, yRadius: 10).fill()
     }
 }

@@ -117,16 +117,20 @@ struct DesktopInput {
         guard !model.desktopOverviewActive else { return }
         guard model.active, model.permission, model.desktopIsCurrent(), !model.switchingDesktop, !model.interacting else { if !model.interacting { removeHelpers() }; return }
         let visible = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
-        updateGrips(model.history.current, visible: visible)
         if model.pinned {
+            grips.values.forEach { $0.ignoresMouseEvents = true; $0.orderOut(nil) }
+            model.system.dividerWindowNumbers.removeAll()
+            preview.orderOut(nil)
             let ids = Set(model.history.current.windows.map(\.windowID))
+            backdrop.show(darkness: model.settings.backgroundDarkness, animated: model.settings.animate,
+                          belowWindow: BentoWindowStack.anchor(windows: model.windows.filter { ids.contains($0.id) }, visible: visible))
             pinnedTint.show(windows: model.windows.filter { ids.contains($0.id) && $0.id != model.pausedFocusID }, visible: visible)
-        } else { pinnedTint.hide() }
+        } else { updateGrips(model.history.current, visible: visible); pinnedTint.hide() }
     }
     private func areas() -> [String: Rect] { if let gestureAreas { return gestureAreas }; return Dictionary(uniqueKeysWithValues: model.interactionAreas().map { ($0.id, $0.bounds) }) }
     private func removeHelpers() { suppressGripsUntilRelease = false; handleCache.removeAll(); model.system.dividerWindowNumbers.removeAll(); resizeHandles.removeAll(); pinnedTint.hide(); grips.values.forEach { $0.orderOut(nil) }; grips.removeAll(); preview.orderOut(nil); backdrop.hide(animated: model.settings.animate) }
     private func updateGrips(_ workspace: Workspace, visible: [[String: Any]]? = nil) {
-        guard !model.desktopOverviewActive, !suppressGripsUntilRelease else { return }
+        guard !model.pinned, !model.desktopOverviewActive, !suppressGripsUntilRelease else { return }
         let visible = visible ?? (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? [])
         hoverNeedsUpdate = true
         let ids = Set(workspace.windows.map(\.windowID))
@@ -203,6 +207,12 @@ struct DesktopInput {
         if waitForRelease { if !pressed { waitForRelease = false }; return }
         guard model.active, model.permission, model.desktopIsCurrent(), !model.switchingDesktop else {
             if snapshot != nil { Task { await finish(cancel: true) } } else { removeHelpers() }
+            return
+        }
+        if model.pinned {
+            if pressed && !wasPressed, let window = model.system.window(at: state.point, in: model.windows) {
+                model.recordInteraction(window)
+            }
             return
         }
         if snapshot != nil && (state.escape || escapeRequested) {
@@ -358,7 +368,7 @@ struct DesktopInput {
         }
     }
     func beginGrip(display: String, id: UUID) -> Bool {
-        guard !model.shuttingDown, !model.desktopOverviewActive else { return false }
+        guard !model.pinned, !model.shuttingDown, !model.desktopOverviewActive else { return false }
         if grip?.display == display && grip?.divider.id == id { return true }
         let prepared = model.history.current.reconciled(with: model.windows.map(\.leaf))
         guard model.active, model.permission, !model.busy, !model.interacting, !finishing, !releasePending,
@@ -631,8 +641,9 @@ struct DesktopInput {
         // Native glass and a quiet neutral edge carry placement and splitting.
         // A warm tint appears only when the destination cannot fit.
         let accent: NSColor = conflict ? .systemOrange : .white
-        frost.tint = conflict ? accent.withAlphaComponent(0.12) : (primary ? NSColor.white.withAlphaComponent(0.06) : nil)
+        frost.tint = conflict ? accent.withAlphaComponent(0.12) : (primary ? NSColor.white.withAlphaComponent(0.14) : nil)
         CATransaction.begin(); CATransaction.setDisableActions(true)
+        frost.ink.layer?.backgroundColor = primary ? accent.withAlphaComponent(0.16).cgColor : nil
         outline.borderColor = accent.withAlphaComponent(primary ? 0.65 : 0.16).cgColor
         CATransaction.commit()
     }

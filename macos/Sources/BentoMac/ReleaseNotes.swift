@@ -8,7 +8,9 @@ struct ReleaseNotes: Identifiable {
     // Keep newest first; ship the log with the app so it also works offline.
     static let history: [ReleaseNotes] = [
         .init(version: "0.2.42", points: [
-            "Fewer repeated sizing attempts when fitting apps.",
+            "Prepare native sizes before revealing the first layout.",
+            "Pause hides grips and preserves slots; Resume restores window changes.",
+            "Rounded pause dimming and brighter selected drag slots.",
             "Show every drag slot, highlight the destination, and keep the dragged window above previews.",
             "One menu-bar click pauses or resumes Bento.",
         ]),

@@ -5,6 +5,15 @@ import BentoCore
 // Disposable in-process NSWindows exercise the production controller/panels with
 // supplied pointer samples. This adapter never queries or changes other applications.
 @MainActor final class FixtureWindowSystem: MacWindowSystem {
+    var hiddenPreparation = false
+    override var supportsHiddenPreparation: Bool { hiddenPreparation }
+    private var concealedPIDs = Set<pid_t>()
+    override func applicationHidden(_ pid: pid_t) -> Bool { concealedPIDs.contains(pid) }
+    override func setApplicationHidden(_ pid: pid_t, _ hidden: Bool) -> Bool {
+        if hidden && denyMinimize { return false }
+        if hidden { concealedPIDs.insert(pid) } else { concealedPIDs.remove(pid) }
+        return true
+    }
     var records: [(ManagedWindow, NSWindow)] = []
     var fixtureDesktop = "fixture-main"
     var fullScreenWindows = Set<UUID>()

@@ -77,6 +77,11 @@ struct MacSettings: Codable {
             // Native edits during Pause are temporary. Restore the saved tree
             // before admitting interaction again; never derive it from moved frames.
             do {
+                for id in pinnedWindowIDs {
+                    if let window = originals[id]?.0, system.isAlive(window), system.isMinimized(window) {
+                        try system.setMinimized(window, false)
+                    }
+                }
                 windows = try discoverWindows()
                 let members = windows.filter { pinnedWindowIDs.contains($0.id) }
                 let restored = history.current.reconciled(with: members.map(\.leaf))
@@ -137,6 +142,7 @@ struct MacSettings: Codable {
         }
     }
     func applicationActivated(_ pid: pid_t) {
+        guard !activating else { return }
         guard system.isLayoutApplication(pid) else { pendingApplicationActivation = nil; return }
         lastMembershipScan = 0
         pendingApplicationActivation = pid
@@ -487,6 +493,7 @@ struct MacSettings: Codable {
                 if pinned {
                     windows = current
                     pendingDrift = nil; driftSamples = 0
+                    onStateChange?()
                     return
                 }
                 let currentIDs = Set(current.map(\.id))
@@ -608,7 +615,7 @@ struct MacSettings: Codable {
         return windows.filter { !tiled.contains($0.id) }
     }
     @discardableResult func arrange(preserving: Bool = false, resuming: Bool = false, automatic: Bool = false, skipRefusingWindows: Bool = true) async -> Bool {
-        guard !shuttingDown, !system.fullScreenSpace, !desktopOverviewActive, !busy, !interacting, !activating, desktopIsCurrent() else { return false }
+        guard !pinned, !shuttingDown, !system.fullScreenSpace, !desktopOverviewActive, !busy, !interacting, !activating, desktopIsCurrent() else { return false }
         if automatic && system.pointerPressed { return false }
         activating = true; defer { activating = false }
         let previousWindows = windows
@@ -617,6 +624,8 @@ struct MacSettings: Codable {
         var attemptedInput: ArrangementInput?
         var activationRollback: [(ManagedWindow, Rect)] = []
         var activationAreas: [DisplayArea] = []
+        var preparation: ActivationPreparation?
+        defer { preparation?.cancel() }
         trace?("arrangement start preserving=\(preserving) resuming=\(resuming) active=\(wasActive)")
         do {
             if !preserving { released = resuming ? lastReleased : [] }
@@ -649,13 +658,24 @@ struct MacSettings: Codable {
                     return (window, frame)
                 }
             }
+            if !wasActive && system.supportsHiddenPreparation {
+                for (window, frame) in activationRollback where !released.contains(window.id) { rememberOriginal(window, frame: frame) }
+                let stage = ActivationPreparation(system: system)
+                preparation = stage
+                let recentFirst = current.filter { !released.contains($0.id) }.sorted {
+                    (lastInteraction[$0.id] ?? 0) > (lastInteraction[$1.id] ?? 0)
+                }
+                try await stage.prepare(recentFirst) {
+                    generation == self.activationGeneration && self.desktopIsCurrent() && self.displayAreas() == displays
+                }
+            }
             let areaChanged = preserving && displays != lastDisplays
             if !preserving { areaLayout = nil }
             if areaChanged && areaLayout == nil { areaLayout = history.current; areaLayoutAreas = lastDisplays }
             let previous = !returningFullScreen.isEmpty && preserving ? fullScreenLayout ?? history.current
                 : preserving ? (areaChanged ? areaLayout ?? history.current : history.current)
                 : resuming ? lastBento ?? Workspace() : Workspace()
-            if resuming, lastBento != nil {
+            if resuming, lastBento != nil, preparation == nil {
                 // Resume the edited tree itself. Native frames have just been restored
                 // to pre-Bento positions and cannot determine saved display ownership.
                 let next = previous.reconciled(with: current.map(\.leaf))
@@ -685,10 +705,10 @@ struct MacSettings: Codable {
                     }
                 }
             }
-            // Learn independent axis limits in bounded batches. Stop after two
-            // corrections; never invent limits from accepted frame dimensions.
-            let attemptLimit = 2
-            var excluded = Set<UUID>()
+            // Production activation measures hidden native constraints first and
+            // applies one final plan. Existing desktop reflows retain bounded recovery.
+            let attemptLimit = preparation == nil ? 2 : 0
+            var excluded = preparation?.excluded ?? Set<UUID>()
             for attempt in 0...attemptLimit {
                 guard generation == activationGeneration else { return false }
                 var next = Workspace()
@@ -788,8 +808,8 @@ struct MacSettings: Codable {
                 attemptedInput = arrangementInput(current, areas: displays)
                 // One coordinated transition for normal actions; corrections are
                 // bounded final-frame transactions, never repeated visible probing.
-                do { try await apply(next, displays: displays, allowSkipping: true, animate: attempt == 0, validateIndividually: wasActive, learnMinimum: !areaChanged, retainForReplan: !wasActive && attempt < attemptLimit) }
-                catch ArrangementFailure.window(let id) where attempt == 0 && skipRefusingWindows && !areaChanged {
+                do { try await apply(next, displays: displays, allowSkipping: true, animate: attempt == 0 && preparation == nil, validateIndividually: wasActive, learnMinimum: !areaChanged, retainForReplan: !wasActive && attempt < attemptLimit, retrySettling: preparation == nil) }
+                catch ArrangementFailure.window(let id) where attempt < attemptLimit && attempt == 0 && skipRefusingWindows && !areaChanged {
                     excluded.insert(id); continue
                 }
                 catch WindowFailure.minimumSize where attempt < attemptLimit {
@@ -799,7 +819,7 @@ struct MacSettings: Codable {
                     continue
                 }
                 guard generation == activationGeneration else { return false }
-                if !pinned && displays == lastDisplays { next = await alignNativeSeams(next, displays: displays) }
+                if preparation == nil && !pinned && displays == lastDisplays { next = await alignNativeSeams(next, displays: displays) }
                 let included = Set(next.windows.map(\.windowID))
                 // Keep originals for overflow minimized in place. Floating exclusions
                 // are forgotten so restoration cannot undo later user movement.
@@ -818,6 +838,20 @@ struct MacSettings: Codable {
                     for (window, frame) in activationRollback where !included.contains(window.id) && system.isAlive(window) && system.frame(of: window.element) != frame {
                         try? system.write(window, frame: frame)
                     }
+                }
+                if let stage = preparation {
+                    for window in stage.finish(included: included, keepOverflow: settings.minimizeOverflow) {
+                        minimizedByBento[window.id] = window
+                    }
+                    // Unhide and WindowServer visibility are asynchronous. Do not
+                    // hand the revealed layout to membership polling until its
+                    // included windows have appeared; this never resizes them.
+                    let revealed = current.filter { included.contains($0.id) }
+                    for _ in 0..<20 {
+                        if !system.hasMissingVisibleWindows(revealed) { break }
+                        try? await Task.sleep(for: .milliseconds(30))
+                    }
+                    preparation = nil
                 }
                 minimizeOverflow(included: included, current: current.filter { !released.contains($0.id) })
                 trace?("arrangement committed attempt=\(attempt + 1) tiled=\(included.count) overflow=\(current.count - included.count)")
@@ -851,7 +885,7 @@ struct MacSettings: Codable {
         }
         return false
     }
-    func apply(_ workspace: Workspace, displays: [DisplayArea], allowSkipping: Bool = false, liveResize: Bool = false, animate: Bool = true, validateIndividually: Bool = true, returning: Bool = false, learnMinimum: Bool = true, retainForReplan: Bool = false) async throws {
+    func apply(_ workspace: Workspace, displays: [DisplayArea], allowSkipping: Bool = false, liveResize: Bool = false, animate: Bool = true, validateIndividually: Bool = true, returning: Bool = false, learnMinimum: Bool = true, retainForReplan: Bool = false, retrySettling: Bool = true) async throws {
         guard !busy, desktopIsCurrent() else { throw LayoutError.invalidInput }; busy = true; defer { busy = false }
         guard displayAreas() == displays else { throw WindowFailure.workAreaChanged }
         let restoreAXMode = system.beginFrameAdjustment(windows)
@@ -918,7 +952,7 @@ struct MacSettings: Codable {
                 await Task.yield()
                 return
             }
-            await settle(plan, displays: displays)
+            await settle(plan, retry: retrySettling, displays: displays)
             guard displayAreas() == displays else { throw WindowFailure.workAreaChanged }
             try validate(plan, allowSkipping: allowSkipping, learnMinimum: learnMinimum)
         } catch {
@@ -1119,7 +1153,10 @@ struct MacSettings: Codable {
         busy = true; defer { busy = false }
         if active {
             lastBento = areaLayout ?? history.current
-            lastReleased = released
+            // Remember intentionally floating members as well as explicit releases.
+            // Hidden preparation must not readmit them when resuming the saved tree.
+            let arranged = Set(history.current.windows.map(\.windowID))
+            lastReleased = released.union(Set(windows.map(\.id)).subtracting(arranged).subtracting(Set(minimizedByBento.keys)))
             lastMinimized = Set(minimizedByBento.keys)
         }
         var remaining = originals
@@ -1262,7 +1299,7 @@ struct MacSettings: Codable {
         if originals[window.id] == nil { originals[window.id] = desktopSessions.values.compactMap { $0.originals[window.id] }.first ?? (window, frame) }
     }
     func finishInteraction(_ workspace: Workspace, commit: Bool, animate: Bool = true) async throws {
-        guard workspace.windows.allSatisfy({ canArrangeWindow($0.windowID) }) else { throw LayoutError.invalidInput }
+        guard !pinned, workspace.windows.allSatisfy({ canArrangeWindow($0.windowID) }) else { throw LayoutError.invalidInput }
         var resolved = workspace.reconciled(with: windows.map(\.leaf))
         let displays = displayAreas()
         do { try await apply(resolved, displays: displays, animate: animate, returning: !commit) }

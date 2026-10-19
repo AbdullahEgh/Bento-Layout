@@ -59,7 +59,13 @@ import BentoCore
         system.nativeGrid.removeAll(); system.areaOverride = nil
         await model.arrange(preserving: true)
         system.focused = second
+        let pauseInteractions = DesktopInteractions(model: model, automaticSampling: false, observeOverview: false)
+        pauseInteractions.synchronize()
+        try check(pauseInteractions.visibleGripCount > 0, "Active fixture exposes resize grips before Pause")
         await model.setPinned(true)
+        pauseInteractions.synchronize()
+        try check(pauseInteractions.visibleGripCount == 0 && system.dividerWindowNumbers.isEmpty,
+            "Pause hides every grip and removes divider hit surfaces")
         try check(model.pausedFocusID == nil, "Pause starts with every Bento window dimmed")
         model.applicationActivated(second.pid)
         try check(model.pausedFocusID == nil, "Restoring the existing focus after Pause keeps every window dimmed")
@@ -86,11 +92,22 @@ import BentoCore
         try system.write(first, frame: temporary)
         system.writes.removeAll()
         model.tick(); model.tick()
+        await model.arrange(preserving: true)
+        do {
+            try await model.finishInteraction(pinned, commit: true)
+            try check(false, "Paused interaction unexpectedly accepted")
+        } catch LayoutError.invalidInput { }
         model.scheduleSettledValidation(force: true)
         try? await Task.sleep(for: .milliseconds(400))
         try check(model.history.current == pinned && system.writes.isEmpty && system.frame(of: first.element) == temporary,
             "Paused native size and position edits leave the saved layout and other apps untouched")
+        try system.setMinimized(first, true)
+        model.tick()
+        try check(model.history.current == pinned, "Minimizing a paused member preserves its saved slot")
         await model.setPinned(false)
+        pauseInteractions.synchronize()
+        try check(!system.isMinimized(first), "Resume brings minimized paused members back to their saved slots")
+        try check(pauseInteractions.visibleGripCount > 0, "Resume restores active grips")
         try check([first, second].allSatisfy { system.frame(of: $0.element) == savedFrames[$0.id] },
             "Resume restores the saved positions and sizes after temporary paused edits")
         try check(model.history.current == pinned && system.isMinimized(incoming), "Unpinning minimizes floating windows and preserves the pinned layout")
@@ -241,6 +258,42 @@ import BentoCore
         try check(backdrop.opacity == 0.5, "A new backdrop appearance cancels an interrupted fade-out")
         backdrop.hide(animated: false)
         try check(backdrop.opacity == 0, "Backdrop removal completes without leaving a dark panel")
+        system.hiddenPreparation = true
+        system.minimized.removeAll(); system.writes.removeAll(); system.nativeMinimum.removeAll()
+        for (record, _) in system.records { system.nativeMinimum[record.id] = Size(320, 240) }
+        var preparationTrace: [String] = []
+        let prepared = WorkspaceController(system: system, settings: settings,
+            preferences: ActivationOverrides(backend: FixturePreferences(), journal: output.appendingPathComponent("prepared-activation.json")),
+            persistSettings: { _ in }, backgroundMonitoring: false, trace: { preparationTrace.append($0) })
+        await prepared.arrange()
+        try check(prepared.active && preparationTrace.filter { $0.contains("arrangement committed attempt=1") }.count == 1
+            && !preparationTrace.contains { $0.contains("bounded correction=") },
+            "Hidden preparation measures native limits before committing one final activation plan")
+        try check(system.records.allSatisfy { $0.0.minimum == Size(320, 240) }
+            && prepared.history.current.windows.allSatisfy { !system.minimized.contains($0.windowID) },
+            "Prepared members are revealed only after final placement with measured current-display limits")
+        try check(system.writes.values.allSatisfy { $0 == 2 },
+            "Prepared activation writes one hidden measurement and one final frame per window without fitting retries")
+        await prepared.restore()
+        try check(system.records.enumerated().allSatisfy { system.frame(of: $0.element.0.element) == initial[$0.offset] },
+            "Hidden measurement never replaces the original frames used by Bento Off")
+        let previousAreas = system.areaOverride
+        let actualArea = prepared.displayAreas()[0]
+        system.areaOverride = [DisplayArea(id: actualArea.id, name: actualArea.name, bounds: Rect(0, 30, 800, 600))]
+        for (record, _) in system.records { system.nativeMinimum[record.id] = Size(240, 160) }
+        await prepared.arrange()
+        try check(prepared.active && prepared.history.current.windows.count == 3
+            && system.records.allSatisfy { $0.0.minimum == Size(240, 160) },
+            "Smaller remote display activation remeasures current constraints rather than reusing old accepted sizes")
+        await prepared.restore()
+        system.areaOverride = previousAreas
+        system.denyMinimize = true; system.writes.removeAll()
+        await prepared.arrange()
+        try check(!prepared.active && system.writes.isEmpty && system.minimized.isEmpty,
+            "Apps refusing hidden preparation remain untouched instead of receiving visible size trials")
+        system.denyMinimize = false
+        system.hiddenPreparation = false; system.nativeMinimum.removeAll()
+        for (record, _) in system.records { record.minimum = Size(160, 120) }
         return passed
     }
 }
