@@ -1,3 +1,9 @@
+# Apple Blue app icon — 2026-10-20
+
+Recolored the existing three-pane macOS app icon to Apple Blue, matching the native blue interface tint. The original geometry is rendered by `macos/scripts/generate-icon.swift`; white panes have a restrained cool tint. Image-generation drafts were rejected for edge artifacts; the final asset uses the existing vector geometry rendered with AppKit. Windows assets remain unchanged.
+
+Built and verified the universal signed app, confirmed bundled PNG bytes match the reviewed source asset, and installed locally. Icon-only update; no repeated interaction suite needed. Backup: `/Users/abdullah/Library/Application Support/BentoBackups/Bento-before-blue-icon-20261020-001948.app`. No GitHub push.
+
 # Gentle slot boundaries and native blue interface — 2026-10-20
 
 Destination panels match existing slot geometry before window identity, so swaps keep their surfaces stationary. Only anchored width/height changes interpolate; relocations adopt their destination directly. New split children grow from an anchored edge. Preview boundary motion is 300 ms with smooth easing; dismissal remains 180 ms. Reduce Motion and disabled animation still use immediate final geometry. macOS interface accent and selection tint use native systemBlue.
