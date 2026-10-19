@@ -150,6 +150,9 @@ internal static class NativeTests
             var native = new WindowController();
             var originals = fixtures.Select(w => native.Capture(w.Id)).ToArray();
             var preBentoBounds = fixtures.Select(w => native.VisibleBounds(w.Id)).ToArray();
+            // Hosted CI has native HWNDs but no interactive Explorer desktop.
+            // Release validation also requires --native --real-desktop on a desktop PC.
+            if (Environment.GetCommandLineArgs().Contains("--real-desktop"))
             Run("Real desktop adapter identifies the shell and activates fixtures through Settings and tray actions", () =>
             {
                 using var environment = new DesktopEnvironment();
@@ -186,6 +189,7 @@ internal static class NativeTests
                 }
                 finally { real.RestoreAll(); }
             });
+            else Console.WriteLine("NOT RUN: live Explorer desktop activation; release gate requires --native --real-desktop on an interactive Windows desktop.");
             long gestureTime = 0;
             using var controller = new BentoController(() => WindowCatalog.Discover(includeMinimized: false)
                 .Where(w => w.Title.StartsWith(prefix, StringComparison.Ordinal)).OrderBy(w => w.Title).ToArray(),

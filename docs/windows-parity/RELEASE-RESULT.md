@@ -10,7 +10,9 @@ CloudPC evidence: build zero warnings/errors; native suite 187 passed, zero fail
 
 Earlier untouched CloudPC tests produced 182/3 then 183/2. Two edge-drag test points were within the DPI-scaled screen-edge movement strip; these fixture points now scale with the monitor. A grip assertion now follows the selected equivalent seam. An initial intermittent native-resize failure remains unexplained; subsequent original and scaled offsets passed. No production resize cause is claimed.
 
-Installed CloudPC 0.3.6 was preserved and starts active. Separate unpublished shortcut/backdrop changes at `76cc4a6` remain excluded from this activation hotfix. CI, packaged OTA verification and publication for 0.3.11 are pending.
+Installed CloudPC 0.3.6 was preserved and starts active. Separate unpublished shortcut/backdrop changes at `76cc4a6` remain excluded from this activation hotfix.
+
+Hosted CI run `39194155322` built successfully and passed 186 checks; its only failure was the live desktop adapter, because that runner exposes no usable Explorer desktop identity. The live regression now requires explicit `Bento.Tests.exe --native --real-desktop` on an interactive Windows desktop. Ordinary headless native runs print an explicit NOT RUN line; they do not count this regression as passing. The separately recorded CloudPC 187/0 is required release evidence. Production identity checks are unchanged. CI, packaged OTA verification and publication for 0.3.11 are pending.
 
 ## Historical 0.3.10 release
 
