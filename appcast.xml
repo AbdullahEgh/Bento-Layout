@@ -4,23 +4,22 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.40</title>
-            <pubDate>Sun, 18 Oct 2026 13:17:48 +0000</pubDate>
-            <sparkle:version>160</sparkle:version>
-            <sparkle:shortVersionString>0.2.40</sparkle:shortVersionString>
+            <title>0.2.41</title>
+            <pubDate>Mon, 19 Oct 2026 15:06:46 +0000</pubDate>
+            <sparkle:version>161</sparkle:version>
+            <sparkle:shortVersionString>0.2.41</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.40
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.41
 
-- Short grips resize two apps; long shared grips resize groups of slots.
-- Updating or quitting keeps windows in place, including minimized apps.
-- Installation no longer waits for windows to restore their old positions.
+- Fit smaller screens with fewer layout retries and unnecessary minimizations.
+- Keep temporary window moves and resizes separate while paused; Resume restores saved slots.
 
-Includes 0.2.39’s shared-grip, slot-preview and full-screen improvements. Downloads include macOS and the current Windows portable app (Windows 11 x64, .NET 10 Desktop Runtime).
+Downloads include macOS and the current Windows portable app (Windows 11 x64, .NET 10 Desktop Runtime).
 ]]></description>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.40/Bento-macos-universal.zip" length="4495209" type="application/octet-stream" sparkle:edSignature="y1SUjcm0utMCL7KY9FhgNnobe4CUIurDqP2F86dGS2kWrP4vGONCaONy9st76aR5rGUlHWuMzvOg1FhbGoqjBQ=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.41/Bento-macos-universal.zip" length="4522302" type="application/octet-stream" sparkle:edSignature="CTm7a1W21RQVM2nCSuSIfIVT2dzJTVrFKsJ15PQ8byEwSQiXTrvsb1zyZ2tQvtzeV3shW/qin9TV8m4YcmwPCw=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: GAyT9AFA4e2Wm7rAaY9355W1WxwLkY8MuQnB/+x1IYrjXuHClG0TzekoQwbHjYAbHV+L/tcyl7QWx2OOFQzACg==
-length: 1567
+edSignature: /aymAiZTShTxsRVzZjyDBXqqD2qFMulZ8Qh4J59z0FnvX0yVVar19w/C0EdCS4adEdbBQ7N8YZ5SRDhbLTYaDg==
+length: 1443
 -->
