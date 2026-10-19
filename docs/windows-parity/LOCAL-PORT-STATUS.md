@@ -1,6 +1,6 @@
 # Local Windows port status — 2026-10-18
 
-**Local source port and targeted static review complete; uncompiled and not release-ready. No Windows runtime validation is claimed.**
+**Windows CI compilation, core/native fixtures, OTA compatibility and settings smoke checks pass. Interactive hardware and on-device OTA QA remain unperformed.**
 
 ## Checkout and baselines
 
@@ -24,7 +24,7 @@ The web tool could read the release pages but could not fetch the branch tree (`
 
 ## Final source parity checklist
 
-Source review is complete for this local implementation. **Compilation, native behavior and acceptance certification remain pending.** All ACCEPTANCE.md runtime cases remain unchecked.
+Source review is complete and the Windows CI gate passes at `aaa337e`. Full ACCEPTANCE.md certification remains pending: CI fixtures do not replace physical input, actual desktop/Task View, mixed-DPI hardware or on-device OTA QA.
 
 | Area | Local source implementation | Validation still required |
 | --- | --- | --- |
@@ -45,15 +45,15 @@ Public Windows APIs do not provide a universal Task View/fullscreen transition e
 - Preserved commits: `b4b77e1`, `354031e`, `f828dcf`, `15f6db4`; the final review commit follows these on the same branch.
 - Reviewed controller entry points: membership/create/destroy, incoming drag and native resize, shared grip release/cancel, fullscreen projection/return, Off/Restore, work-area changes, deferred preferences, quit/update/session-ending, callback disposal and shell ownership.
 - Fixed repeated overflow rebuilding, original-position restoration, stale handles/history, fullscreen writes while Off, per-desktop queued work, preference ordering, sibling-close proposal caches, final resize fullscreen inference, provenance on Settings/rollback paths, partial construction cleanup, native callback exceptions, probe leaks and shutdown ordering.
-- Added pure regression fixtures for workspace-scoped positive/negative caches and own-frame fullscreen classification. Added native sibling-close preview regression alongside quit, Pause, simulated desktop/fullscreen and session cases. **No C# regression has run.**
+- Added pure regression fixtures for workspace-scoped positive/negative caches and own-frame fullscreen classification. Added native sibling-close preview regression alongside quit, Pause, simulated desktop/fullscreen and session cases. **These C# regressions now pass in Windows CI.**
 - `git diff --check` and project/solution XML/reference checks pass. Mac source/shared fixtures remain unchanged.
-- `dotnet build Bento.slnx -p:EnableWindowsTargeting=true` and portable regression command are blocked with exit 127: `dotnet` is absent. No SDK installed.
+- Local Mac `dotnet` commands remain unavailable; no SDK installed. Windows CI successfully builds the full solution with zero warnings/errors, runs the native/core fixtures, portable core executable, built-package/shipped-0.3.9-updater compatibility and settings stacking checks. [Passing CI run](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/39191521077).
 - Unchanged Mac reference tests: 91 passed, zero failures after excluding Sparkle archive-signature test requiring absent `sign_update`. The full attempt had that one failure. Logs: [full](evidence/mac-reference-full.log), [filtered](evidence/mac-reference-core.log). This does not validate C# or Windows.
-- No remote writes, CI dispatch, PR, release, credentials, installation or running Bento operation occurred.
+- The user subsequently explicitly approved source push, CI and release. The port is pushed to `windows/mac-parity-release`; no installed Bento or credentials/security settings were changed. Release publication is gated on successful tag CI. See [OTA continuity](OTA-COMPATIBILITY.md).
 
-## Exact remaining blockers and commands
+## Remaining validation and reproduced commands
 
-Fresh GitHub/PC baseline access remains unavailable (DNS failure above); compare/fetch before integration. A .NET 10 build environment and interactive Windows 11 fixture environment are required:
+The approved execution route restored Git HTTPS access on October 19. Fresh upstream checks confirm main `eae0eda`, Mac branch `bd11c97` and the unchanged published Mac 0.2.40 baseline. Windows CI provides .NET 10 and disposable HWND fixtures. No separate PC-owner checkout has been identified. Reproduce CI using:
 
 ```sh
 dotnet run --project tests/Bento.Core.Tests/Bento.Core.Tests.csproj -c Release
@@ -65,7 +65,7 @@ dotnet build Bento.slnx -p:EnableWindowsTargeting=true
 .\tests\Bento.Tests\bin\Release\net10.0-windows\Bento.Tests.exe --settings-order-smoke
 ```
 
-Then execute the acceptance checklist for physical grips/native resize, desktop/Task View/lock/pinning, fullscreen, mixed DPI, taskbar recovery/manual overrides, Pause click delivery, overflow, session Off/Restore, and quit/update while dragging or editing preferences. Build and verify ZIP/sidecar locally before any installation test. Remote CI and publication require separate approval.
+Then execute the acceptance checklist for physical grips/native resize, desktop/Task View/lock/pinning, fullscreen, mixed DPI, taskbar recovery/manual overrides, Pause click delivery, overflow, session Off/Restore, and quit/update while dragging or editing preferences. Build and verify ZIP/sidecar locally before any installation test. Source push, CI and publication were explicitly approved; on-device operation remains outside this task.
 
 ## Supported conversation evidence
 
