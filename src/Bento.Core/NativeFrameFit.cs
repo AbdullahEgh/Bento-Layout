@@ -4,6 +4,9 @@ public static class NativeFrameFit
 {
     public static bool Accepts(PixelRect actual, PixelRect slot) => Math.Abs(actual.X - slot.X) <= 2 && Math.Abs(actual.Y - slot.Y) <= 2 &&
         actual.Width > 0 && actual.Height > 0 && slot.Width - actual.Width is >= -2 and <= 32 && slot.Height - actual.Height is >= -2 and <= 32;
+    // Cell slack belongs to an already-applied allocation. A newly requested
+    // allocation (including a small Undo/Redo) must still issue a native move.
+    public static bool NeedsPlacement(PixelRect actual, PixelRect slot, PixelRect? applied) => applied != slot || !Accepts(actual, slot);
     public static PixelRect InwardTarget(PixelRect actual, PixelRect slot)
     {
         int dx = actual.Width - slot.Width, dy = actual.Height - slot.Height;

@@ -84,7 +84,13 @@ public sealed partial class BentoController
             // unbounded chase of an application's delayed native animation.
             foreach (var monitor in monitors)
                 foreach (var region in Layout(monitor, settledState).Regions)
-                    try { if (CanWriteNative(region.Window.WindowId) && !native.Accepts(region.Window.WindowId, region.Bounds)) native.Move(region.Window.WindowId, region.Bounds, learnMinimum: settledLearnMinimum); }
+                    try
+                    {
+                        // User minimization after commit supersedes its delayed
+                        // repair. Never restore that window from a timer.
+                        if (WindowCatalog.IsMinimized(region.Window.WindowId)) { RequestMembershipRefresh(); continue; }
+                        if (CanWriteNative(region.Window.WindowId) && !native.Accepts(region.Window.WindowId, region.Bounds)) native.Move(region.Window.WindowId, region.Bounds, learnMinimum: settledLearnMinimum);
+                    }
                     catch (Exception ex) { Report(ex.Message); }
         };
     }

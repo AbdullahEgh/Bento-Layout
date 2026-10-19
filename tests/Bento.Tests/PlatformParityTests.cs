@@ -34,6 +34,13 @@ internal static class PlatformParityTests
             for (int i = 0; i < 10; i++) root = AutoLayout.Fitting(new[] { overflow, a, b }, area, previous: root);
             Equal<LayoutNode?>(original, root);
         });
+        Run("Small undo geometry is applied even inside the previous cell slack", () =>
+        {
+            var before = new PixelRect(8, 8, 603, 704); var after = before with { Width = 627 };
+            Check(NativeFrameFit.Accepts(before, after));
+            Check(NativeFrameFit.NeedsPlacement(before, after, before));
+            Check(!NativeFrameFit.NeedsPlacement(before, after, after));
+        });
         Run("Cell-rounded frames accept bounded slack and reject displaced or oversized frames", () =>
         {
             var slot = new PixelRect(-1200, 30, 800, 600);

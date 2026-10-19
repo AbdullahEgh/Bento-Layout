@@ -203,7 +203,8 @@ internal static class NativeTests
             Run("Only divider gaps receive desktop helper windows", () =>
             {
                 var handles = Application.Current!.Windows.OfType<DesktopDividerWindow>().ToArray();
-                Equal(controller.Layout(monitor).Dividers.Count, handles.Length);
+                var all = ResizeHandles.Calculate(controller.DisplayState.Roots[monitor.Id]!, controller.Area(monitor), controller.Gap(monitor));
+                Equal(all.Count(h => ResizeHandles.IsUniversal(h, all)), handles.Length);
                 foreach (var handle in handles)
                     foreach (var region in controller.Layout(monitor).Regions)
                     {
@@ -375,7 +376,7 @@ internal static class NativeTests
                 for (int i = 0; i < 3; i++) Equal(before[i], native.VisibleBounds(fixtures[i].Id));
                 controller.CancelDrag();
             });
-            Run("Changing or leaving a drop zone invalidates its cached preview", () =>
+            Run("Returning to a drop zone reuses its gesture cache; a new gesture invalidates it", () =>
             {
                 var regions = controller.Layout(monitor).Regions;
                 var target = regions.Single(r => r.Window.WindowId == fixtures[1].Id).Bounds;
@@ -388,7 +389,7 @@ internal static class NativeTests
                 controller.PreviewDrag(new(int.MinValue, int.MinValue));
                 Check(!Application.Current!.Windows.OfType<DropPreviewWindow>().Any(w => w.IsVisible));
                 controller.PreviewDrag(point);
-                Check(!ReferenceEquals(first, controller.DisplayState));
+                Check(ReferenceEquals(first, controller.DisplayState));
                 var fresh = controller.DisplayState;
                 controller.CancelDrag(); controller.BeginDrag(fixtures[0].Id); controller.PreviewDrag(point);
                 Check(!ReferenceEquals(fresh, controller.DisplayState));
