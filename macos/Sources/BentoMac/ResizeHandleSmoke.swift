@@ -36,7 +36,8 @@ import BentoCore
         let cueBounds = cue.bounds
         cue.shared = true; cue.localCenters = [175, 525]
         cue.showJoinCue()
-        try? await Task.sleep(for: .milliseconds(150))
+        // Assert the initial state synchronously: a loaded CI runner may resume
+        // an async sleep after the cue has already begun fading.
         try check(cue.visibleJoinCue == 1 && cue.bounds == cueBounds && cue.visibleInk == 0,
             "Joined boundary cue starts fully visible without changing hit areas or idle hover ink")
         if let bitmap = cue.bitmapImageRepForCachingDisplay(in: cue.bounds) {
