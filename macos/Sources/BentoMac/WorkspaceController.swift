@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import SwiftUI
 import BentoCore
 
@@ -129,6 +130,52 @@ struct MacSettings: Codable {
         pinnedWindowIDs = value ? Set(history.current.windows.map(\.windowID)) : []
         onStateChange?()
     }
+    private(set) var sessionSuspended = false
+    private var sessionLocked = false
+    private var unlockAreas: [DisplayArea] = []
+    private var unlockSamples = 0
+    func setSessionLocked(_ locked: Bool) {
+        sessionLocked = locked
+        unlockAreas = []; unlockSamples = 0
+        if locked {
+            sessionSuspended = true
+            activationGeneration += 1
+            settledValidationTask?.cancel()
+            pendingMembership = nil; membershipSamples = 0
+            pendingDrift = nil; driftSamples = 0
+        }
+        onStateChange?()
+    }
+    private func recoverUnlockedSession() {
+        guard !sessionLocked, !busy, !activating, !interacting, !switchingDesktop,
+              !desktopOverviewActive, system.desktopSpaceReady(),
+              let identity = system.desktopIdentity else { return }
+        if let session = CGSessionCopyCurrentDictionary() as? [String: Any],
+           (session["CGSSessionScreenIsLocked"] as? Bool == true || session[kCGSessionOnConsoleKey as String] as? Bool == false) { return }
+        let areas = displayAreas()
+        guard !areas.isEmpty else { return }
+        if areas == unlockAreas { unlockSamples += 1 }
+        else { unlockAreas = areas; unlockSamples = 1 }
+        guard unlockSamples >= 3 else { return }
+        // A lock screen is not another Bento desktop, and temporarily absent
+        // windows must never be interpreted as removals or manual resizing.
+        if identity == currentDesktop, active,
+           system.hasMissingVisibleWindows(windows.filter { !system.isMinimized($0) && system.isAlive($0) }) { return }
+        sessionSuspended = false
+        pendingMembership = nil; membershipSamples = 0
+        pendingDrift = nil; driftSamples = 0
+        guard identity == currentDesktop, active, !pinned else { onStateChange?(); return }
+        reconciliationQueued = true
+        let saved = history.current
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.reconciliationQueued = false; self.onStateChange?() }
+            do {
+                try await self.apply(saved, displays: areas, animate: false, learnMinimum: false)
+                self.lastDisplays = areas
+            } catch { self.message = error.localizedDescription }
+        }
+    }
     var desktopOverviewActive = false
     private(set) var shuttingDown = false
     @Published var busy = false
@@ -252,7 +299,7 @@ struct MacSettings: Codable {
     @Published private(set) var switchingDesktop = false
     private var desktopSwitchTask: Task<Void, Never>?
     func desktopDidChange() async {
-        guard !shuttingDown, !switchingDesktop else { return }
+        guard !shuttingDown, !sessionSuspended, !switchingDesktop else { return }
         // Duplicate Space notifications must not cancel an in-flight layout.
         if let identity = system.desktopIdentity, identity == currentDesktop { return }
         switchingDesktop = true
@@ -308,6 +355,7 @@ struct MacSettings: Codable {
         } catch { message = error.localizedDescription }
     }
     func desktopIsCurrent() -> Bool {
+        guard !sessionSuspended else { return false }
         guard let identity = system.desktopIdentity else { return !backgroundMonitoring }
         return identity == currentDesktop
     }
@@ -496,6 +544,7 @@ struct MacSettings: Codable {
         } catch { message = error.localizedDescription }
     }
     func tick() {
+        if sessionSuspended { recoverUnlockedSession(); return }
         guard !shuttingDown, !desktopOverviewActive else { return }
         refreshPermissionStatus()
         if !desktopIsCurrent() {

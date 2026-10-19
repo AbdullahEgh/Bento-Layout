@@ -141,16 +141,16 @@ public enum DesktopWorkArea {
     public static func correctingDock(frame: Rect, visible: Rect, dock: Rect?) -> Rect {
         guard let dock, dock.width > 0, dock.height > 0,
               dock.right > frame.x, dock.x < frame.right, dock.bottom > frame.y, dock.y < frame.bottom else { return visible }
-        var left = frame.x, right = frame.right, bottom = frame.bottom
+        var left = max(frame.x, visible.x), right = min(frame.right, visible.right), bottom = min(frame.bottom, visible.bottom)
         if dock.width >= dock.height, abs(frame.bottom - dock.bottom) <= 32, dock.height < frame.height / 3 {
             // AX includes a small visual fringe on some releases. Keep an
             // already matching AppKit reservation instead of shrinking by it.
             if frame.bottom - visible.bottom >= 8, abs(visible.bottom - dock.y) <= 8 { return visible }
-            bottom = max(visible.y, dock.y)
+            bottom = max(visible.y, min(bottom, dock.y))
         } else if dock.height > dock.width, abs(dock.x - frame.x) <= 32, dock.width < frame.width / 3 {
-            left = dock.right
+            left = max(left, dock.right)
         } else if dock.height > dock.width, abs(frame.right - dock.right) <= 32, dock.width < frame.width / 3 {
-            right = dock.x
+            right = min(right, dock.x)
         } else { return visible }
         return Rect(left, visible.y, max(0, right - left), max(0, bottom - visible.y))
     }

@@ -28,6 +28,10 @@ struct DesktopInput {
     var handleCalculationCount: Int { handleCache.calculationCount }
     var pointerSamplingActive: Bool { pulse != nil }
     private var spaceObserver: NSObjectProtocol?
+    private var lockObservers: [NSObjectProtocol] = []
+    private var sessionObservers: [NSObjectProtocol] = []
+    private var gestureDisplays: [DisplayArea]?
+    private var sessionGeneration = 0
     private var grips: [UUID: GapPanel] = [:]
     private let preview = DestinationPanel()
     private lazy var overflowInsertion = OverflowInsertion(model: model, changed: { [weak self] in self?.synchronize() })
@@ -66,6 +70,16 @@ struct DesktopInput {
         self.model = model; self.input = input ?? { DesktopInput.current() }; self.trace = trace ?? (automaticSampling ? { InteractionDiagnostics.record($0) } : nil)
         guard automaticSampling else { return }
         if observeOverview { overviewMonitor = DesktopOverviewMonitor { [weak self] in self?.setOverviewActive($0) } }
+        for (name, locked) in [("com.apple.screenIsLocked", true), ("com.apple.screenIsUnlocked", false)] {
+            lockObservers.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.sessionLockChanged(locked) }
+            })
+        }
+        for (name, locked) in [(NSWorkspace.sessionDidResignActiveNotification, true), (NSWorkspace.sessionDidBecomeActiveNotification, false), (NSWorkspace.willSleepNotification, true), (NSWorkspace.didWakeNotification, false)] {
+            sessionObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.sessionLockChanged(locked) }
+            })
+        }
         updateSampling()
         escapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard event.keyCode == 53 else { return }
@@ -82,8 +96,26 @@ struct DesktopInput {
     }
     deinit {
         pulse?.invalidate()
+        for observer in lockObservers { DistributedNotificationCenter.default().removeObserver(observer) }
+        for observer in sessionObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
         if let spaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver) }
+    }
+    private func sessionLockChanged(_ locked: Bool) {
+        model.setSessionLocked(locked)
+        guard locked else { synchronize(); return }
+        // Drop transient pointer state without committing or restoring frames
+        // while the login window owns the display.
+        sessionGeneration += 1
+        pending = nil; liveTask?.cancel()
+        snapshot = nil; candidate = nil; session = nil; grip = nil; gripWorkspace = nil
+        gestureAreas = nil; gestureDisplays = nil; gestureScreens = [:]
+        pressedWindow = nil; pressedFrame = nil
+        wasPressed = false; waitForRelease = true; releasePending = false
+        finishing = false; liveFailure = false; nativeResize = false
+        model.interacting = false
+        hoverNeedsUpdate = true; lastSamplePoint = nil
+        removeHelpers(); updateSampling()
     }
     var visibleGripCount: Int { grips.values.filter(\.isVisible).count }
     var helperFrames: [Rect] { grips.values.map { DesktopCoordinates.engine($0.frame) } }
@@ -112,7 +144,7 @@ struct DesktopInput {
         } else { synchronize() }
     }
     func synchronize() {
-        guard !model.shuttingDown else { removeHelpers(); updateSampling(); return }
+        guard !model.shuttingDown, !model.sessionSuspended else { removeHelpers(); updateSampling(); return }
         overviewMonitor?.connect()
         updateSampling()
         guard !model.desktopOverviewActive else { overflowInsertion.hide(); return }
@@ -136,7 +168,7 @@ struct DesktopInput {
     private func areas() -> [String: Rect] { if let gestureAreas { return gestureAreas }; return Dictionary(uniqueKeysWithValues: model.interactionAreas().map { ($0.id, $0.bounds) }) }
     private func removeHelpers() { overflowInsertion.hide(); suppressGripsUntilRelease = false; handleCache.removeAll(); model.system.dividerWindowNumbers.removeAll(); resizeHandles.removeAll(); pinnedTint.hide(); grips.values.forEach { $0.orderOut(nil) }; grips.removeAll(); preview.orderOut(nil); backdrop.hide(animated: model.settings.animate) }
     private func updateGrips(_ workspace: Workspace, visible: [[String: Any]]? = nil) {
-        guard !model.pinned, !model.desktopOverviewActive, !suppressGripsUntilRelease else { return }
+        guard !model.sessionSuspended, !model.pinned, !model.desktopOverviewActive, !suppressGripsUntilRelease else { return }
         let visible = visible ?? (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? [])
         hoverNeedsUpdate = true
         let ids = Set(workspace.windows.map(\.windowID))
@@ -206,7 +238,7 @@ struct DesktopInput {
         model.system.dividerWindowNumbers = Set(grips.values.map(\.windowNumber))
     }
     func sample() {
-        guard !model.shuttingDown, !model.desktopOverviewActive, !model.insertingOverflow else { return }
+        guard !model.shuttingDown, !model.sessionSuspended, !model.desktopOverviewActive, !model.insertingOverflow else { return }
         let state = input(), pressed = state.pressed
         defer { wasPressed = pressed; lastSamplePoint = state.point }
         guard !finishing else { return }
@@ -379,7 +411,7 @@ struct DesktopInput {
         }
     }
     func beginGrip(display: String, id: UUID, at point: Point? = nil) -> Bool {
-        guard !model.pinned, !model.shuttingDown, !model.desktopOverviewActive else { return false }
+        guard !model.pinned, !model.shuttingDown, !model.sessionSuspended, !model.desktopOverviewActive, model.desktopIsCurrent() else { return false }
         if grip?.display == display && grip?.divider.id == id { return true }
         let prepared = model.history.current.reconciled(with: model.windows.map(\.leaf))
         guard model.active, model.permission, !model.busy, !model.interacting, !finishing, !releasePending,
@@ -388,7 +420,13 @@ struct DesktopInput {
         if handle.blocked { grips[id]?.gripView.showBlockedCue(); return false }
         suppressGripsUntilRelease = false
         let divider = handle.divider
-        gestureAreas = areas()
+        // The visible handles and native writes must share one work-area snapshot.
+        // Let the normal work-area reflow finish before accepting a stale handle.
+        let displays = model.displayAreas()
+        guard displays == model.interactionAreas() else { model.tick(); return false }
+        gestureDisplays = displays
+        gestureAreas = Dictionary(uniqueKeysWithValues: displays.map { ($0.id, $0.bounds) })
+        wasPressed = true; waitForRelease = false
         snapshot = model.history.current.reconciled(with: model.windows.map(\.leaf)); candidate = snapshot; grip = (display, divider)
         gripWorkspace = snapshot; gripWorkspace?.roots[display] = handle.root
         gripWorkspace = gripWorkspace?.reconciled(with: model.windows.map(\.leaf))
@@ -414,18 +452,24 @@ struct DesktopInput {
             candidate = next; pending = next
             updateGrips(next)
             if liveTask == nil {
+                let generation = sessionGeneration
                 liveTask = Task { @MainActor [weak self] in
                     guard let self else { return }
-                    while let next = self.pending {
+                    while !Task.isCancelled, !self.model.sessionSuspended, let next = self.pending {
                         self.pending = nil
                         do {
-                            try await self.model.apply(next, displays: self.model.displayAreas(), liveResize: true)
+                            guard let displays = self.gestureDisplays, displays == self.model.displayAreas() else { throw WindowFailure.workAreaChanged }
+                            try await self.model.apply(next, displays: displays, liveResize: true)
                             // Do not move the grip back to an older applied sample
                             // while a newer pointer destination is already queued.
                             if self.candidate == next { self.updateGrips(next) }
                         }
-                        catch { self.liveFailure = true; self.pending = nil; self.model.message = error.localizedDescription; break }
+                        catch {
+                            guard generation == self.sessionGeneration else { break }
+                            self.liveFailure = true; self.pending = nil; self.model.message = error.localizedDescription; break
+                        }
                     }
+                    guard generation == self.sessionGeneration else { self.liveTask = nil; return }
                     self.liveTask = nil
                     if self.liveFailure { Task { await self.finish(cancel: true) } }
                 }
@@ -438,16 +482,18 @@ struct DesktopInput {
         pulse?.invalidate(); pulse = nil
         if let liveTask { await liveTask.value }
         snapshot = nil; candidate = nil; session = nil; grip = nil; gripWorkspace = nil
-        pressedWindow = nil; pressedFrame = nil; gestureAreas = nil; gestureScreens = [:]
+        pressedWindow = nil; pressedFrame = nil; gestureAreas = nil; gestureDisplays = nil; gestureScreens = [:]
         model.interacting = false
         preview.hideImmediately(); removeHelpers()
     }
     func finish(cancel: Bool) async {
-        guard !model.shuttingDown, !model.desktopOverviewActive else { pending = nil; return }
+        guard !model.shuttingDown, !model.sessionSuspended, !model.desktopOverviewActive else { pending = nil; return }
         guard !finishing, let original = snapshot else { return }
         finishing = true
+        let generation = sessionGeneration
         if cancel { pending = nil; preview.orderOut(nil) }
         if let liveTask { await liveTask.value }
+        guard generation == sessionGeneration, !model.sessionSuspended else { return }
         let disappeared = original.windows.filter { leaf in
             guard let window = model.windows.first(where: { $0.id == leaf.windowID }) else { return true }
             return !model.system.isAlive(window)
@@ -471,7 +517,7 @@ struct DesktopInput {
         trace?("gesture settled elapsedMS=\(Int((ProcessInfo.processInfo.systemUptime - started) * 1000)) committed=\(!cancel && !liveFailure && model.message == nil && model.history.current != original)")
         preview.orderOut(nil)
         suppressGripsUntilRelease = false
-        gestureAreas = nil; gestureScreens = [:]; escapeRequested = false; releasePending = false
+        gestureAreas = nil; gestureDisplays = nil; gestureScreens = [:]; escapeRequested = false; releasePending = false
         snapshot = nil; candidate = nil; swapsSections = false; session = nil; grip = nil; gripWorkspace = nil; pressedWindow = nil; pressedFrame = nil
         liveTask = nil; liveFailure = false; nativeResize = false; model.interacting = false; finishing = false
         model.onStateChange?()
