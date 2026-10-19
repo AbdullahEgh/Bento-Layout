@@ -11,7 +11,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      GITHUB_REF_NAME: v0.3.10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -42,7 +41,7 @@ jobs:
           set -euo pipefail
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/macos-v0.2.40" > mac-source.json
           gh release download macos-v0.2.40 --repo "$GITHUB_REPOSITORY" --pattern Bento-macos-universal.zip --dir download
-          python3 tools/verify-windows-release.py download mac-source.json
+          GITHUB_REF_NAME=v0.3.10 python3 tools/verify-windows-release.py download mac-source.json
           # Drafts are enumerated by the authenticated list endpoint, not the
           # public releases/tags endpoint used by the original release job.
           release_id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[] | select(.tag_name == "v0.3.10") | .id')"
