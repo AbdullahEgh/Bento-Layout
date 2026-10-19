@@ -287,11 +287,37 @@ import BentoCore
             "Smaller remote display activation remeasures current constraints rather than reusing old accepted sizes")
         await prepared.restore()
         system.areaOverride = previousAreas
+        let dockWindow = system.records[0].0
+        system.minimized.insert(dockWindow.id)
+        system.writes.removeAll()
+        await prepared.arrange()
+        try check(prepared.active && !prepared.history.current.windows.contains { $0.windowID == dockWindow.id }
+            && system.minimized.contains(dockWindow.id) && system.writes[dockWindow.id] == nil,
+            "Organizing only uses current desktop windows and leaves pre-minimized apps untouched")
+        await prepared.arrange()
+        try check(system.minimized.contains(dockWindow.id) && system.writes[dockWindow.id] == nil,
+            "Arrange All does not reopen a minimized app")
+        await prepared.restore()
+        system.minimized.removeAll()
         system.denyMinimize = true; system.writes.removeAll()
         await prepared.arrange()
         try check(!prepared.active && system.writes.isEmpty && system.minimized.isEmpty,
             "Apps refusing hidden preparation remain untouched instead of receiving visible size trials")
         system.denyMinimize = false
+        for (record, _) in system.records {
+            let frame = system.frame(of: record.element)!
+            system.nativeMinimum[record.id] = Size(frame.width, frame.height)
+        }
+        await prepared.arrange()
+        try check(prepared.active && prepared.history.current.windows.isEmpty && system.minimized.count == system.records.count,
+            "Unmeasurable activation windows minimize to Dock instead of remaining outside Bento")
+        await prepared.restore()
+        try check(system.minimized.isEmpty, "Turning Bento off restores excluded activation windows from Dock")
+        let organizing = OrganizingOverlay()
+        await organizing.show()
+        try check(organizing.visibleCount == NSScreen.screens.count, "Organizing blur covers every connected display")
+        organizing.hide(animated: false)
+        try check(organizing.visibleCount == 0, "Organizing cover is removed on completion")
         system.hiddenPreparation = false; system.nativeMinimum.removeAll()
         for (record, _) in system.records { record.minimum = Size(160, 120) }
         return passed

@@ -8,7 +8,8 @@ struct ReleaseNotes: Identifiable {
     // Keep newest first; ship the log with the app so it also works offline.
     static let history: [ReleaseNotes] = [
         .init(version: "0.2.42", points: [
-            "Prepare native sizes before revealing the first layout.",
+            "Organize behind a full-screen blur; minimize apps that cannot fit.",
+            "Right-aligned automatic update controls.",
             "Pause hides grips and preserves slots; Resume restores window changes.",
             "Rounded pause dimming and brighter selected drag slots.",
             "Show every drag slot, highlight the destination, and keep the dragged window above previews.",

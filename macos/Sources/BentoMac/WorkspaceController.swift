@@ -118,6 +118,7 @@ struct MacSettings: Codable {
     private(set) var shuttingDown = false
     @Published var busy = false
     @Published var interacting = false
+    private let organizingOverlay = OrganizingOverlay()
     @Published var activating = false
     @Published var windows: [ManagedWindow] = []
     @Published var message: String?
@@ -448,7 +449,13 @@ struct MacSettings: Codable {
                 guard active else { return }
             }
             let overflowChanged = appliedMinimizeOverflow != settings.minimizeOverflow
-            if overflowChanged && !settings.minimizeOverflow { _ = await restoreMinimized() }
+            if overflowChanged && !settings.minimizeOverflow {
+                let restoredIDs = Set(minimizedByBento.keys)
+                _ = await restoreMinimized()
+                windows = try discoverWindows()
+                // A settings-driven restoration is not a user reopening an app.
+                reopenedWindows.subtract(restoredIDs)
+            }
             guard active, generation == activationGeneration else { return }
             appliedMinimizeOverflow = settings.minimizeOverflow
             let geometryChanged = oldGap != settings.gap || oldMargin != settings.margin
@@ -554,7 +561,9 @@ struct MacSettings: Codable {
             guard system.isAlive(window) else { minimizedByBento.removeValue(forKey: id); continue }
             if visibleIDs.contains(id) && !system.isMinimized(window) {
                 reopenedWindows.insert(id); minimizedByBento.removeValue(forKey: id)
-            } else if system.isMinimized(window) { visible.append(window) }
+            }
+            // Keep ownership for explicit restoration, but never add a Dock
+            // window to the visible candidates used by arrangement or polling.
         }
         return visible
     }
@@ -621,6 +630,10 @@ struct MacSettings: Codable {
         let previousWindows = windows
         let generation = activationGeneration
         let wasActive = active
+        let showOrganizing = backgroundMonitoring && !automatic
+        if showOrganizing { await organizingOverlay.show() }
+        defer { if showOrganizing { organizingOverlay.hide() } }
+        guard generation == activationGeneration, desktopIsCurrent(), !shuttingDown else { return false }
         var attemptedInput: ArrangementInput?
         var activationRollback: [(ManagedWindow, Rect)] = []
         var activationAreas: [DisplayArea] = []
@@ -630,7 +643,7 @@ struct MacSettings: Codable {
         do {
             if !preserving { released = resuming ? lastReleased : [] }
             reserveFullScreenSlots()
-            var current = try discoverWindows(); windows = current
+            var current = try discoverWindows().filter { !system.isMinimized($0) }; windows = current
             let returningFullScreen = Set(current.filter { fullScreenWindows[$0.id] != nil && !system.isFullScreen($0) }.map(\.id))
             guard !current.isEmpty else {
                 if preserving && wasActive {
@@ -648,7 +661,7 @@ struct MacSettings: Codable {
                 try activateDesktop(); try await settleDesktopSpace()
                 // Native limits and frames captured before a shell transition can
                 // be stale. Plan only from the settled desktop's fresh snapshot.
-                current = try discoverWindows(); windows = current
+                current = try discoverWindows().filter { !system.isMinimized($0) }; windows = current
             }
             let displays = displayAreas()
             if !wasActive {
@@ -831,7 +844,7 @@ struct MacSettings: Codable {
                         floatingForSize.insert(window.id)
                     }
                 }
-                originals = originals.filter { !floatingForSize.contains($0.key) && (included.contains($0.key) || !currentIDs.contains($0.key) || settings.minimizeOverflow) }
+                originals = originals.filter { (!floatingForSize.contains($0.key) || (preparation != nil && settings.minimizeOverflow)) && (included.contains($0.key) || !currentIDs.contains($0.key) || settings.minimizeOverflow) }
                 if !wasActive {
                     // A rejected size may have moved a window which the final
                     // plan leaves outside. Restore only those discarded probes.

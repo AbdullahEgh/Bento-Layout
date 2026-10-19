@@ -1,3 +1,13 @@
+# Organizing cover and visible-desktop participation — 2026-10-19
+
+Manual organizing presents a nonactivating, screen-saver-level NSVisualEffectView on every display, with centered “Organizing Bento…” text and gentle appearance/removal. The cover is presented before desktop changes and preparation, and deferred cleanup removes it on success, refusal, cancellation or failure. No screenshot capture or new permission is required. Native material respects macOS accessibility transparency preferences.
+
+Activation excludes minimized windows; polling no longer reinserts Bento-owned Dock windows into visible candidates. Explicit overflow-setting restoration remains distinct from a user reopening an app. Unmeasurable activation candidates are minimized when overflow minimization is enabled, retaining originals for explicit restoration. Updates switches use separate left text and right-aligned controls.
+
+292 disposable native checks and 16 process-scoped real AX checks passed. New coverage checks cover presence/removal, excluded-window minimization and restoration, and pre-minimized windows remaining untouched on activation and Arrange All. One real AX run was invalidated by the installed live manager adopting fixture windows; the isolated rerun after quitting it passed. Evidence: `/tmp/bento-organizing-native/results.json`, `/tmp/bento-external-preparation/results/results.json`, `/tmp/bento-organizing-build.log`.
+
+Installed signed optimized universal 0.2.42 build 161 locally. Executable SHA-256: `770369da6a1c08713a87b5fc72e3c79ca2014c841c0c79a3a44f0e0aaccfd6e8`; code identity and all architecture signatures verified. Backup: `/Users/abdullah/Library/Application Support/BentoBackups/Bento-before-organizing-20261019-210117.app`. Live organizing completed and settings remained usable. Inspected the same production overlay in a timed standalone native preview (full-display panel and centered message), plus the installed Updates screenshot confirming right-aligned switches. App-window screenshots do not establish the composited blur appearance behind the panel on every OS transparency setting. No GitHub push or Windows changes.
+
 # Hidden first-activation preparation and Pause fixes — 2026-10-19
 
 First activation hides participating applications, verifies their hidden state, measures native minimum frames on the current display, calculates a layout, and applies final frames before revealing them. It does not minimize every app or reuse last accepted dimensions as minimum constraints. Unmeasurable windows remain outside the layout; only actual overflow is minimized. First activation disables both bounded replanning and settling corrections. Existing active-layout recovery remains separate.

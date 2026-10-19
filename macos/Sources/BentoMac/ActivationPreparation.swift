@@ -53,7 +53,7 @@ import BentoCore
         var overflow: [ManagedWindow] = []
         for (window, original) in held where system.isAlive(window) {
             if !included.contains(window.id), system.frame(of: window.element) != original { try? system.write(window, frame: original) }
-            if keepOverflow && !included.contains(window.id) && !excluded.contains(window.id) {
+            if keepOverflow && !included.contains(window.id) {
                 try? system.setMinimized(window, true)
                 if system.isMinimized(window) { overflow.append(window) }
             }

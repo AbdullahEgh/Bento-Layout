@@ -122,8 +122,14 @@ struct UpdatesView: View {
                     if updater.preparingInstallation { ProgressView("Preparing installation…") }
                     else if updater.pendingInstallation { Button("Retry installation") { updater.retryInstall() } }
                     Divider()
-                    Toggle("Check for updates automatically", isOn: Binding(get: { updater.automaticallyChecks }, set: { updater.setAutomaticChecks($0) })).toggleStyle(.switch)
-                    Toggle("Download updates automatically", isOn: Binding(get: { updater.automaticallyInstalls }, set: { updater.setAutomaticInstall($0) })).toggleStyle(.switch)
+                    HStack(spacing: 20) {
+                        Text("Check for updates automatically").frame(maxWidth: .infinity, alignment: .leading)
+                        Toggle("Check for updates automatically", isOn: Binding(get: { updater.automaticallyChecks }, set: { updater.setAutomaticChecks($0) })).labelsHidden().toggleStyle(.switch).fixedSize()
+                    }
+                    HStack(spacing: 20) {
+                        Text("Download updates automatically").frame(maxWidth: .infinity, alignment: .leading)
+                        Toggle("Download updates automatically", isOn: Binding(get: { updater.automaticallyInstalls }, set: { updater.setAutomaticInstall($0) })).labelsHidden().toggleStyle(.switch).fixedSize()
+                    }
                     Text("Bento verifies update signatures and keeps windows in place when updating or quitting. Session saves end when Bento restarts.").font(.system(size: 11)).lineSpacing(4).foregroundStyle(BentoStyle.secondary)
                 }.font(.system(size: 12)).disabled(!updater.ready)
             }
