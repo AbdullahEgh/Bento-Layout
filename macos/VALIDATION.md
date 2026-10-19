@@ -1,3 +1,13 @@
+# Interruptible slot motion and organizing spinner — 2026-10-20
+
+Slot surfaces now match planned bounds instead of interpolating presentation frames. Selection-only reorder and window identity changes update their associations without restarting geometry motion. Retargets sample the current animation before creating the next transition. Removed slots close immediately rather than fading over replacement geometry. This addresses panel reassignment, swap-then-resize jumps, repeated easing restarts, and overlapping retired surfaces while retaining anchored 300 ms boundary animation.
+
+The organizing cover includes a native indeterminate NSProgressIndicator on each display, using threaded animation during native work. Spinners stop and panels close when the cover retires, including the immediate hide path. Pause behavior is unchanged.
+
+319 disposable native checks passed. New checks cover repeated highlight changes mid-resize without panel replacement/restart, direction reversal from presentation geometry, exact final bounds, removal of obsolete merged panels, and organizing spinner presence/retirement. An initial run caught stale associations after an otherwise stationary swap; the corrected final run passed. Evidence: `/tmp/bento-slot-conflicts-native/results.json`, `/tmp/bento-slot-conflicts-build.log`.
+
+Installed signed universal 0.2.42 build 161 locally. SHA-256: `9348908440cb32b53712a499b9a0cf3cf79cea637c1aa5ec9515468a26228691`. Backup: `/Users/abdullah/Library/Application Support/BentoBackups/Bento-before-motion-conflicts-20261020-003618.app`. Installed ICNS bytes are identical to the previous app, as requested. No Windows changes or GitHub push.
+
 # Apple Blue app icon — 2026-10-20
 
 Recolored the existing three-pane macOS app icon to Apple Blue, matching the native blue interface tint. The original geometry is rendered by `macos/scripts/generate-icon.swift`; white panes have a restrained cool tint. Image-generation drafts were rejected for edge artifacts; the final asset uses the existing vector geometry rendered with AppKit. Windows assets remain unchanged.

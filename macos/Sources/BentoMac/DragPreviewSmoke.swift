@@ -60,8 +60,33 @@ import BentoCore
         let intermediate = resizing.visibleSlotFrames.first { $0.x == right.x }!
         try check(intermediate.width > smaller.width && intermediate.width < right.width,
             "Slot resizing is still gently interpolating after the previous 120ms duration")
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.25))
+        let stablePanels = Set(resizing.previewWindowNumbers)
+        let beforeSelection = resizing.visibleSlotFrames
+        resizing.presentConflict(left, slots: [smaller, left])
+        try check(Set(resizing.previewWindowNumbers) == stablePanels
+            && beforeSelection.allSatisfy(resizing.visibleSlotFrames.contains),
+            "Changing selection mid-resize preserves the moving surfaces without jumps")
+        for index in 0..<4 {
+            resizing.presentConflict(index.isMultiple(of: 2) ? smaller : left, slots: [smaller, left])
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        }
+        try check(Set(resizing.previewWindowNumbers) == stablePanels && resizing.visibleSlotFrames.count == 2,
+            "Repeated highlight changes neither allocate ghost slots nor restart the boundary animation")
         try check(resizing.visibleSlotFrames.contains(smaller), "Gentle slot resizing reaches exact planned bounds")
+        resizing.windowFrames[firstID] = right
+        resizing.presentSlots([right, left])
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.10))
+        resizing.windowFrames[firstID] = smaller
+        resizing.presentSlots([smaller, left])
+        let interrupted = resizing.visibleSlotFrames.first { $0.x == right.x }!
+        try check(interrupted.width > smaller.width && interrupted.width < right.width,
+            "Reversing a resize starts from its current presentation instead of either endpoint")
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.35))
+        try check(resizing.visibleSlotFrames.contains(smaller), "Interrupted resizing settles at the latest target")
+        let merged = Rect(40, 40, 490, 220)
+        resizing.windowFrames = [firstID: merged]
+        resizing.presentSlots([merged])
+        try check(resizing.visibleSlotFrames.count == 1, "Merging removes obsolete slot surfaces without overlapping ghosts")
         resizing.hideImmediately()
         let tint = PausedTintView(frame: NSRect(x: 0, y: 0, width: 80, height: 80))
         let bitmap = tint.bitmapImageRepForCachingDisplay(in: tint.bounds)!

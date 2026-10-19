@@ -535,12 +535,16 @@ struct DesktopInput {
     private var transitions: [Transition] = []
     private var started = 0.0
     private func transition(to rectangles: [Rect]) {
+        if motion != nil {
+            advance(progress: min(1, (ProcessInfo.processInfo.systemUptime - started) / (hiding ? 0.18 : 0.30)))
+        }
         motion?.invalidate(); motion = nil
         hiding = rectangles.isEmpty
         while panels.count < rectangles.count { panels.append(PreviewSlotPanel()) }
         prepareDimming(for: rectangles)
         transitions = panels.enumerated().map { index, panel in
             let destination = index < rectangles.count ? DesktopCoordinates.appKit(rectangles[index]) : panel.frame
+            panel.targetFrame = destination
             if !panel.isVisible && index < rectangles.count {
                 panel.alphaValue = 0; panel.setFrame(panel.splitStart ?? destination, display: true); panel.orderFrontRegardless()
                 panel.splitStart = nil
@@ -604,30 +608,34 @@ struct DesktopInput {
     }
     private func render(_ rectangles: [Rect], selected: Bool, conflict: Bool, proposal: DropProposal?, belowWindow: Int?) {
         let identities = rectangles.map { rect in windowFrames.first(where: { $0.value == rect })?.key }
-        let geometryChanged = hiding || lastRectangles != rectangles || panels.first?.isVisible != true || Array(panels.prefix(rectangles.count)).map(\.identity) != identities
+        let geometryChanged = hiding || lastRectangles.count != rectangles.count
+            || !lastRectangles.allSatisfy(rectangles.contains) || panels.first?.isVisible != true
+        let identitiesChanged = rectangles.enumerated().contains { index, rect in
+            panels.first(where: { DesktopCoordinates.engine($0.targetFrame) == rect })?.identity != identities[index]
+        }
         let conflictBounds = conflict ? rectangles.first : nil
-        guard geometryChanged || lastSelected != selected || lastConflict != conflictBounds || lastProposal != proposal || self.belowWindow != belowWindow else { return }
+        guard geometryChanged || identitiesChanged || lastSelected != selected || lastConflict != conflictBounds || lastProposal != proposal || self.belowWindow != belowWindow else { return }
         let anchorChanged = self.belowWindow != belowWindow
         self.belowWindow = belowWindow; lastSelected = selected
         lastRectangles = rectangles; lastProposal = proposal; lastConflict = conflict ? rectangles.first : nil
-        let previousFrames = panels.filter(\.isVisible).map(\.frame)
+        let previousFrames = panels.filter(\.isVisible).map(\.targetFrame)
         var remaining = panels
         var ordered: [PreviewSlotPanel] = []
         for rect in rectangles {
             let identity = windowFrames.first(where: { $0.value == rect })?.key
-            let match = remaining.firstIndex { DesktopCoordinates.engine($0.frame) == rect }
+            let match = remaining.firstIndex { DesktopCoordinates.engine($0.targetFrame) == rect }
                 ?? remaining.firstIndex { panel in
-                    identity != nil && panel.identity == identity && !rectangles.contains(DesktopCoordinates.engine(panel.frame))
+                    identity != nil && panel.identity == identity && !rectangles.contains(DesktopCoordinates.engine(panel.targetFrame))
                 }
             // Reuse anonymous surfaces only after protecting exact destination
             // matches. Repeated pointer movement must not allocate one panel per frame.
             let reusable = match ?? remaining.firstIndex { panel in
-                guard !rectangles.contains(DesktopCoordinates.engine(panel.frame)) else { return false }
+                guard !rectangles.contains(DesktopCoordinates.engine(panel.targetFrame)) else { return false }
                 return panel.identity.map { !identities.contains($0) } ?? true
             }
             let panel = reusable.map { remaining.remove(at: $0) } ?? PreviewSlotPanel()
             let destination = DesktopCoordinates.appKit(rect)
-            if panel.identity != identity && panel.frame != destination { panel.orderOut(nil) }
+            if panel.identity != identity && panel.targetFrame != destination { panel.orderOut(nil) }
             if !panel.isVisible, let parent = previousFrames.first(where: { $0.contains(destination) && $0 != destination }) {
                 if parent.minY == destination.minY && parent.height == destination.height {
                     panel.splitStart = NSRect(x: destination.minX == parent.minX ? destination.minX : destination.maxX - 1,
@@ -639,8 +647,9 @@ struct DesktopInput {
             }
             panel.identity = identity; ordered.append(panel)
         }
-        for panel in remaining where !panel.isVisible { panel.close() }
-        panels = ordered + remaining.filter(\.isVisible)
+        // Removed topology must not linger as overlapping ghost slots.
+        for panel in remaining { panel.orderOut(nil); panel.close() }
+        panels = ordered
         for (index, panel) in panels.enumerated() where index < rectangles.count {
             let primary = selected && index == 0
             panel.slotView.primary = primary
@@ -658,6 +667,7 @@ struct DesktopInput {
     let slotView = PreviewSlotView()
     var identity: UUID?
     var splitStart: NSRect?
+    var targetFrame: NSRect = .zero
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isReleasedWhenClosed = false; isOpaque = false; backgroundColor = .clear

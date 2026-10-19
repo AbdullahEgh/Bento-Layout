@@ -7,6 +7,16 @@ import QuartzCore
     private var panels: [NSPanel] = []
     private var shownAt = 0.0
     var visibleCount: Int { panels.filter(\.isVisible).count }
+    var spinningIndicatorCount: Int {
+        panels.filter(\.isVisible).flatMap { $0.contentView?.subviews ?? [] }
+            .compactMap { $0 as? NSProgressIndicator }.filter { $0.style == .spinning && $0.isIndeterminate }.count
+    }
+    private func retire(_ windows: [NSPanel]) {
+        for panel in windows {
+            panel.contentView?.subviews.compactMap { $0 as? NSProgressIndicator }.forEach { $0.stopAnimation(nil) }
+            panel.orderOut(nil); panel.close()
+        }
+    }
 
     func show() async {
         guard panels.isEmpty else { return }
@@ -28,8 +38,20 @@ import QuartzCore
             message.font = .systemFont(ofSize: 20, weight: .medium)
             message.textColor = .white.withAlphaComponent(0.9)
             message.alignment = .center; message.translatesAutoresizingMaskIntoConstraints = false
-            blur.addSubview(message)
+            let spinner = NSProgressIndicator()
+            spinner.style = .spinning; spinner.controlSize = .regular
+            spinner.isIndeterminate = true; spinner.isDisplayedWhenStopped = false
+            spinner.usesThreadedAnimation = true
+            spinner.appearance = NSAppearance(named: .darkAqua)
+            spinner.setAccessibilityLabel("Organizing Bento")
+            spinner.translatesAutoresizingMaskIntoConstraints = false
+            blur.addSubview(spinner); blur.addSubview(message)
+            spinner.startAnimation(nil)
             NSLayoutConstraint.activate([
+                spinner.centerXAnchor.constraint(equalTo: blur.centerXAnchor),
+                spinner.bottomAnchor.constraint(equalTo: message.topAnchor, constant: -16),
+                spinner.widthAnchor.constraint(equalToConstant: 24),
+                spinner.heightAnchor.constraint(equalToConstant: 24),
                 message.centerXAnchor.constraint(equalTo: blur.centerXAnchor),
                 message.centerYAnchor.constraint(equalTo: blur.centerYAnchor)
             ])
@@ -50,7 +72,7 @@ import QuartzCore
         let retiring = panels; panels.removeAll()
         guard !retiring.isEmpty else { return }
         guard animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
-            retiring.forEach { $0.orderOut(nil) }; return
+            retire(retiring); return
         }
         let delay = max(0, 0.55 - (ProcessInfo.processInfo.systemUptime - shownAt))
         Task { @MainActor in
@@ -60,7 +82,7 @@ import QuartzCore
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 retiring.forEach { $0.animator().alphaValue = 0 }
             }
-            retiring.forEach { $0.orderOut(nil) }
+            retire(retiring)
         }
     }
 }

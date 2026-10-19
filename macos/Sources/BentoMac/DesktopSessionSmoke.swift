@@ -334,7 +334,9 @@ import BentoCore
         let organizing = OrganizingOverlay()
         await organizing.show()
         try check(organizing.visibleCount == NSScreen.screens.count, "Organizing blur covers every connected display")
+        try check(organizing.spinningIndicatorCount == NSScreen.screens.count, "Each organizing cover presents a native indeterminate spinner")
         organizing.hide(animated: false)
+        try check(organizing.spinningIndicatorCount == 0, "Organizing spinners retire with their cover")
         try check(organizing.visibleCount == 0, "Organizing cover is removed on completion")
         system.areaOverride = [DisplayArea(id: actualArea.id, name: actualArea.name, bounds: Rect(0, 30, 600, 400))]
         for (record, _) in system.records { system.nativeMinimum[record.id] = Size(400, 300) }
