@@ -1,3 +1,11 @@
+# 0.2.41 publication — 2026-10-19
+
+Published both activation and paused-resize fixes from `5faa538` as macOS 0.2.41 build 161. Compatibility run `39272061189` passed on macOS 15 and 26; signed OTA run `39272096007` completed successfully, including native checks and Windows attachment. Compact notes are embedded in the app and OTA popup.
+
+Independently verified the downloaded universal app's pinned signing identity, all architecture signatures, archive signature, version, enclosure URL and size. macOS archive SHA-256: `1f330aaf9c1d1906069092a39c6c7f6d387c9ce8931de3f0635a19a62ff660a3` (4,522,302 bytes). Windows 0.3.12 was built from `e5fbe45df6ce150cdd45ef22915dcb9155c5be9f`; archive SHA-256: `a1cca3769dab0227d1b1c6551dfeb0aba0a6f8ab58d0eeca0e12068de77addfb` (568,352 bytes), with all 14 manifest hashes verified. Evidence: `/tmp/bento-0241-verified/`.
+
+Installation is pending manual Mac unlock: computer control reported the Mac locked. The updater was accessible on installed 0.2.40 before the lock. No installation success is claimed.
+
 # Temporary native edits while paused — 2026-10-19
 
 Native window moves and resizes while Pause Bento is enabled no longer enter the layout gesture pipeline. Membership polling continues to discover windows and track focus, but does not repair drift or queue layout reflow while paused. Entering Pause cancels delayed geometry repair; queued repairs also check the current Pause state.
