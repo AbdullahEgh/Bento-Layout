@@ -303,7 +303,7 @@ public sealed partial class BentoController : IDisposable
         Synchronize(rebuild: true);
         trayInterface.Refresh();
     }
-    private void Synchronize(bool rebuild = false, HashSet<long>? excluded = null)
+    private void Synchronize(bool rebuild = false, HashSet<long>? excluded = null, HashSet<long>? measured = null)
     {
         if (!EnsureDesktop() || !automatic || Paused) return;
         if (!rebuild && history.Current.Windows.Any(w => !Windows.Any(live => live.Id == w.WindowId) && WindowCatalog.Exists(w.WindowId) && !WindowCatalog.IsMinimized(w.WindowId)))
@@ -338,9 +338,19 @@ public sealed partial class BentoController : IDisposable
             }
             if (changed && !Commit(state, restoreRemoved: session.Fullscreen.Count == 0))
             {
+                measured ??= new();
+                if (rejectedWindow is long refused && measured.Add(refused) && Windows.FirstOrDefault(w => w.Id == refused) is { } window)
+                {
+                    var minimum = native.EffectiveMinimum(window);
+                    if (minimum != window.Minimum)
+                    {
+                        Windows = Windows.Select(w => w.Id == refused ? w with { Minimum = minimum } : w).ToArray();
+                        Synchronize(rebuild, excluded, measured); return;
+                    }
+                }
                 excluded ??= new();
                 if (rejectedWindow is long failed && excluded.Add(failed) && excluded.Count <= Windows.Count)
-                { Synchronize(rebuild, excluded); return; }
+                { Synchronize(rebuild, excluded, measured); return; }
                 failedMembership = membership; return;
             }
             var included = state.Windows.Select(w => w.WindowId).ToHashSet();

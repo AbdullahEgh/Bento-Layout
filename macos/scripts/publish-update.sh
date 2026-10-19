@@ -22,7 +22,8 @@ else
     [[ -s "$BENTO_PAIRED_WINDOWS_DIR/Bento-win-x64.zip" && -s "$BENTO_PAIRED_WINDOWS_DIR/Bento-windows-release.json" ]]
     paired_assets=("$BENTO_PAIRED_WINDOWS_DIR/Bento-win-x64.zip" "$BENTO_PAIRED_WINDOWS_DIR/Bento-windows-release.json")
   fi
-  gh release create "$release_tag" "$stage/Bento-macos-universal.zip" "${paired_assets[@]}" --repo AbdullahEgh/Bento-Layout --target "$(cat "$stage/source-commit")" --title "Bento for macOS ${release_tag#macos-v}" --notes-file "$mac_root/RELEASE_NOTES.md" --latest=false
+  gh release create "$release_tag" "$stage/Bento-macos-universal.zip" "${paired_assets[@]}" --repo AbdullahEgh/Bento-Layout --target "$(cat "$stage/source-commit")" --title "Bento for macOS ${release_tag#macos-v}" --notes-file "$mac_root/RELEASE_NOTES.md" --latest=false --draft
+  gh release edit "$release_tag" --repo AbdullahEgh/Bento-Layout --draft=false --latest=false
 fi
 feed_checkout="$(mktemp -d "${TMPDIR:-/tmp}/bento-feed.XXXXXX")"
 trap 'rm -rf "$feed_checkout"' EXIT

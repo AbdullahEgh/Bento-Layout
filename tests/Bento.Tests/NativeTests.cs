@@ -747,6 +747,20 @@ internal static class NativeTests
                 native.Restore(originals[2]); paused.Refresh(); Pump(); Equal(3, paused.ManagedCount);
                 paused.RestoreAll(); Pump();
             });
+            Run("Organizing cover spans the display with a spinning indicator", () =>
+            {
+                var cover = new OrganizingWindow(monitor);
+                try
+                {
+                    cover.Show(); cover.Fade(true); Pump();
+                    Equal(monitor.Bounds, native.VisibleBounds(new System.Windows.Interop.WindowInteropHelper(cover).Handle.ToInt64()));
+                    Check(cover.Topmost && !cover.ShowActivated);
+                    var spinner = Descendants<System.Windows.Shapes.Ellipse>(cover).Single();
+                    Check(spinner.RenderTransform.HasAnimatedProperties);
+                    Check(Descendants<TextBlock>(cover).Any(t => t.Text == "Organizing Bento…"));
+                }
+                finally { cover.Close(); }
+            });
             Run("Waiting replacement minimizes the occupant and rejected drops preserve the queue", () =>
             {
                 foreach (var snapshot in originals) native.Restore(snapshot);
