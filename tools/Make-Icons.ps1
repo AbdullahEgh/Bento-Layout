@@ -16,7 +16,7 @@ $taskMaster = [Drawing.Bitmap]::new(1024, 1024)
 $g = [Drawing.Graphics]::FromImage($taskMaster)
 $g.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::AntiAlias
 $g.Clear([Drawing.Color]::Transparent)
-$taskBase = [Drawing.Drawing2D.LinearGradientBrush]::new([Drawing.Rectangle]::new(56,56,912,912), [Drawing.ColorTranslator]::FromHtml('#55CFB8'), [Drawing.ColorTranslator]::FromHtml('#18796E'), 65)
+$taskBase = [Drawing.Drawing2D.LinearGradientBrush]::new([Drawing.Rectangle]::new(56,56,912,912), [Drawing.ColorTranslator]::FromHtml('#38A4FF'), [Drawing.ColorTranslator]::FromHtml('#0055CF'), 65)
 $taskOutline = New-RoundedPath 56 56 912 912 218
 $g.FillPath($taskBase, $taskOutline)
 $taskHighlight = [Drawing.Pen]::new([Drawing.Color]::FromArgb(65,255,255,255),3)
@@ -26,7 +26,7 @@ foreach ($r in @(@(226,234,244,556), @(510,234,288,242), @(510,516,288,274))) {
     $taskShadow = [Drawing.SolidBrush]::new([Drawing.Color]::FromArgb(35,6,68,60))
     $g.FillPath($taskShadow,$taskShadowPath)
     $taskPane = New-RoundedPath $r[0] $r[1] $r[2] $r[3] 44
-    $taskFill = [Drawing.Drawing2D.LinearGradientBrush]::new([Drawing.Rectangle]::new($r[0],$r[1],$r[2],$r[3]), [Drawing.Color]::White, [Drawing.ColorTranslator]::FromHtml('#DBF5EE'),90)
+    $taskFill = [Drawing.Drawing2D.LinearGradientBrush]::new([Drawing.Rectangle]::new($r[0],$r[1],$r[2],$r[3]), [Drawing.Color]::White, [Drawing.ColorTranslator]::FromHtml('#E2F0FF'),90)
     $g.FillPath($taskFill,$taskPane)
     $taskFill.Dispose(); $taskPane.Dispose(); $taskShadow.Dispose(); $taskShadowPath.Dispose()
 }

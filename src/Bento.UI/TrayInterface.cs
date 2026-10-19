@@ -65,7 +65,7 @@ internal sealed class TrayInterface : IDisposable
         taskbar.Checked = controller.HideTaskbar; taskbar.Enabled = active && !controller.Suspended;
         pause.Enabled = toggle.Enabled = !controller.Suspended;
         undo.Enabled = active && !paused && !controller.Suspended;
-        Icon.Text = controller.Suspended ? "Bento waiting for desktop · Right-click for settings" : paused ? "Bento paused · Click to resume · Hold to hide taskbar" : active ? "Bento active · Click to turn off · Hold to hide taskbar" : "Bento off · Click to arrange windows";
+        Icon.Text = controller.Suspended ? "Bento waiting for desktop · Right-click for settings" : paused ? "Bento paused · Click to resume · Hold to hide taskbar" : active ? "Bento active · Click to pause · Hold to hide taskbar" : "Bento off · Click to arrange windows";
         var next = (active, paused, controller.Suspended, dark, taskbarDark);
         if (appearance == next) return;
         appearance = next;

@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="base" x2=".8" y2="1"><stop stop-color="#55cfb8"/><stop offset="1" stop-color="#18796e"/></linearGradient>
-    <linearGradient id="glass" x2="0" y2="1"><stop stop-color="#ffffff"/><stop offset="1" stop-color="#dbf5ee"/></linearGradient>
+    <linearGradient id="base" x2=".8" y2="1"><stop stop-color="#38A4FF"/><stop offset="1" stop-color="#0055CF"/></linearGradient>
+    <linearGradient id="glass" x2="0" y2="1"><stop stop-color="#ffffff"/><stop offset="1" stop-color="#E2F0FF"/></linearGradient>
     <filter id="shadow" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#06443c" flood-opacity=".25"/></filter>
   </defs>
   <rect x="56" y="56" width="912" height="912" rx="218" fill="url(#base)"/>
