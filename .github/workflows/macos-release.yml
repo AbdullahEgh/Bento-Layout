@@ -6,6 +6,11 @@ on:
         description: 'Mac version, for example 0.2.0 (must be a new release)'
         required: true
         type: string
+      windows_ref:
+        description: 'Windows source ref to package beside macOS'
+        required: true
+        type: string
+        default: main
       notes_only:
         description: 'Refresh signed notes for an existing release without replacing its app'
         type: boolean
@@ -88,6 +93,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.windows_ref }}
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
