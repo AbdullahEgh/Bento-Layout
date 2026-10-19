@@ -1,6 +1,12 @@
 # Windows release results — 2026-10-19
 
-## Drag preview and Windows Snap 0.3.12 — validation in progress
+## Drag preview and Windows Snap 0.3.12 — published
+
+Release: https://github.com/AbdullahEgh/Bento-Layout/releases/tag/v0.3.12
+
+Source: `e5fbe45df6ce150cdd45ef22915dcb9155c5be9f`. Windows ZIP SHA-256: `d02f81e16dffeeff164ec1b5ec3b44e917ea3bb9c6d2fe2895b250528ff9d6e5`.
+
+[Tag CI and publication](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/39197339211) succeeded: test job `117882836676`, release job `117883313251`. All repeated gates, uploaded digests, reused Mac asset and latest-feed checks passed. A separate public ZIP/sidecar download passed `verify-windows-release.py` for identity, numeric version, archive digest and every payload hash. The bridge independently confirmed stable public `/releases/latest` is 0.3.12 and matched GitHub's asset digest. Exact public Windows binary/updater checks are being performed separately on CloudPC; no installed replacement or physical-mouse certification is claimed.
 
 Focused CloudPC commit `17d84345561469c0af3c48d7a3973d5447761add` is integrated as `77bc9bb`; transferred source and test blobs match. Drag previews now include every projected target-monitor slot, plus changed source-monitor regions. The moving window has a stronger outline; pooled panels share one dimmer per affected monitor. The existing `SuppressWindowsSnap` preference is exposed in Workspace as “Disable Windows Snap,” using the same restore-on-Off/quit lease. Grips and desktop membership code are unchanged.
 
@@ -8,7 +14,7 @@ The regression first failed against released behavior with “Expected 2; got 1�
 
 A new pointer assertion exposed real interception by preview HWNDs lacking the layered style. WPF-owned `AllowsTransparency=true` fixes it; native style/opacity experiments were removed. CloudPC visually inspected the translucent rounded previews; physical mouse routing was not certified. The installed application and unpublished `76cc4a6` work are preserved.
 
-[CI 39197127756](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/39197127756), source `6c7e2e23316dbc0b219768cb1c88b0d09ef5fe82`, passed build/package, native fixtures, portable core, settings smoke, five-window preview smoke and the actual package check against the shipped updater selector. Tag publication repeats these checks; public package verification follows publication.
+[CI 39197127756](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/39197127756), source `6c7e2e23316dbc0b219768cb1c88b0d09ef5fe82`, passed build/package, native fixtures, portable core, settings smoke, five-window preview smoke and the actual package check against the shipped updater selector. Tag publication repeated these checks successfully.
 
 ## Activation hotfix 0.3.11 — published
 
