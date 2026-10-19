@@ -1,0 +1,75 @@
+name: Complete verified Windows 0.3.10 OTA release
+on:
+  push:
+    branches: ['windows/mac-parity-release']
+    paths: ['.github/workflows/windows-release-recovery.yml']
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish-tested-draft:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_REF_NAME: v0.3.10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v0.3.10
+      - name: Require successful Windows gates for the exact release commit
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39191695339" > validated-run.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39191695339/jobs" > validated-jobs.json
+          export RELEASE_COMMIT="$(git rev-parse HEAD)"
+          python3 - <<'PY'
+          import json, os
+          run = json.load(open('validated-run.json'))
+          assert run['head_sha'] == os.environ['RELEASE_COMMIT']
+          test = next(j for j in json.load(open('validated-jobs.json'))['jobs'] if j['name'] == 'test')
+          assert test['conclusion'] == 'success'
+          for name in ['Build, test and package Windows app', 'Verify built package against the shipped OTA selector', 'Portable core regressions', 'Settings window stacking regression']:
+              assert next(s for s in test['steps'] if s['name'] == name)['conclusion'] == 'success', name
+          PY
+      - uses: actions/download-artifact@v4
+        with:
+          name: Bento-windows
+          path: download
+          run-id: 39191695339
+          github-token: ${{ github.token }}
+      - name: Verify tested package, original Mac archive and uploaded draft digests
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/macos-v0.2.40" > mac-source.json
+          gh release download macos-v0.2.40 --repo "$GITHUB_REPOSITORY" --pattern Bento-macos-universal.zip --dir download
+          python3 tools/verify-windows-release.py download mac-source.json
+          # Drafts are enumerated by the authenticated list endpoint, not the
+          # public releases/tags endpoint used by the original release job.
+          release_id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[] | select(.tag_name == "v0.3.10") | .id')"
+          [[ "$release_id" =~ ^[0-9]+$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > uploaded.json
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          release = json.load(open('uploaded.json'))
+          assert release['tag_name'] == 'v0.3.10' and not release['prerelease']
+          assets = {a['name']: a for a in release['assets']}
+          assert set(assets) == {p.name for p in Path('download').iterdir()}
+          for path in Path('download').iterdir():
+              assert assets[path.name]['digest'] == 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest(), path.name
+          PY
+          printf '%s' "$release_id" > release-id
+      - name: Publish verified draft and verify the existing Windows OTA endpoint
+        run: |
+          set -euo pipefail
+          release_id="$(cat release-id)"
+          printf '{"draft":false,"make_latest":"true"}' | gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" --input - > published.json
+          gh api "repos/$GITHUB_REPOSITORY/releases/latest" > latest.json
+          python3 - <<'PY'
+          import json
+          release = json.load(open('latest.json'))
+          assert release['tag_name'] == 'v0.3.10' and not release['draft'] and not release['prerelease']
+          assert any(a['name'] == 'Bento-win-x64.zip' and a['digest'].startswith('sha256:') for a in release['assets'])
+          print('PASS: tested Windows 0.3.10 published and selected by the existing latest-release OTA endpoint')
+          print(release['html_url'])
+          PY
