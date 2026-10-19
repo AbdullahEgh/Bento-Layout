@@ -3,6 +3,20 @@ import CryptoKit
 @testable import BentoCore
 
 final class InteractionAndUpdateTests: XCTestCase {
+    func testHoldingDividerSwapsExistingNeighbors() throws {
+        let a = WindowLeaf(windowID: UUID(), minimum: Size(100, 100))
+        let b = WindowLeaf(windowID: UUID(), minimum: Size(100, 100))
+        let root = LayoutNode.split(id: UUID(), axis: .horizontal, ratio: 0.5, first: .window(a), second: .window(b))
+        var session = DropSession(workspace: Workspace(roots: ["A": root]), source: a)
+        let areas = ["A": Rect(0, 0, 1000, 600)]
+        XCTAssertNil(try session.propose(pointer: Point(500, 300), areas: areas, gap: 8, hold: 900, now: 0))
+        let proposal = try XCTUnwrap(session.propose(pointer: Point(500, 300), areas: areas, gap: 8, hold: 900, now: 0.3))
+        let regions = try LayoutEngine.calculate(proposal.workspace.roots["A"], in: areas["A"]!, gap: 8).regions
+        XCTAssertEqual(regions.first?.window.windowID, b.windowID)
+        XCTAssertEqual(regions.last?.window.windowID, a.windowID)
+        XCTAssertFalse(try ResizeHandles.calculate(proposal.workspace.roots["A"]!, in: areas["A"]!, gap: 8).isEmpty)
+    }
+
     func testFloatingDropTriesOtherSplitAxisBeforeRejecting() throws {
         let a = WindowLeaf(windowID: UUID(), minimum: Size(500, 120))
         let b = WindowLeaf(windowID: UUID(), minimum: Size(500, 120))

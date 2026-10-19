@@ -120,6 +120,8 @@ public struct DropSession {
     public let source: WindowLeaf
     public private(set) var conflictBounds: Rect?
     private var intent = DragIntent()
+    private var seamTarget: UUID?
+    private var seamEntered = 0.0
     private struct GeometryKey: Equatable { let display: String; let target: UUID?; let placement: Placement; var section = false }
     private struct Geometry { let workspace: Workspace; let bounds: Rect; let neighbors: [Rect]; var placement: Placement? = nil }
     private var cachedAreas: [String: Rect] = [:]
@@ -166,13 +168,31 @@ public struct DropSession {
                                     progress: 0, waitingForSplit: false, swapsSections: true)
             }
         }
-        let target = layouts[display]?.regions.first(where: { $0.bounds.contains(pointer) })
+        var target = layouts[display]?.regions.first(where: { $0.bounds.contains(pointer) })
+        var seamSwap = false
+        if target == nil, original.windows.contains(where: { $0.windowID == source.windowID }),
+           let layout = layouts[display], layout.dividers.contains(where: { $0.bounds.contains(pointer) }) {
+            func distance(_ region: Region) -> Int {
+                let r = region.bounds
+                let dx = max(r.x - pointer.x, max(0, pointer.x - r.right))
+                let dy = max(r.y - pointer.y, max(0, pointer.y - r.bottom))
+                return dx * dx + dy * dy
+            }
+            target = layout.regions.filter { $0.window.windowID != source.windowID }.min { distance($0) < distance($1) }
+            if let target {
+                if seamTarget != target.window.id { seamTarget = target.window.id; seamEntered = now }
+                guard now - seamEntered >= 0.25 else { intent.reset(); return nil }
+                seamSwap = true
+            }
+        } else { seamTarget = nil }
+
         guard target?.window.windowID != source.windowID,
               target != nil || original.roots[display] == nil else { intent.reset(); return nil }
         guard areas[display]!.contains(pointer) else { intent.reset(); return nil }
         let targetBounds = target?.bounds ?? areas[display]!
         let gesture: (placement: Placement, progress: Double, waitingForSplit: Bool)
-        if let target {
+        if seamSwap { intent.reset(); gesture = (.center, 0, false) }
+        else if let target {
             gesture = try intent.update(display: display, target: target.window.id, bounds: target.bounds, point: pointer, now: now, holdMilliseconds: hold)
         } else { intent.reset(); gesture = (.center, 0, false) }
         // Match the shared Windows interaction: floating windows insert beside a

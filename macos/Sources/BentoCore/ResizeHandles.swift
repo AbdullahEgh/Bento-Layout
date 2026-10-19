@@ -6,6 +6,7 @@ public struct ResizeHandle: Equatable, Sendable {
     public let divider: Divider
     public let root: LayoutNode
     public var shared: Bool = false
+    public var blocked: Bool = false
 }
 public enum ResizeHandles {
     public static func calculate(_ root: LayoutNode, in area: Rect, gap: Int) throws -> [ResizeHandle] {
@@ -83,7 +84,7 @@ public enum ResizeHandles {
             return axis == .horizontal ? m1.width + m2.width + gap < divider.parent.width
                 : m1.height + m2.height + gap < divider.parent.height
         }
-        result.removeAll { !movable($0.root, $0.divider) }
+        for i in result.indices { result[i].blocked = !movable(result[i].root, result[i].divider) }
         for i in result.indices {
             let d = result[i].divider
             result[i].shared = result.contains { other in

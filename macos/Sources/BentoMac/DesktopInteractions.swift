@@ -171,10 +171,10 @@ struct DesktopInput {
                 if let existing = grips[divider.id] { panel = existing }
                 else {
                     panel = GapPanel(axis: divider.axis)
-                    panel.gripView.onBegin = { [weak self] in
-                        guard let self, let selected = ResizeHandles.hit(self.resizeHandles[display] ?? [], at: self.input().point) else { return false }
-                        let started = self.beginGrip(display: display, id: selected.divider.id)
-                        return started && selected.divider.id == divider.id
+                    panel.gripView.onBeginAt = { [weak self] point in
+                        guard let self, let selected = ResizeHandles.hit(self.resizeHandles[display] ?? [], at: point) else { return false }
+                        let started = self.beginGrip(display: display, id: selected.divider.id, at: point)
+                        return started
                     }
                     panel.gripView.managedHover = true
                     panel.gripView.onHover = { [weak self] in self?.hoverNeedsUpdate = true; self?.sample() }
@@ -248,7 +248,10 @@ struct DesktopInput {
             for (display, handles) in resizeHandles {
                 guard let handle = ResizeHandles.hit(handles, at: pressPoint),
                       grips[handle.divider.id]?.isVisible == true else { continue }
-                if model.system.dividerIsExposed(at: pressPoint), beginGrip(display: display, id: handle.divider.id) { return }
+                if model.system.dividerIsExposed(at: pressPoint) {
+                    if handle.blocked { grips[handle.divider.id]?.gripView.showBlockedCue(); return }
+                    if beginGrip(display: display, id: handle.divider.id) { return }
+                }
             }
             // Any non-divider press may become a native window drag, including
             // excluded Settings windows. Suspend helpers before participation checks.
@@ -343,9 +346,11 @@ struct DesktopInput {
                 let currentAreas = areas()
                 if previewWorkspace != workspace || previewAreas != currentAreas || previewGap != model.layoutGap {
                     previewWorkspace = workspace; previewAreas = currentAreas; previewGap = model.layoutGap
-                    previewRectangles = currentAreas.keys.sorted().flatMap { display in
-                        (try? LayoutEngine.calculate(workspace.roots[display], in: currentAreas[display]!, gap: model.layoutGap).regions.map(\.bounds)) ?? []
+                    let regions = currentAreas.keys.sorted().flatMap { display in
+                        (try? LayoutEngine.calculate(workspace.roots[display], in: currentAreas[display]!, gap: model.layoutGap).regions) ?? []
                     }
+                    previewRectangles = regions.map(\.bounds)
+                    preview.windowFrames = Dictionary(uniqueKeysWithValues: regions.map { ($0.window.windowID, $0.bounds) })
                 }
                 return previewRectangles
             }
@@ -373,20 +378,21 @@ struct DesktopInput {
             catch { candidate = nil }
         }
     }
-    func beginGrip(display: String, id: UUID) -> Bool {
+    func beginGrip(display: String, id: UUID, at point: Point? = nil) -> Bool {
         guard !model.pinned, !model.shuttingDown, !model.desktopOverviewActive else { return false }
         if grip?.display == display && grip?.divider.id == id { return true }
         let prepared = model.history.current.reconciled(with: model.windows.map(\.leaf))
         guard model.active, model.permission, !model.busy, !model.interacting, !finishing, !releasePending,
               let root = prepared.roots[display], let area = areas()[display],
               let handle = try? ResizeHandles.calculate(root, in: area, gap: model.layoutGap).first(where: { $0.divider.id == id }) else { return false }
+        if handle.blocked { grips[id]?.gripView.showBlockedCue(); return false }
         suppressGripsUntilRelease = false
         let divider = handle.divider
         gestureAreas = areas()
         snapshot = model.history.current.reconciled(with: model.windows.map(\.leaf)); candidate = snapshot; grip = (display, divider)
         gripWorkspace = snapshot; gripWorkspace?.roots[display] = handle.root
         gripWorkspace = gripWorkspace?.reconciled(with: model.windows.map(\.leaf))
-        gripStart = input().point
+        gripStart = point ?? input().point
         model.interacting = true; liveFailure = false; preview.orderOut(nil)
         grips[id]?.gripView.dragging = true
         return true
@@ -396,6 +402,14 @@ struct DesktopInput {
         guard input().point != gripStart || candidate != snapshot else { return }
         do {
             let next = try InteractionGeometry.resize(original, display: grip.display, divider: grip.divider, pointer: input().point, area: area, gap: model.layoutGap, grabbedAt: gripStart)
+            if let root = next.roots[grip.display],
+               let actual = try LayoutEngine.calculate(root, in: area, gap: model.layoutGap).dividers.first(where: { $0.id == grip.divider.id }) {
+                let horizontal = grip.divider.axis == .horizontal
+                let requested = (horizontal ? grip.divider.bounds.x : grip.divider.bounds.y)
+                    + (horizontal ? input().point.x - gripStart.x : input().point.y - gripStart.y)
+                let accepted = horizontal ? actual.bounds.x : actual.bounds.y
+                if abs(requested - accepted) > 14 { grips[grip.divider.id]?.gripView.showBlockedCue() }
+            }
             guard next != candidate else { return }
             candidate = next; pending = next
             updateGrips(next)
@@ -471,6 +485,7 @@ struct DesktopInput {
     private let reduceMotion: () -> Bool
     init(reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) { self.reduceMotion = reduceMotion }
     private var panels: [PreviewSlotPanel] = []
+    var windowFrames: [UUID: Rect] = [:]
     private var dimPanels: [NSPanel] = []
     private var dimTransitions: [(panel: NSPanel, from: CGFloat, to: CGFloat)] = []
     var dimOpacity: CGFloat { dimPanels.map(\.alphaValue).max() ?? 0 }
@@ -530,10 +545,9 @@ struct DesktopInput {
                 panel.alphaValue = 0; panel.setFrame(destination, display: true); panel.orderFrontRegardless()
             }
             if index < rectangles.count, let dim = dimPanels.last(where: \.isVisible) { panel.order(.above, relativeTo: dim.windowNumber) }
-            // Panel order changes when selection changes; never animate an indexed
-            // panel across unrelated slots. Geometry always matches the drop result.
-            if index < rectangles.count { panel.setFrame(destination, display: true) }
-            return Transition(panel: panel, from: destination, to: destination, alpha: panel.alphaValue, targetAlpha: index < rectangles.count ? 1 : 0)
+            // Only a stable window identity may animate between slot positions.
+            if panel.identity == nil && index < rectangles.count { panel.setFrame(destination, display: true) }
+            return Transition(panel: panel, from: panel.frame, to: destination, alpha: panel.alphaValue, targetAlpha: index < rectangles.count ? 1 : 0)
         }
         orderLayers()
         started = ProcessInfo.processInfo.systemUptime
@@ -583,13 +597,35 @@ struct DesktopInput {
                selected: true, conflict: false, proposal: proposal, belowWindow: belowWindow)
     }
     private func render(_ rectangles: [Rect], selected: Bool, conflict: Bool, proposal: DropProposal?, belowWindow: Int?) {
-        let geometryChanged = hiding || lastRectangles != rectangles || panels.first?.isVisible != true
+        let identities = rectangles.map { rect in windowFrames.first(where: { $0.value == rect })?.key }
+        let geometryChanged = hiding || lastRectangles != rectangles || panels.first?.isVisible != true || Array(panels.prefix(rectangles.count)).map(\.identity) != identities
         let conflictBounds = conflict ? rectangles.first : nil
         guard geometryChanged || lastSelected != selected || lastConflict != conflictBounds || lastProposal != proposal || self.belowWindow != belowWindow else { return }
         let anchorChanged = self.belowWindow != belowWindow
         self.belowWindow = belowWindow; lastSelected = selected
         lastRectangles = rectangles; lastProposal = proposal; lastConflict = conflict ? rectangles.first : nil
-        while panels.count < rectangles.count { panels.append(PreviewSlotPanel()) }
+        var remaining = panels
+        var ordered: [PreviewSlotPanel] = []
+        for rect in rectangles {
+            let identity = windowFrames.first(where: { $0.value == rect })?.key
+            let match = remaining.firstIndex { panel in
+                if let identity { return panel.identity == identity }
+                return panel.identity == nil && DesktopCoordinates.engine(panel.frame) == rect
+            }
+            // Reuse anonymous surfaces only after protecting exact destination
+            // matches. Repeated pointer movement must not allocate one panel per frame.
+            let reusable = match ?? remaining.firstIndex { panel in
+                guard let oldIdentity = panel.identity else {
+                    return !rectangles.contains(DesktopCoordinates.engine(panel.frame))
+                }
+                return !identities.contains(oldIdentity)
+            }
+            let panel = reusable.map { remaining.remove(at: $0) } ?? PreviewSlotPanel()
+            if panel.identity != identity { panel.orderOut(nil) }
+            panel.identity = identity; ordered.append(panel)
+        }
+        for panel in remaining where !panel.isVisible { panel.close() }
+        panels = ordered + remaining.filter(\.isVisible)
         for (index, panel) in panels.enumerated() where index < rectangles.count {
             let primary = selected && index == 0
             panel.slotView.primary = primary
@@ -605,6 +641,7 @@ struct DesktopInput {
 
 @MainActor private final class PreviewSlotPanel: NSPanel {
     let slotView = PreviewSlotView()
+    var identity: UUID?
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isReleasedWhenClosed = false; isOpaque = false; backgroundColor = .clear
@@ -678,6 +715,7 @@ struct DesktopInput {
 
 @MainActor final class GripView: NSView {
     let axis: Axis
+    var onBeginAt: ((Point) -> Bool)?
     var onBegin: (() -> Bool)?, onDrag: (() -> Void)?, onEnd: ((Bool) -> Void)?
     var animate = true, lightInk = true
     var managedHover = false
@@ -693,6 +731,28 @@ struct DesktopInput {
     private var tracking: NSTrackingArea?
     private var joinCue: Timer?
     private var joinAlpha = 0.0
+    private var blockedCue: Timer?
+    private var shakeOffset = 0.0
+    private var blockedAlpha = 0.0
+    private var lastBlockedCue = -Double.infinity
+    func showBlockedCue() {
+        let start = ProcessInfo.processInfo.systemUptime
+        guard start - lastBlockedCue > 0.55 else { return }
+        lastBlockedCue = start; blockedCue?.invalidate()
+        blockedAlpha = 1; needsDisplay = true
+        guard animate, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { blockedAlpha = 0; showJoinCue(); return }
+        blockedCue = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in
+            MainActor.assumeIsolated {
+                guard let self else { timer.invalidate(); return }
+                let t = min(1, (ProcessInfo.processInfo.systemUptime - start) / 0.3)
+                self.shakeOffset = sin(t * .pi * 6) * 3 * (1 - t)
+                self.blockedAlpha = 1 - t
+                self.needsDisplay = true
+                if t >= 1 { self.shakeOffset = 0; timer.invalidate() }
+            }
+        }
+        RunLoop.main.add(blockedCue!, forMode: .common)
+    }
     var visibleJoinCue: Double { joinAlpha }
     func showJoinCue() {
         joinCue?.invalidate()
@@ -721,7 +781,12 @@ struct DesktopInput {
     override func resetCursorRects() { addCursorRect(bounds, cursor: axis == .horizontal ? .resizeLeftRight : .resizeUpDown) }
     override func mouseEntered(with event: NSEvent) { if managedHover { onHover?() } else { hovering = true }; needsDisplay = true }
     override func mouseExited(with event: NSEvent) { if managedHover { onHover?() } else { hovering = false }; needsDisplay = true }
-    override func mouseDown(with event: NSEvent) { dragging = onBegin?() ?? false; needsDisplay = true }
+    override func mouseDown(with event: NSEvent) {
+        let screen = window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
+        let point = Point(Int(screen.x.rounded()), Int((DesktopCoordinates.primaryTop - screen.y).rounded()))
+        dragging = onBeginAt?(point) ?? onBegin?() ?? false
+        needsDisplay = true
+    }
     override func mouseDragged(with event: NSEvent) { if dragging { onDrag?() } }
     override func mouseUp(with event: NSEvent) { if dragging { onDrag?(); onEnd?(false) }; dragging = false; needsDisplay = true }
     override func cancelOperation(_ sender: Any?) { if dragging { onEnd?(true) }; dragging = false; needsDisplay = true }
@@ -752,7 +817,7 @@ struct DesktopInput {
         // Holding a divider pins its ink visibility, even while hover fades or
         // geometry updates move the pointer outside the original panel.
         let interactionAlpha = dragging ? 1.0 : displayedAlpha
-        let alpha = max(joinAlpha, interactionAlpha)
+        let alpha = max(blockedAlpha, max(joinAlpha, interactionAlpha))
         guard alpha > 0 else { return }
         let span = Double(axis == .horizontal ? bounds.height : bounds.width)
         let segments = shared || joinAlpha > 0 ? GripInk.segments(span: span, localCenters: localCenters)
@@ -767,8 +832,8 @@ struct DesktopInput {
             let inkAlpha = alpha * emphasis
             (lightInk ? NSColor.white : .black).withAlphaComponent(inkAlpha).setFill()
             let rect = axis == .horizontal
-                ? NSRect(x: bounds.midX - 2, y: segment.lowerBound, width: 4, height: segment.upperBound - segment.lowerBound)
-                : NSRect(x: segment.lowerBound, y: bounds.midY - 2, width: segment.upperBound - segment.lowerBound, height: 4)
+                ? NSRect(x: bounds.midX - 2 + shakeOffset, y: segment.lowerBound, width: 4, height: segment.upperBound - segment.lowerBound)
+                : NSRect(x: segment.lowerBound + shakeOffset, y: bounds.midY - 2, width: segment.upperBound - segment.lowerBound, height: 4)
             NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2).fill()
         }
     }

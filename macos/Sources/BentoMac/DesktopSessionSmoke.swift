@@ -360,6 +360,31 @@ import BentoCore
         let untouched = system.writes
         let staleInsertion = await prepared.insertOverflow(target.windowID, into: beforeInsertion, from: beforeInsertion)
         try check(!staleInsertion && system.writes == untouched, "A stale insertion cannot change the current layout or restore a Dock app")
+        let rollbackState = prepared.history.current
+        let refused = prepared.minimizedByBento.values.first!
+        let rollbackTarget = rollbackState.windows[0]
+        let rejectedReplacement = try rollbackState.placing(refused.leaf, on: actualArea.id, target: rollbackTarget.id, placement: .center)
+        // Force a native write: a queued fixture can already match the target,
+        // in which case no resize refusal should occur at all.
+        var refusedFrame = system.frame(of: refused.element)!
+        refusedFrame.x += 23
+        try system.write(refused, frame: refusedFrame)
+        system.rejectAlways = refused.id; system.minimizationDelay = 0.1
+        let rejectedInsertion = await prepared.insertOverflow(refused.id, into: rejectedReplacement, from: rollbackState)
+        system.rejectAlways = nil; system.minimizationDelay = 0
+        try check(!rejectedInsertion && prepared.history.current == rollbackState
+            && system.isMinimized(refused) && prepared.minimizedByBento[refused.id] != nil
+            && prepared.waitingForInsertion.contains(refused.id),
+            "A refused insertion retains its waiting tile when Dock minimization completes asynchronously")
+        let refusedBounds = try LayoutEngine.calculate(rejectedReplacement.roots[actualArea.id], in: system.areaOverride![0].bounds, gap: prepared.layoutGap).regions.first { $0.window.windowID == refused.id }!.bounds
+        try check(!prepared.allowsWaitingInsertion(refused.id, into: refusedBounds),
+            "A previously refused waiting destination is rejected before restoring the app again")
+        queue.synchronize()
+        try check(queue.visible, "Failed waiting insertion keeps the queue available")
+        try system.setMinimized(refused, false)
+        prepared.refresh(); queue.synchronize()
+        try check(!queue.visible && !prepared.insertingOverflow && !prepared.waitingForInsertion.contains(refused.id),
+            "Manual Dock restoration dismisses the waiting input layer so the restored app remains usable")
         await prepared.restore()
         system.areaOverride = previousAreas
         system.hiddenPreparation = false; system.nativeMinimum.removeAll()

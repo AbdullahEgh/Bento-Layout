@@ -1,3 +1,13 @@
+# First-press grip routing and waiting recovery — 2026-10-19
+
+Grip mouse-down now uses the event's screen coordinates and accepts capture when hit testing selects a different overlapping panel. Both the native receiver and pointer sampler continue the same gesture. Locked dividers remain present and briefly shake without moving their input surface. A held divider-gap window drag can request a center swap. Preview motion follows stable window identities; anonymous surfaces reuse exact geometry without index-based movement or unbounded panel allocation.
+
+Failed waiting insertion records ownership immediately after accepted minimization and waits for Dock state; a refused target is remembered and tinted invalid. Manual Dock restoration dismisses the waiting input layer. Removed the combined waiting tooltip. Native regression uses delayed minimization and forces a real rejected frame write, avoiding a no-op fixture false failure.
+
+Verification: 97 core tests passed, 308 native checks passed, and 19 separate-process AX checks passed during this change. Native checks include first-event coordinates, cross-panel capture, blocked handles, waiting rollback, restored-app input release, and identity-based preview retargeting. Earlier native failures were resolved by updating preview identity fixtures, restricting panel lookup to the owning controller, and making refused placement deterministic. Final evidence: `/tmp/bento-grip-core-final.log`, `/tmp/bento-grip-install-native/results.json`; external AX evidence: `/tmp/bento-external-preparation/results/results.json`.
+
+Installed signed universal 0.2.42 build 161 locally. SHA-256: `228ed83251cebfc5b5a7ab4961f2ba03fc79be2c984a0edcbf9f317e053d47d4`. Backup: `/Users/abdullah/Library/Application Support/BentoBackups/Bento-before-grip-fix-20261019-235235.app`. Settings opened with Accessibility connected. Live activation reported five arranged and one waiting; dismissed waiting mode successfully. Live logs still show separate native-size refusals and bounded fitting correction after activation; this change does not certify that broader fitting behavior is resolved. Physical first-click dragging across all third-party apps still needs user acceptance. No Windows changes or GitHub push.
+
 # Preview geometry, placement eligibility and lightweight Pause QA — 2026-10-19
 
 Drag preview panels now take exact calculated destination frames immediately, fading opacity only. Selection reordering no longer interpolates indexed panels through unrelated slots. Glass fills the full frame without the prior six-point inset. Waiting tiles use 80-point icons over native glass; their dragging destinations reuse PreviewSlotView, including rejection tint and exact resulting layout bounds.

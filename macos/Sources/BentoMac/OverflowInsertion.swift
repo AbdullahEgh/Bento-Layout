@@ -14,6 +14,7 @@ import BentoCore
     private var candidate: Workspace?
     private var timer: Timer?
     private var committing = false
+    private var dismissalGeneration = 0
     init(model: WorkspaceController, changed: @escaping () -> Void) { self.model = model; self.changed = changed }
     var visible: Bool { panel?.isVisible == true }
     private var waiting: [ManagedWindow] {
@@ -25,6 +26,10 @@ import BentoCore
         guard model.active, !model.pinned, !model.activating, !model.shuttingDown,
               !model.desktopOverviewActive, !model.switchingDesktop, model.desktopIsCurrent() else { hide(); return }
         let windows = waiting, ids = Set(windows.map(\.id))
+        if dismissalGeneration != model.waitingDismissalGeneration {
+            dismissalGeneration = model.waitingDismissalGeneration
+            dismissed.formUnion(ids); hide(); return
+        }
         guard !windows.isEmpty, !ids.isSubset(of: dismissed) else { hide(); return }
         if panel == nil {
             let bounds = NSScreen.screens.reduce(CGRect.null) { $0.union($1.frame) }
@@ -42,7 +47,7 @@ import BentoCore
             p.contentView = view; panel = p; canvas = view
         }
         canvas?.windows = windows
-        canvas?.toolTip = windows.map { "\($0.application): \($0.title)" }.joined(separator: "\n")
+        canvas?.toolTip = nil
         canvas?.slots = slots(model.history.current)
         canvas?.selected = nil; canvas?.dragged = nil
         canvas?.refreshAppearance()
@@ -93,8 +98,10 @@ import BentoCore
                 canvas?.selected = target.bounds; canvas?.rejected = true
                 let next = try snapshot.placing(source.leaf, on: display, target: target.window.id, placement: .center)
                 let result = try LayoutEngine.calculate(next.roots[display], in: area, gap: model.layoutGap)
+                let destination = result.regions.first { $0.window.windowID == source.id }?.bounds
+                canvas?.selected = destination ?? target.bounds
+                guard let destination, model.allowsWaitingInsertion(source.id, into: destination) else { continue }
                 candidate = next; canvas?.rejected = false
-                canvas?.selected = result.regions.first { $0.window.windowID == source.id }?.bounds
             }
         } catch { candidate = nil }
         canvas?.slots = slots(candidate ?? snapshot)
@@ -107,7 +114,8 @@ import BentoCore
         }
         committing = true; canvas?.dragged = nil
         Task { @MainActor in
-            _ = await model.insertOverflow(source.id, into: candidate, from: snapshot)
+            let accepted = await model.insertOverflow(source.id, into: candidate, from: snapshot)
+            if !accepted { dismissed.remove(source.id) }
             committing = false; self.source = nil; self.snapshot = nil; self.candidate = nil
             synchronize(); changed()
         }

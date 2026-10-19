@@ -58,10 +58,13 @@ import BentoCore
     var writtenFrames: [(UUID, Rect)] = []
     var minimized = Set<UUID>()
     var denyMinimize = false
+    var minimizationDelay = 0.0
     override func isMinimized(_ window: ManagedWindow) -> Bool { minimized.contains(window.id) }
     override func setMinimized(_ window: ManagedWindow, _ value: Bool) throws {
         if denyMinimize { throw WindowFailure.rejected(window.title) }
-        if value { minimized.insert(window.id) } else { minimized.remove(window.id) }
+        if value && minimizationDelay > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + minimizationDelay) { [weak self] in self?.minimized.insert(window.id) }
+        } else if value { minimized.insert(window.id) } else { minimized.remove(window.id) }
     }
     override var trusted: Bool { accessibilityGranted }
     override func discover() throws -> [ManagedWindow] {
@@ -454,10 +457,15 @@ final class FixturePreferences: PreferenceBackend {
             let hoverBounds = firstLayout.dividers[0].bounds
             input.point = Point(hoverBounds.x + hoverBounds.width / 2, hoverBounds.y + hoverBounds.height / 2)
             interactions.sample()
-            let hoverPanels = NSApp.windows.compactMap { $0 as? GapPanel }.filter { $0.isVisible }
+            let hoverPanels = NSApp.windows.compactMap { $0 as? GapPanel }.filter { $0.isVisible && system.dividerWindowNumbers.contains($0.windowNumber) }
             try check(hoverPanels.contains { $0.gripView.visibleInk > 0 }, "Pointer polling reveals a grabber without a mouse-enter event")
             input.point = Point(-100_000, -100_000); interactions.sample()
             try check(hoverPanels.allSatisfy { $0.gripView.visibleInk == 0 }, "Pointer polling hides grabbers after leaving the gap")
+            let routedPanel = hoverPanels.first { DesktopCoordinates.engine($0.frame) != hoverBounds }!
+            input.point = Point(hoverBounds.x + hoverBounds.width / 2, hoverBounds.y + hoverBounds.height / 2)
+            try check(routedPanel.gripView.onBeginAt?(input.point) == true && model.interacting,
+                "A first press routed through another grip panel still captures the geometrically selected divider")
+            await interactions.finish(cancel: true)
             let dividerTree = model.history.current
             for edgeDivider in firstLayout.dividers {
                 let point = edgeDivider.axis == .horizontal
@@ -984,12 +992,17 @@ final class FixturePreferences: PreferenceBackend {
             let hitAlpha = hitBitmap.colorAt(x: 1, y: 1)!.alphaComponent
             try check(hitAlpha > 0 && hitAlpha < 0.02 && gapPanel.gripView.visibleInk == 0 && !gapPanel.ignoresMouseEvents,
                       "Hidden grip retains a nonzero gap input surface without showing its ink")
-            gapPanel.gripView.onBegin = { true }
+            var firstPressCount = 0
+            var firstPressPoint: Point?
+            gapPanel.gripView.onBeginAt = { point in
+                firstPressCount += 1; firstPressPoint = point; return true
+            }
             let enter = NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: gapPanel.windowNumber, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)!
             gapPanel.gripView.mouseEntered(with: enter)
             try check(gapPanel.gripView.visibleInk > 0, "Native mouse-enter reveals the hidden grip")
             let down = NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: gapPanel.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
             gapPanel.gripView.mouseDown(with: down); gapPanel.gripView.mouseExited(with: enter)
+            try check(firstPressCount == 1 && firstPressPoint == Point(0, Int(DesktopCoordinates.primaryTop.rounded())) && gapPanel.gripView.acceptsFirstMouse(for: down), "First mouse press starts the grip using event coordinates without a second click")
             try check(gapPanel.gripView.dragging && gapPanel.gripView.visibleInk > 0, "Native press keeps grip visible after pointer leaves")
             gapPanel.gripView.mouseUp(with: down)
             try check(!gapPanel.gripView.dragging && gapPanel.gripView.visibleInk == 0, "Release outside hides the native grip again")
@@ -1104,10 +1117,13 @@ final class FixturePreferences: PreferenceBackend {
                 "A repeated relaunch callback proceeds immediately after preparation instead of postponing forever")
             var previewReducedMotion = false
             let softPreview = DestinationPanel(reduceMotion: { previewReducedMotion })
+            let previewIdentity = UUID()
+            softPreview.windowFrames = [previewIdentity: Rect(40, 40, 400, 300)]
             softPreview.presentConflict(Rect(40, 40, 400, 300))
             let softPanel = softPreview.previewWindow!
             try check(softPanel.alphaValue == 0 && softPanel.ignoresMouseEvents, "Soft preview starts transparent and never intercepts app input")
             let retarget = Rect(120, 80, 520, 360)
+            softPreview.windowFrames = [previewIdentity: retarget]
             softPreview.presentConflict(retarget)
             // Timer delivery can be delayed on a shared CI desktop. Wait for the
             // actual destination with a bound, then observe it again after an old

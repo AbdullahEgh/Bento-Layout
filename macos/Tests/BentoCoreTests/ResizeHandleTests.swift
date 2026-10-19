@@ -135,9 +135,11 @@ final class ResizeHandleTests: XCTestCase {
         let handles = try ResizeHandles.calculate(root, in: area, gap: gap)
         XCTAssertTrue(handles.contains { $0.divider.axis == .horizontal && $0.divider.bounds.y == middle.y && $0.divider.bounds.height == middle.height })
     }
-    func testNoGripIsOfferedWhenNeitherNeighborCanResize() throws {
+    func testBlockedGripRemainsAvailableForLimitFeedback() throws {
         let root = split(.horizontal, leaf(100, 100), leaf(100, 100))
-        XCTAssertTrue(try ResizeHandles.calculate(root, in: Rect(0, 0, 210, 300), gap: gap).isEmpty)
+        let handles = try ResizeHandles.calculate(root, in: Rect(0, 0, 210, 300), gap: gap)
+        XCTAssertEqual(handles.count, 1)
+        XCTAssertTrue(handles[0].blocked)
     }
     func testShownMenuCorrectsStaleExpandedGeometryOnItsOwnDisplay() {
         XCTAssertEqual(DesktopWorkArea.correctingMenu(frame: area, visible: area, bars: [Rect(0, 0, 1200, 30)]), Rect(0, 30, 1200, 770))

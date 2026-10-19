@@ -143,6 +143,9 @@ struct MacSettings: Codable {
     private var originals: [UUID: (ManagedWindow, Rect)] = [:]
     private(set) var minimizedByBento: [UUID: ManagedWindow] = [:]
     private(set) var waitingForInsertion = Set<UUID>()
+    private(set) var waitingDismissalGeneration = 0
+    private var refusedWaitingSlots: [UUID: [Rect]] = [:]
+    func allowsWaitingInsertion(_ id: UUID, into bounds: Rect) -> Bool { !(refusedWaitingSlots[id]?.contains(bounds) ?? false) }
     private var reopenedWindows = Set<UUID>()
     private var floatingForSize = Set<UUID>()
     private var interactionSequence = 0
@@ -577,7 +580,11 @@ struct MacSettings: Codable {
             reopenedWindows.formUnion(visibleIDs.subtracting(Set(windows.map(\.id))).filter { canArrangeWindow($0) })
         }
         observeFocus(in: visible)
-        waitingForInsertion.subtract(visibleIDs)
+        let restoredWaiting = waitingForInsertion.intersection(visibleIDs).filter { id in
+            minimizedByBento[id].map { !system.isMinimized($0) } == true
+        }
+        if !restoredWaiting.isEmpty && !interacting { waitingDismissalGeneration += 1 }
+        waitingForInsertion.subtract(restoredWaiting)
         for (id, window) in minimizedByBento {
             guard system.isAlive(window) else { minimizedByBento.removeValue(forKey: id); continue }
             if visibleIDs.contains(id) && !system.isMinimized(window) {
@@ -666,7 +673,7 @@ struct MacSettings: Codable {
         defer { preparation?.cancel() }
         trace?("arrangement start preserving=\(preserving) resuming=\(resuming) active=\(wasActive)")
         do {
-            if !preserving { released = resuming ? lastReleased : [] }
+            if !preserving { released = resuming ? lastReleased : []; refusedWaitingSlots.removeAll() }
             reserveFullScreenSlots()
             var current = try discoverWindows().filter { !system.isMinimized($0) }; windows = current
             let returningFullScreen = Set(current.filter { fullScreenWindows[$0.id] != nil && !system.isFullScreen($0) }.map(\.id))
@@ -1351,6 +1358,9 @@ struct MacSettings: Codable {
               waitingForInsertion.contains(id), let source = minimizedByBento[id], system.isMinimized(source),
               next.windows.contains(where: { $0.windowID == id }) else { return false }
         let beforeWindows = windows, areas = displayAreas()
+        var attemptedBounds: Rect?
+        var placementStarted = false
+        var placementAccepted = false
         let generation = activationGeneration
         let displaced = windows.filter { window in
             snapshot.windows.contains { $0.windowID == window.id } && !next.windows.contains { $0.windowID == window.id }
@@ -1362,7 +1372,11 @@ struct MacSettings: Codable {
             // Reject invalid geometries before restoring anything from the Dock.
             for (display, root) in next.roots {
                 guard let area = areas.first(where: { $0.id == display }) else { throw LayoutError.invalidInput }
-                _ = try LayoutEngine.calculate(root, in: area.bounds, gap: layoutGap)
+                let result = try LayoutEngine.calculate(root, in: area.bounds, gap: layoutGap)
+                if let destination = result.regions.first(where: { $0.window.windowID == id }) {
+                    guard allowsWaitingInsertion(id, into: destination.bounds) else { throw LayoutError.cannotFit }
+                    attemptedBounds = destination.bounds
+                }
             }
             try system.setMinimized(source, false)
             var ready = false
@@ -1377,7 +1391,9 @@ struct MacSettings: Codable {
                 throw WindowFailure.rejected(source.title)
             }
             minimizedByBento.removeValue(forKey: id)
+            placementStarted = true
             try await apply(next, displays: areas, allowSkipping: true)
+            placementAccepted = true
             guard !shuttingDown, generation == activationGeneration, desktopIsCurrent() else { throw LayoutError.invalidInput }
             for window in displaced {
                 try system.setMinimized(window, true)
@@ -1390,6 +1406,7 @@ struct MacSettings: Codable {
                 minimizedByBento[window.id] = window; waitingForInsertion.insert(window.id)
             }
             minimizedByBento.removeValue(forKey: id); waitingForInsertion.remove(id)
+            refusedWaitingSlots.removeValue(forKey: id)
             floatingForSize.remove(id); released.remove(id)
             windows.removeAll { window in displaced.contains(where: { $0.id == window.id }) }
             history.commit(next); areaLayout = nil; lastDisplays = areas; editedLayout = true
@@ -1402,8 +1419,18 @@ struct MacSettings: Codable {
                     try? system.setMinimized(window, false); minimizedByBento.removeValue(forKey: window.id); waitingForInsertion.remove(window.id)
                 }
                 try? await apply(snapshot, displays: areas, allowSkipping: true, animate: false)
-                try? system.setMinimized(source, true)
-                if system.isMinimized(source) { minimizedByBento[id] = source; waitingForInsertion.insert(id) }
+                do {
+                    try system.setMinimized(source, true)
+                    // Keep ownership on accepted AX requests, before Dock publishes state.
+                    minimizedByBento[id] = source; waitingForInsertion.insert(id)
+                    for _ in 0..<30 {
+                        if system.isMinimized(source) { break }
+                        try await Task.sleep(for: .milliseconds(30))
+                    }
+                } catch { trace?("failed insertion could not return source to Dock") }
+                if placementStarted && !placementAccepted, let bounds = attemptedBounds {
+                    refusedWaitingSlots[id, default: []].append(bounds)
+                }
             }
             windows = beforeWindows
             message = "This app could not fit there. Try another slot."
