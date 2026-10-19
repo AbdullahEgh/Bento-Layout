@@ -547,3 +547,4 @@ Local 0.2.15 verification: 40 core tests and 91 isolated native checks passed. T
 - Local signed universal build passed 320 native checks (`/tmp/bento-static-slots-native/results.json`); no external applications or system preferences changed by the suite.
 - Organizing-cover spinner and real-window motion remain separate from static slots.
 - Paired release publication now waits for the tested Windows archive and uploads both platforms before making the Mac release public.
+- Windows regression caught Resume treating a paused manual resize as cell slack; the paired Windows build now reapplies the saved bounds on Resume.

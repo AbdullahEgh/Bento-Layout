@@ -7,7 +7,7 @@ public sealed partial class BentoController
     private long waitingIncoming;
     private readonly Dictionary<long, List<PixelRect>> refusedWaiting = new();
     public int WaitingCount => minimizedByBento.Keys.Count(id => !session.ResumeHeld.Contains(id) && CurrentMember(id));
-    private void CloseWaiting() { waitingWindow?.Close(); waitingWindow = null; waitingMembership = null; }
+    private void CloseWaiting() { var closing = waitingWindow; waitingWindow = null; waitingMembership = null; closing?.Close(); }
     public void DismissWaiting() { dismissedWaiting = waitingMembership; CloseWaiting(); }
     private void RefreshWaiting()
     {

@@ -779,7 +779,7 @@ public sealed partial class BentoController : IDisposable
                 {
                     if (!CanWriteNative(id)) throw new InvalidOperationException("The window or its desktop is no longer available for arrangement.");
                     PixelRect? applied = owner.AppliedFrames.TryGetValue(id, out var prior) ? prior.Slot : null;
-                    if (WindowCatalog.IsMinimized(id) || NativeFrameFit.NeedsPlacement(native.VisibleBounds(id), region.Bounds, applied)) native.Move(id, region.Bounds, learnMinimum: !reflowing);
+                    if (WindowCatalog.IsMinimized(id) || Paused && native.VisibleBounds(id) != region.Bounds || NativeFrameFit.NeedsPlacement(native.VisibleBounds(id), region.Bounds, applied)) native.Move(id, region.Bounds, learnMinimum: !reflowing);
                     // Keep provenance current for Settings and rollback paths too,
                     // which can apply geometry without a history commit.
                     owner.AppliedFrames[id] = (region.Bounds, WindowCatalog.HasCaption(id));
