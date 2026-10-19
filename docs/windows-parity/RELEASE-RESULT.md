@@ -1,6 +1,12 @@
 # Windows release results — 2026-10-19
 
-## Activation hotfix 0.3.11 — validation in progress
+## Activation hotfix 0.3.11 — published
+
+Release: https://github.com/AbdullahEgh/Bento-Layout/releases/tag/v0.3.11
+
+Source: `2d01ac48b2ea2274308e078932cbf60fecf0cf87`. Windows ZIP SHA-256: `d973a58f7bb64dcafbaa06314f26c9ceea7439783d71b9661932638d7154ff0a`.
+
+Tag [CI and publication](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/39194651344) succeeded: test job `117874666907`, publication job `117875099380`. The publication verified all uploaded digests and latest-feed identity before completion. A separate public ZIP/sidecar download passed `tools/verify-windows-release.py`, including every internal file hash. The bridge chat independently confirmed `/releases/latest` is stable 0.3.11 and matched the GitHub asset digest. Mac 0.2.40 ZIP is reused unchanged. CloudPC's installed 0.3.6 live update query later hit GitHub's anonymous API rate limit; no installed app replacement/restart is claimed.
 
 CloudPC reproduced the 0.3.10 production desktop adapter failing ten out of ten samples: `GetWindowDesktopId` on the invisible probe returned `0x8002802B`, while current-desktop membership returned success. The earlier fixtures bypassed this real adapter. Do not treat the published 0.3.10 fixture results as activation validation.
 
@@ -14,7 +20,7 @@ Installed CloudPC 0.3.6 was preserved and starts active. Separate unpublished sh
 
 Hosted CI run `39194155322` built successfully and passed 186 checks; its only failure was the live desktop adapter, because that runner exposes no usable Explorer desktop identity. The live regression now requires explicit `Bento.Tests.exe --native --real-desktop` on an interactive Windows desktop. Ordinary headless native runs print an explicit NOT RUN line; they do not count this regression as passing. The separately recorded CloudPC 187/0 is required release evidence. Production identity checks are unchanged.
 
-CI [39194442467](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/39194442467), source `e19de4f012be3fdac7253975ff0f790592774988`, passed build/package, headless native fixtures, portable core, settings smoke and the actual package compatibility check against the shipped OTA selector. Tag publication repeats these gates. Public asset digest/latest-feed verification remains pending until publication.
+CI [39194442467](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/39194442467), source `e19de4f012be3fdac7253975ff0f790592774988`, passed build/package, headless native fixtures, portable core, settings smoke and the actual package compatibility check against the shipped OTA selector. Tag publication repeated these gates successfully.
 
 ## Historical 0.3.10 release
 
