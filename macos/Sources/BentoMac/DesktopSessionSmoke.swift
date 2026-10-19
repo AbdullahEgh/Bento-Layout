@@ -322,10 +322,19 @@ import BentoCore
         try check(!prepared.active && system.writes.isEmpty && system.minimized.isEmpty,
             "Apps refusing hidden preparation remain untouched instead of receiving visible size trials")
         system.denyMinimize = false
-        for (record, _) in system.records {
+        // Equality with the original frame is the regression, not host screen
+        // capacity. Three original 420x342 windows cannot fit every CI desktop.
+        system.areaOverride = [DisplayArea(id: actualArea.id, name: actualArea.name, bounds: Rect(0, 30, 800, 600))]
+        system.nativeMinimum.removeAll()
+        for (index, entry) in system.records.enumerated() {
+            let record = entry.0
+            try system.write(record, frame: Rect(30 + index * 20, 60 + index * 20, 240, 160))
             let frame = system.frame(of: record.element)!
             system.nativeMinimum[record.id] = Size(frame.width, frame.height)
         }
+        let alreadyMinimum = system.records.map { WindowLeaf(windowID: $0.0.id, minimum: system.nativeMinimum[$0.0.id]!) }
+        try check(try AutoLayout.arrange(alreadyMinimum, in: system.areaOverride![0].bounds, gap: prepared.layoutGap)?.windows.count == 3,
+            "Already-minimum fixture establishes a feasible three-window layout before native activation")
         await prepared.arrange()
         try check(prepared.active && prepared.history.current.windows.count == system.records.count && system.minimized.isEmpty,
             "Windows already at their measured minimum use feasible splits instead of entering the waiting queue")
@@ -390,7 +399,10 @@ import BentoCore
         await prepared.restore()
         system.areaOverride = previousAreas
         system.hiddenPreparation = false; system.nativeMinimum.removeAll()
-        for (record, _) in system.records { record.minimum = Size(160, 120) }
+        for (index, entry) in system.records.enumerated() {
+            entry.0.minimum = Size(160, 120)
+            try system.write(entry.0, frame: initial[index])
+        }
         return passed
     }
 }
