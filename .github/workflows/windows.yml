@@ -58,7 +58,9 @@ jobs:
         run: |
           set -euo pipefail
           # A draft prevents older installed clients seeing an incomplete release.
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "Bento for Windows ${GITHUB_REF_NAME#v}" --notes-file docs/windows-parity/RELEASE-0.3.10.md download/Bento-win-x64.zip download/Bento-windows-release.json download/Bento-macos-universal.zip
+          notes="docs/windows-parity/RELEASE-${GITHUB_REF_NAME#v}.md"
+          test -s "$notes"
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "Bento for Windows ${GITHUB_REF_NAME#v}" --notes-file "$notes" download/Bento-win-x64.zip download/Bento-windows-release.json download/Bento-macos-universal.zip
           release_id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[] | select(.tag_name == env.GITHUB_REF_NAME) | .id')"
           [[ "$release_id" =~ ^[0-9]+$ ]]
           gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > uploaded.json

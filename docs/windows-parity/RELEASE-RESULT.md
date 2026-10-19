@@ -1,4 +1,18 @@
-# Windows 0.3.10 release result — 2026-10-19
+# Windows release results — 2026-10-19
+
+## Activation hotfix 0.3.11 — validation in progress
+
+CloudPC reproduced the 0.3.10 production desktop adapter failing ten out of ten samples: `GetWindowDesktopId` on the invisible probe returned `0x8002802B`, while current-desktop membership returned success. The earlier fixtures bypassed this real adapter. Do not treat the published 0.3.10 fixture results as activation validation.
+
+The focused fix from CloudPC commit `0fdbc8226bae1ffd02e461a46df6190729659aac` is integrated as `0e16e32`. All four transferred file blobs match. It reads Explorer's desktop identity using the locations documented by Microsoft's FancyZones source, validates complete nonempty GUIDs, only permits a single-desktop fallback, and retains COM application membership plus current-identity checks before and after membership queries. Unknown identity defers arrangement; transient integration failures can retry.
+
+CloudPC evidence: build zero warnings/errors; native suite 187 passed, zero failed twice; portable core 42 passed; settings smoke six passed. The new native regression uses the actual desktop adapter and routes the Settings button event and tray action, asserts three disposable windows' native frames, and checks Off restoration. Unknown/change/recovery observations are also covered. Physical mouse input was blocked by Computer Use reporting unavailable input geometry, so this is not physical click certification. Visible disposable windows reflowed across a reported monitor change from 1260×2736 at 200% to 1330×998 at 100%; this is not multi-monitor hardware certification.
+
+Earlier untouched CloudPC tests produced 182/3 then 183/2. Two edge-drag test points were within the DPI-scaled screen-edge movement strip; these fixture points now scale with the monitor. A grip assertion now follows the selected equivalent seam. An initial intermittent native-resize failure remains unexplained; subsequent original and scaled offsets passed. No production resize cause is claimed.
+
+Installed CloudPC 0.3.6 was preserved and starts active. Separate unpublished shortcut/backdrop changes at `76cc4a6` remain excluded from this activation hotfix. CI, packaged OTA verification and publication for 0.3.11 are pending.
+
+## Historical 0.3.10 release
 
 Published: https://github.com/AbdullahEgh/Bento-Layout/releases/tag/v0.3.10
 
