@@ -6,7 +6,9 @@ Focused CloudPC commit `17d84345561469c0af3c48d7a3973d5447761add` is integrated 
 
 The regression first failed against released behavior with “Expected 2; got 1” (186 passed, one failed). Final CloudPC build has zero warnings/errors; real-desktop native 190/0, portable core 43/0, settings smoke 6/0 and five-window real-desktop preview smoke 6/0. The latter checks all five slots through swap, held split and reentry, native frames unchanged until drop, one shared dimmer below every panel, cleanup, and native pointer hit-through. It also verifies the Workspace toggle against the actual Windows Snap setting and exact restoration on toggle-off, Bento Off and disposal; user preferences were restored afterward.
 
-A new pointer assertion exposed real interception by preview HWNDs lacking the layered style. WPF-owned `AllowsTransparency=true` fixes it; native style/opacity experiments were removed. CloudPC visually inspected the translucent rounded previews; physical mouse routing was not certified. CI and packaged OTA verification remain pending. The installed application and unpublished `76cc4a6` work are preserved.
+A new pointer assertion exposed real interception by preview HWNDs lacking the layered style. WPF-owned `AllowsTransparency=true` fixes it; native style/opacity experiments were removed. CloudPC visually inspected the translucent rounded previews; physical mouse routing was not certified. The installed application and unpublished `76cc4a6` work are preserved.
+
+[CI 39197127756](https://github.com/AbdullahEgh/Bento-Layout/actions/runs/39197127756), source `6c7e2e23316dbc0b219768cb1c88b0d09ef5fe82`, passed build/package, native fixtures, portable core, settings smoke, five-window preview smoke and the actual package check against the shipped updater selector. Tag publication repeats these checks; public package verification follows publication.
 
 ## Activation hotfix 0.3.11 — published
 
