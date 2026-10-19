@@ -80,14 +80,16 @@ final class LayoutTests: XCTestCase {
             }
         }
     }
-    func testLiveDockGeometryReplacesStaleReservation() {
+    func testLiveDockGeometryRespectsBothNativeReservations() {
         let frame = Rect(0, 0, 1280, 800), stale = Rect(0, 30, 1280, 707)
         XCTAssertEqual(DesktopWorkArea.correctingDock(frame: frame, visible: stale, dock: Rect(300, 710, 680, 90)), Rect(0, 30, 1280, 680))
-        XCTAssertEqual(DesktopWorkArea.correctingDock(frame: frame, visible: stale, dock: Rect(300, 760, 680, 40)), Rect(0, 30, 1280, 730))
-        XCTAssertEqual(DesktopWorkArea.correctingDock(frame: frame, visible: stale, dock: Rect(0, 100, 60, 600)), Rect(60, 30, 1220, 770))
-        XCTAssertEqual(DesktopWorkArea.correctingDock(frame: frame, visible: stale, dock: Rect(1220, 100, 60, 600)), Rect(0, 30, 1220, 770))
+        XCTAssertEqual(DesktopWorkArea.correctingDock(frame: frame, visible: stale, dock: Rect(300, 760, 680, 40)), stale)
+        XCTAssertEqual(DesktopWorkArea.correctingDock(frame: frame, visible: stale, dock: Rect(0, 100, 60, 600)), Rect(60, 30, 1220, 707))
+        XCTAssertEqual(DesktopWorkArea.correctingDock(frame: frame, visible: stale, dock: Rect(1220, 100, 60, 600)), Rect(0, 30, 1220, 707))
         XCTAssertEqual(DesktopWorkArea.correctingDock(frame: frame, visible: stale, dock: Rect(-500, 0, 40, 500)), stale)
         XCTAssertEqual(DesktopWorkArea.correctingDock(frame: frame, visible: stale, dock: nil), stale)
+        let settled = Rect(0, 30, 1280, 730)
+        XCTAssertEqual(DesktopWorkArea.correctingDock(frame: frame, visible: settled, dock: Rect(300, 760, 680, 40)), settled)
     }
     func testActivationDoesNotHideFittingAppsToEnlargeThePrimary() throws {
         let recent = [window(160, 120), window(500, 600), window(336, 339)]
