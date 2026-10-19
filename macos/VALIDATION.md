@@ -1,3 +1,11 @@
+# Reduced fit retries and complete drag previews — 2026-10-19
+
+The macOS native writer repeats size after positioning only for an actual display transition. Settling no longer resends an identical refused target; a distinct inward correction remains available for terminal-style cell rounding. The existing wait for delayed native writes and bounded planning corrections for newly revealed limits remain. This reduces redundant trials without claiming that concealed application constraints can always be known before the first write.
+
+Drag previews include all candidate slots, including unchanged neighbors, and retain all original slots while no destination is selected. One destination receives stronger neutral highlighting. The full-screen dim and blur panels use normal window levels, ordered below the dragged window. Full-slot geometry is cached by workspace, area and gap; unchanged progress does not repeatedly reorder layers. A single menu-bar click now pauses/resumes active Bento, while clicking from Off activates it. Hold and right-click actions remain separate.
+
+Debug build and 274 disposable native checks passed, including no repeated refused activation target, complete preview membership, one selected slot and actual WindowServer stacking below the dragged fixture window. The first stacking check sampled before the new panels reached WindowServer; the final check waits up to 500 ms for their presence before checking order. Existing delayed-write, cell rounding, pause/resume and small-screen regressions passed. Evidence: `/tmp/bento-drag-fit-build.log` and `/tmp/bento-drag-fit-native/results.json`. Live third-party drag feel has not been verified. No OTA release or installation was performed for these changes. Windows code and version are unchanged and await user approval of macOS.
+
 # 0.2.41 publication — 2026-10-19
 
 Published both activation and paused-resize fixes from `5faa538` as macOS 0.2.41 build 161. Compatibility run `39272061189` passed on macOS 15 and 26; signed OTA run `39272096007` completed successfully, including native checks and Windows attachment. Compact notes are embedded in the app and OTA popup.

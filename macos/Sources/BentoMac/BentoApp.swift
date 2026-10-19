@@ -95,7 +95,7 @@ import Carbon.HIToolbox
         if let button = statusItem.button {
             button.target = self; button.action = #selector(statusClicked)
             button.sendAction(on: [.leftMouseDown, .leftMouseUp, .rightMouseUp])
-            button.setAccessibilityLabel("Bento — click to toggle; hold to hide or show Dock and menu bar; right-click for menu")
+            button.setAccessibilityLabel("Bento — click to pause or resume; hold to hide or show Dock and menu bar; right-click for menu")
         }
         // Handle physical presses before NSStatusBarButton enters its tracking loop.
         // Its action callback is not a reliable mouse-down/up stream on every macOS.
@@ -144,7 +144,7 @@ import Carbon.HIToolbox
         statusItem.button?.appearsDisabled = false
         statusItem.button?.image = BentoStatusIcon.image(active: model.active, pinned: model.pinned)
         statusItem.button?.alphaValue = model.active ? 1 : 0.45
-        statusItem.button?.toolTip = model.pinned ? "Bento is paused — click to resume and minimize floating apps" : !model.permission ? "Bento needs Accessibility access — click to enable" : model.active ? "Bento is on — click to turn off; right-click for menu" : "Bento is off — click to arrange windows; right-click for menu"
+        statusItem.button?.toolTip = model.pinned ? "Bento is paused — click to resume and minimize floating apps" : !model.permission ? "Bento needs Accessibility access — click to enable" : model.active ? "Bento is on — click to pause; right-click for menu" : "Bento is off — click to arrange windows; right-click for menu"
         statusItem.button?.toolTip? += "\nHold to hide or show Dock and menu bar while Bento is on."
         if let message = model.message { statusItem.button?.toolTip? += "\n" + message }
     }
@@ -180,7 +180,7 @@ import Carbon.HIToolbox
             let trackedPress = statusPress.isTracking
             if statusPress.hold(at: ProcessInfo.processInfo.systemUptime) { toggleDesktopHiding() }
             if statusPress.end() || !trackedPress {
-                if model.pinned { Task { await model.setPinned(false) } } else { toggle() }
+                if model.active { togglePin() } else { toggle() }
             }
         }
     }

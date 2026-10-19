@@ -311,6 +311,13 @@ final class FixturePreferences: PreferenceBackend {
             let preActivationFrames = Dictionary(uniqueKeysWithValues: system.records.map { ($0.0.id, system.frame(of: $0.0.element)!) })
             system.writtenFrames.removeAll()
             await model.arrange()
+            var priorTargets: [UUID: Rect] = [:]
+            var duplicatedTarget = false
+            for (id, target) in system.writtenFrames {
+                if priorTargets[id] == target { duplicatedTarget = true }
+                priorTargets[id] = target
+            }
+            try check(!duplicatedTarget, "Unknown size limits never resend an identical refused target during activation")
             try check(!system.writtenFrames.contains { preActivationFrames[$0.0] == $0.1 }, "Learning activation limits never rolls the batch back between calculated corrections")
             try check(try model.active && model.history.current.windows.count == 4 && system.minimized.isEmpty && matchingGeometry(), "Independent unknown native limits are learned without sacrificing a fitting app")
             try check(system.records[0].0.minimum.height == 120 && model.history.current.windows.first { $0.windowID == system.records[0].0.id }?.minimum.height == 120, "A preferred native primary size never becomes a stored size restriction")
@@ -1118,6 +1125,7 @@ final class FixturePreferences: PreferenceBackend {
             try check(softPanel.frame == DesktopCoordinates.appKit(retarget) && softPanel.alphaValue == 1, "Reduce Motion skips preview movement while preserving the destination")
             softPreview.hideImmediately()
             try check(!softPanel.isVisible && !softPreview.dimVisible, "Mission Control immediately removes preview highlights and their dim layer")
+            passed += try DragPreviewSmoke.run(system: system)
             let splitFrost = PreviewSlotView(frame: NSRect(x: 0, y: 0, width: 300, height: 400), reduceTransparency: false)
             splitFrost.placement = .left
             try check(splitFrost.isSplitting, "Directional destinations retain split semantics with a neutral glass outline")

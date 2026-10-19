@@ -1030,7 +1030,12 @@ struct MacSettings: Codable {
         var retried = false
         while !Task.isCancelled {
             guard desktopIsCurrent(), displays == nil || displays == displayAreas() else { return }
-            let pending = plan.filter { system.isAlive($0.0) && !system.accepted($0.0, $0.1) }
+            let frames = Dictionary(uniqueKeysWithValues: plan.compactMap { window, _ in
+                system.frame(of: window.element).map { (window.id, $0) }
+            })
+            let pending = plan.filter { window, target in
+                system.isAlive(window) && frames[window.id].map { !NativeFrameFit.accepts($0, in: target) } != false
+            }
             matchingSamples = pending.isEmpty ? matchingSamples + 1 : 0
             if matchingSamples >= 2 { return }
             try? await Task.sleep(for: .milliseconds(30))
@@ -1039,8 +1044,11 @@ struct MacSettings: Codable {
             if retry && elapsed >= 0.35 && !retried {
                 retried = true
                 for (window, target) in pending {
-                    let fitted = system.frame(of: window.element).map { NativeFrameFit.inwardTarget(actual: $0, slot: target) } ?? target
-                    try? system.write(window, frame: fitted)
+                    guard let actual = frames[window.id] else { continue }
+                    let fitted = NativeFrameFit.inwardTarget(actual: actual, slot: target)
+                    // Never repeat the target an app has already refused. Only
+                    // a different inward target can solve whole-cell rounding.
+                    if fitted != target { try? system.write(window, frame: fitted) }
                 }
             }
         }

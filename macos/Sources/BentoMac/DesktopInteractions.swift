@@ -39,6 +39,10 @@ struct DesktopInput {
     private var session: DropSession?
     private var snapshot: Workspace?
     private var candidate: Workspace?
+    private var previewWorkspace: Workspace?
+    private var previewAreas: [String: Rect] = [:]
+    private var previewGap = -1
+    private var previewRectangles: [Rect] = []
     private var swapsSections = false
     private var nativeResize = false
     private var grip: (display: String, divider: Divider)?
@@ -314,12 +318,29 @@ struct DesktopInput {
     private func updateDrop(state: DesktopInput) {
         do {
             preview.animate = model.settings.animate
+            if let window = pressedWindow, window.serverNumber == nil {
+                let visible = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+                window.serverNumber = BentoWindowStack.anchor(windows: [window], visible: visible)
+            }
+            let belowWindow = pressedWindow?.serverNumber
+            func slots(_ workspace: Workspace) -> [Rect] {
+                let currentAreas = areas()
+                if previewWorkspace != workspace || previewAreas != currentAreas || previewGap != model.layoutGap {
+                    previewWorkspace = workspace; previewAreas = currentAreas; previewGap = model.layoutGap
+                    previewRectangles = currentAreas.keys.sorted().flatMap { display in
+                        (try? LayoutEngine.calculate(workspace.roots[display], in: currentAreas[display]!, gap: model.layoutGap).regions.map(\.bounds)) ?? []
+                    }
+                }
+                return previewRectangles
+            }
             if let proposal = try session?.propose(pointer: state.point, areas: areas(), gap: model.layoutGap, hold: model.settings.splitHold, now: state.time, screenBounds: gestureScreens) {
                 if candidate != proposal.workspace { trace?("drop proposal=\(proposal.placement.rawValue) section=\(proposal.swapsSections) bounds=\(proposal.bounds)") }
-                candidate = proposal.workspace; swapsSections = proposal.swapsSections; preview.present(proposal)
+                candidate = proposal.workspace; swapsSections = proposal.swapsSections; preview.present(proposal, slots: slots(proposal.workspace), belowWindow: belowWindow)
             } else {
                 candidate = nil
-                if let bounds = session?.conflictBounds { preview.presentConflict(bounds) } else { preview.orderOut(nil) }
+                if let bounds = session?.conflictBounds { preview.presentConflict(bounds, slots: slots(session!.original), belowWindow: belowWindow) }
+                else if let session { preview.presentSlots(slots(session.original), belowWindow: belowWindow) }
+                else { preview.orderOut(nil) }
             }
         } catch { candidate = nil; preview.orderOut(nil) }
     }
@@ -440,6 +461,21 @@ struct DesktopInput {
     var dimVisible: Bool { dimPanels.contains(where: \.isVisible) }
     var dimPassesClicks: Bool { dimPanels.allSatisfy(\.ignoresMouseEvents) }
     var previewWindow: NSWindow? { panels.first }
+    var visibleSlotFrames: [Rect] { panels.filter(\.isVisible).map { DesktopCoordinates.engine($0.frame) } }
+    var selectedSlotCount: Int { panels.filter { $0.isVisible && $0.slotView.primary }.count }
+    var previewWindowNumbers: [Int] { panels.filter(\.isVisible).map(\.windowNumber) }
+    private var belowWindow: Int?
+    private var lastRectangles: [Rect] = []
+    private var lastSelected = false
+    private func orderLayers() {
+        for dim in dimPanels where dim.isVisible {
+            if let belowWindow { dim.order(.below, relativeTo: belowWindow) }
+        }
+        for panel in panels where panel.isVisible {
+            if let dim = dimPanels.last(where: \.isVisible) { panel.order(.above, relativeTo: dim.windowNumber) }
+            if let belowWindow { panel.order(.below, relativeTo: belowWindow) }
+        }
+    }
     private func prepareDimming(for rectangles: [Rect]) {
         let frames = rectangles.map(DesktopCoordinates.appKit)
         let screens = NSScreen.screens.filter { screen in frames.contains { $0.intersects(screen.frame) } }
@@ -447,7 +483,7 @@ struct DesktopInput {
             let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             panel.isReleasedWhenClosed = false; panel.isOpaque = false; panel.hasShadow = false
             panel.backgroundColor = .black; panel.alphaValue = 0; panel.ignoresMouseEvents = true
-            panel.level = .floating; panel.hidesOnDeactivate = false
+            panel.level = .normal; panel.hidesOnDeactivate = false
             panel.collectionBehavior = [.stationary, .ignoresCycle]
             panel.setAccessibilityLabel("Bento preview dim")
             dimPanels.append(panel)
@@ -480,6 +516,7 @@ struct DesktopInput {
             if index < rectangles.count, let dim = dimPanels.last(where: \.isVisible) { panel.order(.above, relativeTo: dim.windowNumber) }
             return Transition(panel: panel, from: panel.frame, to: destination, alpha: panel.alphaValue, targetAlpha: index < rectangles.count ? 1 : 0)
         }
+        orderLayers()
         started = ProcessInfo.processInfo.systemUptime
         if !animate || reduceMotion() { advance(progress: 1); return }
         motion = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in
@@ -511,39 +548,39 @@ struct DesktopInput {
         motion?.invalidate(); motion = nil; hiding = true
         for panel in dimPanels { panel.alphaValue = 0; panel.orderOut(nil) }
         for panel in panels { panel.alphaValue = 0; panel.orderOut(nil) }
-        transitions.removeAll(); dimTransitions.removeAll(); lastProposal = nil; lastConflict = nil
+        transitions.removeAll(); dimTransitions.removeAll(); lastProposal = nil; lastConflict = nil; lastRectangles = []; belowWindow = nil
     }
     private var lastProposal: DropProposal?
     private var lastConflict: Rect?
     func orderOut(_ sender: Any?) { if !hiding && panels.contains(where: { $0.isVisible }) { transition(to: []) }; lastProposal = nil; lastConflict = nil }
-    func presentConflict(_ bounds: Rect) {
-        guard lastConflict != bounds || panels.first?.isVisible != true else { return }
-        lastConflict = bounds; lastProposal = nil
-        if panels.isEmpty { panels.append(PreviewSlotPanel()) }
-
-        let panel = panels[0]
-        panel.slotView.primary = true; panel.slotView.conflict = true; panel.slotView.progress = nil
-        panel.slotView.needsDisplay = true; transition(to: [bounds])
+    func presentSlots(_ rectangles: [Rect], belowWindow: Int? = nil) {
+        render(rectangles, selected: false, conflict: false, proposal: nil, belowWindow: belowWindow)
     }
-    func present(_ proposal: DropProposal) {
-        guard lastProposal != proposal || panels.first?.isVisible != true else { return }
-        let geometryChanged = lastConflict != nil || lastProposal?.bounds != proposal.bounds || lastProposal?.neighbors != proposal.neighbors
-        lastProposal = proposal; lastConflict = nil
-        let rectangles = [proposal.bounds] + proposal.neighbors
+    func presentConflict(_ bounds: Rect, slots: [Rect] = [], belowWindow: Int? = nil) {
+        render([bounds] + slots.filter { $0 != bounds }, selected: true, conflict: true, proposal: nil, belowWindow: belowWindow)
+    }
+    func present(_ proposal: DropProposal, slots: [Rect]? = nil, belowWindow: Int? = nil) {
+        render([proposal.bounds] + (slots ?? proposal.neighbors).filter { $0 != proposal.bounds },
+               selected: true, conflict: false, proposal: proposal, belowWindow: belowWindow)
+    }
+    private func render(_ rectangles: [Rect], selected: Bool, conflict: Bool, proposal: DropProposal?, belowWindow: Int?) {
+        let geometryChanged = hiding || lastRectangles != rectangles || panels.first?.isVisible != true
+        let conflictBounds = conflict ? rectangles.first : nil
+        guard geometryChanged || lastSelected != selected || lastConflict != conflictBounds || lastProposal != proposal || self.belowWindow != belowWindow else { return }
+        let anchorChanged = self.belowWindow != belowWindow
+        self.belowWindow = belowWindow; lastSelected = selected
+        lastRectangles = rectangles; lastProposal = proposal; lastConflict = conflict ? rectangles.first : nil
         while panels.count < rectangles.count { panels.append(PreviewSlotPanel()) }
-        for (index, panel) in panels.enumerated() {
-            guard index < rectangles.count else { continue }
-            let primary = index == 0
-            let progress = primary && proposal.waitingForSplit ? proposal.progress : nil
-            let changed = panel.slotView.primary != primary || panel.slotView.progress != progress || panel.slotView.conflict || panel.slotView.placement != proposal.placement || panel.slotView.swapsSections != proposal.swapsSections
+        for (index, panel) in panels.enumerated() where index < rectangles.count {
+            let primary = selected && index == 0
             panel.slotView.primary = primary
-            panel.slotView.progress = progress
-            panel.slotView.conflict = false
-            panel.slotView.placement = proposal.placement
-            panel.slotView.swapsSections = proposal.swapsSections
-            if changed { panel.slotView.needsDisplay = true }
+            panel.slotView.progress = primary && proposal?.waitingForSplit == true ? proposal?.progress : nil
+            panel.slotView.conflict = primary && conflict
+            panel.slotView.placement = primary ? proposal?.placement ?? .center : .center
+            panel.slotView.swapsSections = primary && proposal?.swapsSections == true
         }
         if geometryChanged { transition(to: rectangles) }
+        else if anchorChanged { orderLayers() }
     }
 }
 
@@ -552,7 +589,7 @@ struct DesktopInput {
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isReleasedWhenClosed = false; isOpaque = false; backgroundColor = .clear
-        ignoresMouseEvents = true; hasShadow = false; level = .floating; hidesOnDeactivate = false
+        ignoresMouseEvents = true; hasShadow = false; level = .normal; hidesOnDeactivate = false
         collectionBehavior = [.stationary, .ignoresCycle]; contentView = slotView
         setAccessibilityLabel("Bento destination preview")
     }
@@ -594,9 +631,9 @@ struct DesktopInput {
         // Native glass and a quiet neutral edge carry placement and splitting.
         // A warm tint appears only when the destination cannot fit.
         let accent: NSColor = conflict ? .systemOrange : .white
-        frost.tint = conflict ? accent.withAlphaComponent(0.12) : nil
+        frost.tint = conflict ? accent.withAlphaComponent(0.12) : (primary ? NSColor.white.withAlphaComponent(0.06) : nil)
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        outline.borderColor = accent.withAlphaComponent(primary ? 0.38 : 0.16).cgColor
+        outline.borderColor = accent.withAlphaComponent(primary ? 0.65 : 0.16).cgColor
         CATransaction.commit()
     }
 }

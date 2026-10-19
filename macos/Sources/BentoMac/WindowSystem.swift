@@ -407,9 +407,14 @@ struct MotionWrite: @unchecked Sendable {
         let move = current.x != frame.x || current.y != frame.y
         if resize, AXUIElementSetAttributeValue(window.element, kAXSizeAttribute as CFString, s) != .success { throw WindowFailure.rejected(window.title) }
         if move, AXUIElementSetAttributeValue(window.element, kAXPositionAttribute as CFString, p) != .success { throw WindowFailure.rejected(window.title) }
-        // Moving between displays can change a native app's size constraint. Retry
-        // size only when the move actually left it different from the requested size.
-        if move, let actual = self.frame(of: window.element), actual.width != frame.width || actual.height != frame.height {
+        // Only a real display transition can justify retrying size here. A
+        // same-display clamp is evidence for the planner, not another AX trial.
+        let crossesDisplay = NSScreen.screens.contains { screen in
+            let bounds = DesktopCoordinates.engine(screen.frame)
+            return bounds.contains(Point(current.x + current.width / 2, current.y + current.height / 2))
+                && !bounds.contains(Point(frame.x + frame.width / 2, frame.y + frame.height / 2))
+        }
+        if move && crossesDisplay, let actual = self.frame(of: window.element), actual.width != frame.width || actual.height != frame.height {
             guard AXUIElementSetAttributeValue(window.element, kAXSizeAttribute as CFString, s) == .success else { throw WindowFailure.rejected(window.title) }
         }
         // Resizing itself can shift the origin (notably Chromium/Vivaldi near
