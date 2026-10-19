@@ -59,7 +59,9 @@ jobs:
           set -euo pipefail
           # A draft prevents older installed clients seeing an incomplete release.
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "Bento for Windows ${GITHUB_REF_NAME#v}" --notes-file docs/windows-parity/RELEASE-0.3.10.md download/Bento-win-x64.zip download/Bento-windows-release.json download/Bento-macos-universal.zip
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" > uploaded.json
+          release_id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[] | select(.tag_name == env.GITHUB_REF_NAME) | .id')"
+          [[ "$release_id" =~ ^[0-9]+$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > uploaded.json
           python3 - <<'PY'
           import hashlib, json
           from pathlib import Path
@@ -67,7 +69,7 @@ jobs:
           for path in Path('download').iterdir():
               assert assets[path.name]['digest'] == 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest(), path.name
           PY
-          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          printf '{"draft":false,"make_latest":"true"}' | gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" --input - > published.json
           gh api "repos/$GITHUB_REPOSITORY/releases/latest" > latest.json
           python3 - <<'PY'
           import json, os
