@@ -253,6 +253,11 @@ struct DesktopInput {
             if pressedWindow == nil, let focused = model.system.focusedWindow(in: model.windows),
                model.system.frame(of: focused.element)?.contains(pressPoint) == true { pressedWindow = focused }
             if let window = pressedWindow, !model.canArrangeWindow(window.id) { pressedWindow = nil; gestureAreas = nil; return }
+            if let window = pressedWindow, model.pinned {
+                model.recordInteraction(window)
+                pressedWindow = nil; gestureAreas = nil
+                return
+            }
             if let window = pressedWindow {
                 for (display, root) in model.history.current.roots {
                     guard let area = gestureAreas?[display], let region = try? LayoutEngine.calculate(root, in: area, gap: model.layoutGap).regions.first(where: { $0.window.windowID == window.id }) else { continue }

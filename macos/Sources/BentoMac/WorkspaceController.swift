@@ -74,6 +74,21 @@ struct MacSettings: Codable {
         if value && !active { await arrange(resuming: lastBento != nil) }
         guard active, pinned != value else { return }
         if !value {
+            // Native edits during Pause are temporary. Restore the saved tree
+            // before admitting interaction again; never derive it from moved frames.
+            do {
+                windows = try discoverWindows()
+                let members = windows.filter { pinnedWindowIDs.contains($0.id) }
+                let restored = history.current.reconciled(with: members.map(\.leaf))
+                let areas = displayAreas()
+                try await apply(restored, displays: areas, learnMinimum: false)
+                history.commit(restored); lastDisplays = areas
+                pendingDrift = nil; driftSamples = 0
+                failedAutomaticInput = nil
+            } catch {
+                message = "Could not resume the saved layout. \(error.localizedDescription)"
+                onStateChange?(); return
+            }
             // Return to the pinned workspace, not a newly generated layout.
             for window in (try? system.discover()) ?? [] where WindowParticipation.allows(window.bundleID) && !pinnedWindowIDs.contains(window.id) {
                 do { try system.setMinimized(window, true); minimizedByBento[window.id] = window }
@@ -83,6 +98,8 @@ struct MacSettings: Codable {
         }
         pausedFocusID = nil
         if value {
+            settledValidationTask?.cancel()
+            pendingDrift = nil; driftSamples = 0
             // Establish the focus baseline before the status menu closes. Restoring
             // that same focus must not uncover a window in a freshly paused layout.
             lastFocusedWindow = system.focusedWindow(in: windows)?.id ?? lastFocusedWindow
@@ -325,11 +342,11 @@ struct MacSettings: Codable {
     /// request to rebuild the split tree. A newer interaction invalidates this task.
     func scheduleSettledValidation(force: Bool = false) {
         settledValidationTask?.cancel()
-        guard backgroundMonitoring || force, active else { return }
+        guard backgroundMonitoring || force, active, !pinned else { return }
         let committed = history.current, generation = activationGeneration, areas = displayAreas()
         settledValidationTask = Task { @MainActor [weak self] in
             do { try await Task.sleep(for: .milliseconds(320)) } catch { return }
-            guard let self, !Task.isCancelled, self.active, self.activationGeneration == generation,
+            guard let self, !Task.isCancelled, self.active, !self.pinned, self.activationGeneration == generation,
                   self.history.current == committed, self.displayAreas() == areas,
                   !self.busy, !self.activating, !self.interacting, !self.system.pointerPressed else { return }
             var drift = false
@@ -467,6 +484,11 @@ struct MacSettings: Codable {
                 }
                 lastMembershipScan = now
                 let current = try discoverWindows()
+                if pinned {
+                    windows = current
+                    pendingDrift = nil; driftSamples = 0
+                    return
+                }
                 let currentIDs = Set(current.map(\.id))
                 let missing = windows.filter { !currentIDs.contains($0.id) && system.isAlive($0) && !system.isMinimized($0) }
                 if !displaysChanged && !missing.isEmpty {
@@ -497,7 +519,7 @@ struct MacSettings: Codable {
                         defer { self.reconciliationQueued = false }
                         // Recheck at execution: the user may have started a drag
                         // after discovery queued this reconciliation.
-                        guard !self.system.pointerPressed, !self.interacting else { return }
+                        guard !self.system.pointerPressed, !self.interacting, !self.pinned else { return }
                         await self.arrange(preserving: true, automatic: true)
                     }
                 }

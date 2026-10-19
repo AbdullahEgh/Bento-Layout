@@ -1,3 +1,11 @@
+# Temporary native edits while paused — 2026-10-19
+
+Native window moves and resizes while Pause Bento is enabled no longer enter the layout gesture pipeline. Membership polling continues to discover windows and track focus, but does not repair drift or queue layout reflow while paused. Entering Pause cancels delayed geometry repair; queued repairs also check the current Pause state.
+
+Resume reapplies the saved tree to available members before clearing Pause, restoring their positions and sizes without deriving a new layout from temporary native frames. If restoration fails, Bento stays paused and reports the failure. Existing floating-window minimization and Settings exclusions remain intact.
+
+Debug app build and 270 disposable native checks passed. New checks verify no layout mutation or writes after temporary paused movement/resizing and repeated polling, then exact saved frame restoration on Resume. Evidence: `/tmp/bento-pause-build.log` and `/tmp/bento-pause-native/results.json`. Not yet released or installed.
+
 # Activation measurement and bounded correction — 2026-10-19
 
 Activation now refreshes window frames and constraints after the desktop work area settles, and aborts safely if the area never stabilizes. Reported minimum sizes no longer erase stronger observed axis limits; a verified smaller frame can still lower those limits. Reported sizes below the fallback are respected.

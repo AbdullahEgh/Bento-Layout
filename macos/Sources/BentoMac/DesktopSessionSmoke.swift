@@ -80,7 +80,19 @@ import BentoCore
         try check(model.history.current == pinned && system.frame(of: incoming.element) == incomingFrame
             && system.writes[incoming.id] == nil && !system.isMinimized(incoming), "Pin Bento leaves newly visible apps floating without moving or minimizing them")
         try check(!model.canArrangeWindow(incoming.id), "Pin Bento excludes floating windows from drag admission")
+        let savedFrames = Dictionary(uniqueKeysWithValues: [first, second].map { ($0.id, system.frame(of: $0.element)!) })
+        var temporary = savedFrames[first.id]!
+        temporary.x += 27; temporary.y += 19; temporary.width -= 40; temporary.height -= 25
+        try system.write(first, frame: temporary)
+        system.writes.removeAll()
+        model.tick(); model.tick()
+        model.scheduleSettledValidation(force: true)
+        try? await Task.sleep(for: .milliseconds(400))
+        try check(model.history.current == pinned && system.writes.isEmpty && system.frame(of: first.element) == temporary,
+            "Paused native size and position edits leave the saved layout and other apps untouched")
         await model.setPinned(false)
+        try check([first, second].allSatisfy { system.frame(of: $0.element) == savedFrames[$0.id] },
+            "Resume restores the saved positions and sizes after temporary paused edits")
         try check(model.history.current == pinned && system.isMinimized(incoming), "Unpinning minimizes floating windows and preserves the pinned layout")
         let compactArea = model.displayAreas()[0]
         let originalTree = model.history.current
