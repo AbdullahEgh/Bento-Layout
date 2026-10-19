@@ -7,6 +7,7 @@ namespace Bento.UI;
 public sealed partial class BentoController : IDisposable
 {
     private readonly HwndSource source;
+    private readonly ShortcutRegistration shortcutRegistration;
     private readonly DesktopEvents events;
     private readonly Forms.NotifyIcon tray;
     private readonly TrayInterface trayInterface;
@@ -88,7 +89,8 @@ public sealed partial class BentoController : IDisposable
         }
         source = new HwndSource(new HwndSourceParameters("Bento hotkeys") { Width = 0, Height = 0, WindowStyle = 0 });
         source.AddHook(WndProc);
-        bool shortcut = !Settings.ShortcutEnabled || DesktopIntegration.RegisterShortcut(source.Handle, 1, Settings.Modifiers, Settings.Key);
+        shortcutRegistration = new ShortcutRegistration(source.Handle, 1);
+        bool shortcut = shortcutRegistration.Configure(Settings.ShortcutEnabled, Settings.Modifiers, Settings.Key);
         int shortcutError = DesktopIntegration.ShortcutError;
         events = new DesktopEvents();
         events.NativeDrag += OnNativeDrag;
@@ -206,7 +208,7 @@ public sealed partial class BentoController : IDisposable
     private nint WndProc(nint hwnd, int message, nint wparam, nint lparam, ref bool handled)
     {
         if (disposed) return 0;
-        if (message == 0x312) { if (Settings.ShortcutEnabled) ToggleBento(); handled = true; }
+        if (message == 0x312 && wparam == 1) { if (shortcutRegistration.IsRegistered && !EditingShortcut) ToggleBento(); handled = true; }
         if (message is 0x7E or 0x2E0 or 0x1A)
             Dispatch(RequestGeometryRefresh, scoped: false);
         return 0;
@@ -870,6 +872,16 @@ public sealed partial class BentoController : IDisposable
         try { settings.Save(); Settings = settings; pendingSettings = null; return true; }
         catch (Exception ex) { Status = ex.Message; return false; }
     }
+    internal bool EditingShortcut
+    {
+        get => shortcutRegistration.IsSuspended;
+        set
+        {
+            if (disposed) return;
+            if (value) shortcutRegistration.Suspend();
+            else if (!shortcutRegistration.Resume()) Report("That shortcut is in use. Record another combination in Gestures.");
+        }
+    }
     public bool UpdateSettings(BentoSettings settings)
     {
         if (disposed) return false;
@@ -878,16 +890,9 @@ public sealed partial class BentoController : IDisposable
         var old = Settings;
         foreach (var state in sessions.All.Append(session).Distinct()) state.WorkAreas.Clear();
         resizeHandles.Clear();
-        bool changed = settings.ShortcutEnabled != old.ShortcutEnabled || settings.Key != old.Key || settings.Modifiers != old.Modifiers;
-        if (changed)
-        {
-            DesktopIntegration.UnregisterShortcut(source.Handle, 1);
-            if (settings.ShortcutEnabled && !DesktopIntegration.RegisterShortcut(source.Handle, 1, settings.Modifiers, settings.Key))
-            {
-                if (old.ShortcutEnabled) DesktopIntegration.RegisterShortcut(source.Handle, 1, old.Modifiers, old.Key);
-                Report("That shortcut is in use. Try another combination."); return false;
-            }
-        }
+
+        if (!shortcutRegistration.Configure(settings.ShortcutEnabled, settings.Modifiers, settings.Key))
+        { Report("That shortcut is in use. Try another combination."); return false; }
         Settings = settings;
         try
         {
@@ -900,7 +905,7 @@ public sealed partial class BentoController : IDisposable
             Settings = old;
             try { UpdateLeases(); } catch { }
             try { if (EnsureDesktop() && automatic && !Paused) Apply(history.Current, history.Current); } catch { /* Preserve the original failure report. */ }
-            if (changed) { DesktopIntegration.UnregisterShortcut(source.Handle, 1); if (old.ShortcutEnabled) DesktopIntegration.RegisterShortcut(source.Handle, 1, old.Modifiers, old.Key); }
+            shortcutRegistration.Configure(old.ShortcutEnabled, old.Modifiers, old.Key);
             Report(ex.Message); return false;
         }
     }
@@ -965,8 +970,12 @@ public sealed partial class BentoController : IDisposable
     {
         if (!HelpersAllowed) { CloseBackdrops(); return; }
         var occupied = automatic ? monitors.Where(m => history.Current.Roots.GetValueOrDefault(m.Id) is not null).ToArray() : [];
+        bool animate = Settings.Animate && SystemParameters.ClientAreaAnimation;
         foreach (string id in backdrops.Keys.Where(id => !occupied.Any(m => m.Id == id)).ToArray())
-        { backdrops[id].Close(); backdrops.Remove(id); }
+        {
+            if (!monitors.Any(m => m.Id == id)) { backdrops[id].Close(); backdrops.Remove(id); }
+            else backdrops[id].Dismiss(animate, Settings.AnimationMs);
+        }
         var applications = Windows.Select(w => w.Id).ToList();
         if (appWindow?.IsVisible == true && appWindow.WindowState != WindowState.Minimized) applications.Add(new WindowInteropHelper(appWindow).Handle.ToInt64());
         applications.AddRange(dividers.Where(w => w.IsVisible).Select(w => new WindowInteropHelper(w).Handle.ToInt64()));
@@ -974,7 +983,7 @@ public sealed partial class BentoController : IDisposable
         foreach (var monitor in occupied)
         {
             if (!backdrops.TryGetValue(monitor.Id, out var backdrop)) backdrops[monitor.Id] = backdrop = new();
-            backdrop.Present(monitor, Settings.BackgroundDarkness, applications);
+            backdrop.Present(monitor, Settings.BackgroundDarkness, applications, animate, Settings.AnimationMs);
         }
     }
     public void QuitKeepingWindows() { Dispose(); Application.Current.Shutdown(); }
@@ -999,6 +1008,6 @@ public sealed partial class BentoController : IDisposable
         Cleanup(CloseDesktopHelpers); Cleanup(() => appWindow?.Close()); Cleanup(CloseBackdrops);
         sessions.Clear(); Cleanup(() => desktopEnvironment?.Dispose());
         Cleanup(() => taskbarLease?.Dispose()); Cleanup(() => snapLease?.Dispose()); // Failed leases retain their recovery journal.
-        Cleanup(() => DesktopIntegration.UnregisterShortcut(source.Handle, 1)); Cleanup(source.Dispose); Cleanup(trayInterface.Dispose);
+        Cleanup(shortcutRegistration.Dispose); Cleanup(source.Dispose); Cleanup(trayInterface.Dispose);
     }
 }

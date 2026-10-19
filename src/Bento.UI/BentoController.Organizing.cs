@@ -24,7 +24,7 @@ public sealed partial class BentoController
             foreach (var handle in dividers) handle.Hide();
             foreach (var monitor in WindowCatalog.Monitors())
             {
-                var cover = new OrganizingWindow(monitor); organizingWindows.Add(cover);
+                var cover = new OrganizingWindow(monitor, Settings.Animate); organizingWindows.Add(cover);
                 cover.Opacity = 0; cover.Show(); cover.Fade(true);
             }
             await Task.Delay(240);
