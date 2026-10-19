@@ -20,6 +20,8 @@ public sealed partial class BentoController : IDisposable
     private DesktopTransition? transition;
     private BentoWindow? appWindow;
     private DropIntent intent;
+    private Guid? seamTarget;
+    private long seamEntered;
     private PixelRect dropTargetBounds;
     private PixelPoint? touchPoint;
     private Dictionary<long, (AppWindow Window, WindowSnapshot Snapshot)> minimizedByBento => session.Minimized;
@@ -449,6 +451,8 @@ public sealed partial class BentoController : IDisposable
         foreach (var monitor in monitors)
             if (history.Current.Roots.GetValueOrDefault(monitor.Id) is { } root && !workAreaBaseline.ContainsKey(monitor.Id))
                 workAreaBaseline[monitor.Id] = (root, Area(monitor), Gap(monitor));
+        foreach (var window in Windows) native.ForgetWindow(window.Id);
+        refusedWaiting.Clear();
         monitors = latest;
         foreach (var id in workAreaBaseline.Keys.Where(id => !latest.Any(m => m.Id == id)).ToArray()) workAreaBaseline.Remove(id);
         if (!automatic || Paused) return;
@@ -558,11 +562,25 @@ public sealed partial class BentoController : IDisposable
                 if (!Area(monitor).Contains(point)) { dragIntent.Reset(); dropPreview.Hide(); return; }
                 var target = Layout(monitor, history.Current).Regions.FirstOrDefault(r => r.Bounds.Contains(point));
                 if (target?.Window.WindowId == incoming.WindowId) { dragIntent.Reset(); dropPreview.Hide(); return; }
-                // Gaps are deliberately non-droppable, so divider gestures cannot silently insert windows.
+                bool seamSwap = false;
+                if (target is null && history.Current.Windows.Any(w => w.WindowId == incoming.WindowId)
+                    && Layout(monitor, history.Current).Dividers.Any(d => d.Bounds.Contains(point)))
+                {
+                    target = Layout(monitor, history.Current).Regions.Where(r => r.Window.WindowId != incoming.WindowId)
+                        .OrderBy(r => Math.Pow(Math.Max(r.Bounds.X - point.X, Math.Max(0, point.X - r.Bounds.Right)), 2)
+                            + Math.Pow(Math.Max(r.Bounds.Y - point.Y, Math.Max(0, point.Y - r.Bounds.Bottom)), 2)).FirstOrDefault();
+                    if (target is not null)
+                    {
+                        if (seamTarget != target.Window.Id) { seamTarget = target.Window.Id; seamEntered = clock(); }
+                        if (clock() - seamEntered < 250) { dropPreview.Hide(); return; }
+                        seamSwap = true;
+                    }
+                }
+                else seamTarget = null;
                 if (target is null && history.Current.Roots.GetValueOrDefault(monitor.Id) is not null) { dragIntent.Reset(); dropPreview.Hide(); return; }
                 var bounds = target?.Bounds ?? Area(monitor);
                 dropTargetBounds = bounds;
-                intent = target is null ? new(Placement.Center, 0, false) :
+                intent = target is null || seamSwap ? new(Placement.Center, 0, false) :
                     dragIntent.Update(monitor.Id, target.Window.Id, bounds, point, clock(), Settings.SplitHoldMs, monitor.Scale);
                 var placement = intent.Placement;
                 if (waitingIncoming == 0 && placement == Placement.Center && target is not null && !history.Current.Windows.Any(w => w.WindowId == incoming.WindowId))
@@ -574,7 +592,9 @@ public sealed partial class BentoController : IDisposable
                     if (cached is null) throw new LayoutConstraintException("This destination cannot fit these windows.");
                     preview = cached; validPreview = true; PresentDropPreview(); return;
                 }
-                preview = history.Current.Place(monitor.Id, target?.Window.Id, incoming, placement);
+                preview = DropPlanning.Place(history.Current, monitor.Id, target?.Window.Id, incoming, placement,
+                    monitors.ToDictionary(m => m.Id, Area), monitors.ToDictionary(m => m.Id, Gap),
+                    otherAxis: waitingIncoming == 0 && intent.Placement == Placement.Center && !history.Current.Windows.Any(w => w.WindowId == incoming.WindowId));
                 // Also scale the displaced window's constraint when swapping between different DPI monitors.
                 foreach (var destination in monitors)
                 {
@@ -672,7 +692,7 @@ public sealed partial class BentoController : IDisposable
         if (restoreLive && snapshots is not null) RestoreLiveResize(snapshots);
         incoming = null; divider = null; dividerSurface = null; dividerMonitor = null; dragStart = null; preview = null;
         previewDestination = null; dropProposals.Clear();
-        dragIntent.Reset(); intent = default; touchPoint = null;
+        dragIntent.Reset(); intent = default; touchPoint = null; seamTarget = null;
         nativeResizeWindow = 0; validPreview = false; gestureHandles = null; gestureHandlesRoot = null;
         timer.Interval = TimeSpan.FromSeconds(1);
         dropPreview.Hide();

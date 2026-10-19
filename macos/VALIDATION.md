@@ -540,3 +540,9 @@ Local 0.2.15 verification: 40 core tests and 91 isolated native checks passed. T
 - Desktop preference changes refresh their actual host: Dock for Dock/tiling, ControlCenter for menu-bar hiding. A bounded native work-area observation replaces the fixed delay; requested menu hiding no longer grants unconfirmed top space.
 - The real adapter uses current Dock AX geometry, verifies the final origin after resizing, and temporarily suspends Vivaldi's enhanced AX mode during a transaction while preserving its previous value and built-in assistive technology.
 - The dimming backdrop retains neutral luminance so native black shadows remain distinguishable. Third-party Vivaldi, desktop hiding, and signed OTA installation are checked on the installed build after publication; fixture results alone do not certify those desktop interactions.
+
+## Static slot previews — October 20, 2026
+
+- Removed all destination-slot geometry/opacity timers. Selection, splits, merges and rapid retargets show exact final bounds immediately.
+- Local signed universal build passed 320 native checks (`/tmp/bento-static-slots-native/results.json`); no external applications or system preferences changed by the suite.
+- Organizing-cover spinner and real-window motion remain separate from static slots.

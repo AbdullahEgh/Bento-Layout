@@ -736,12 +736,42 @@ internal static class NativeTests
                 var frames = fixtures.Take(2).Select(w => native.VisibleBounds(w.Id)).ToArray();
                 paused.SetPaused(true); Pump(); Check(paused.Paused);
                 Check(Application.Current!.Windows.Cast<Window>().Where(w => w.Title == "Bento paused window").All(w => !w.IsHitTestVisible && !w.ShowActivated));
+                var originalPaused = paused.DisplayState;
+                native.Move(fixtures[0].Id, frames[0] with { Width = frames[0].Width - 20 });
+                paused.Refresh(); Check(ReferenceEquals(originalPaused, paused.DisplayState));
+                Check(!Application.Current!.Windows.OfType<DesktopDividerWindow>().Any(w => w.IsVisible));
                 includeThird = true; paused.Refresh(); Equal(2, paused.ManagedCount);
                 DesktopIntegration.PlaceAboveApplication((nint)fixtures[2].Id, fixtures[0].Id);
                 paused.SetPaused(false); Pump(); Check(!paused.Paused); Check(WindowCatalog.IsMinimized(fixtures[2].Id));
                 Check(frames.SequenceEqual(fixtures.Take(2).Select(w => native.VisibleBounds(w.Id))));
                 native.Restore(originals[2]); paused.Refresh(); Pump(); Equal(3, paused.ManagedCount);
                 paused.RestoreAll(); Pump();
+            });
+            Run("Waiting replacement minimizes the occupant and rejected drops preserve the queue", () =>
+            {
+                foreach (var snapshot in originals) native.Restore(snapshot);
+                var area = monitor.WorkArea.Inset(8);
+                using var waiting = new BentoController(() => WindowCatalog.Discover(includeMinimized: false)
+                    .Where(w => fixtures.Any(f => f.Id == w.Id)).Select(w => w with { Minimum = w.Id == fixtures[2].Id
+                        ? new PixelSize(area.Width + 200, area.Height + 200) : new PixelSize(area.Width * 3 / 5, area.Height * 3 / 5) }).ToArray(),
+                    new BentoSettings(Animate: false, ShortcutEnabled: false));
+                try
+                {
+                    waiting.ArrangeDesktop(); Pump(); Equal(1, waiting.ManagedCount); Equal(2, waiting.WaitingCount);
+                    long occupant = waiting.DisplayState.Windows.Single().WindowId;
+                    long next = fixtures.Take(2).Single(w => w.Id != occupant).Id;
+                    var slot = waiting.Layout(monitor).Regions.Single().Bounds;
+                    var center = new PixelPoint(slot.X + slot.Width / 2, slot.Y + slot.Height / 2);
+                    Check(waiting.BeginWaitingDrag(next)); waiting.PreviewDrag(center); waiting.FinishDrag(center); waiting.EndWaitingDrag(); Pump();
+                    Equal(next, waiting.DisplayState.Windows.Single().WindowId);
+                    Check(WindowCatalog.IsMinimized(occupant)); Check(!WindowCatalog.IsMinimized(next)); Equal(2, waiting.WaitingCount);
+                    Check(waiting.BeginWaitingDrag(fixtures[2].Id)); waiting.PreviewDrag(center);
+                    Check(Application.Current!.Windows.OfType<DropPreviewWindow>().Any(w => w.IsVisible && w.IsDestination));
+                    waiting.FinishDrag(center); waiting.EndWaitingDrag(); Pump();
+                    Equal(next, waiting.DisplayState.Windows.Single().WindowId); Equal(2, waiting.WaitingCount);
+                    Check(WindowCatalog.IsMinimized(fixtures[2].Id));
+                }
+                finally { waiting.RestoreAll(); foreach (var snapshot in originals) native.Restore(snapshot); }
             });
             Run("Desktop switch during grip invalidates stale release and leaves the new desktop off", () =>
             {
