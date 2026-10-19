@@ -41,7 +41,7 @@ public sealed partial class BentoController : IDisposable
     private sealed class PlacementFailure(long id, Exception cause) : Exception(cause.Message, cause) { public long WindowId => id; }
     private Dictionary<long, WindowSnapshot> originals => session.Originals;
     private readonly List<DesktopDividerWindow> dividers = new();
-    private DropPreviewWindow? dropPreview;
+    private readonly DropPreviewLayout dropPreview = new();
     private readonly DispatcherTimer timer;
     private IReadOnlyList<DesktopMonitor> monitors { get => session.Monitors; set => session.Monitors = value; }
     private WorkspaceState? preview;
@@ -69,9 +69,10 @@ public sealed partial class BentoController : IDisposable
     public bool Automatic => automatic;
     public int ManagedCount => history.Current.Windows.Count();
 
-    public BentoController(Func<IReadOnlyList<AppWindow>>? windowSource = null, BentoSettings? settings = null, Func<long>? clock = null, IDesktopEnvironment? desktopEnvironment = null)
+    public BentoController(Func<IReadOnlyList<AppWindow>>? windowSource = null, BentoSettings? settings = null, Func<long>? clock = null, IDesktopEnvironment? desktopEnvironment = null, SnapLease? snapLease = null)
     {
         this.windowSource = windowSource;
+        this.snapLease = snapLease;
         this.clock = clock ?? (() => Environment.TickCount64);
         this.desktopEnvironment = desktopEnvironment ?? (windowSource is null ? new DesktopEnvironment() : null);
         native = new WindowController(CanWriteNative);
@@ -80,7 +81,7 @@ public sealed partial class BentoController : IDisposable
         if (settings is not null) Settings = settings;
         if (windowSource is null)
         {
-            snapLease = new SnapLease(Path.Combine(BentoSettings.DataDirectory, "snap-lease.txt"));
+            this.snapLease ??= new SnapLease(Path.Combine(BentoSettings.DataDirectory, "snap-lease.txt"));
             taskbarLease = new TaskbarLease(Path.Combine(BentoSettings.DataDirectory, "taskbar-lease.json"));
         }
         source = new HwndSource(new HwndSourceParameters("Bento hotkeys") { Width = 0, Height = 0, WindowStyle = 0 });
@@ -256,7 +257,7 @@ public sealed partial class BentoController : IDisposable
         if (!disposed) CancelDrag();
         foreach (var handle in dividers.ToArray()) handle.Close();
         dividers.Clear();
-        dropPreview?.Close(); dropPreview = null;
+        dropPreview.Close();
     }
     public void Refresh()
     {
@@ -517,7 +518,7 @@ public sealed partial class BentoController : IDisposable
             {
                 var sourceMonitor = monitors.FirstOrDefault(m => LayoutEngine.Windows(dragStart!.Roots.GetValueOrDefault(m.Id))
                     .Any(w => w.WindowId == nativeResizeWindow));
-                if (sourceMonitor is null || !WindowCatalog.Exists(nativeResizeWindow)) { dropPreview?.Hide(); return; }
+                if (sourceMonitor is null || !WindowCatalog.Exists(nativeResizeWindow)) { dropPreview.Hide(); return; }
                 var root = dragStart!.Roots[sourceMonitor.Id]!;
                 var actual = native.VisibleBounds(nativeResizeWindow);
                 var window = Windows.First(w => w.Id == nativeResizeWindow);
@@ -538,7 +539,7 @@ public sealed partial class BentoController : IDisposable
             {
                 if (dropProposals.Use(history.Current)) dragIntent.Reset();
                 var monitor = monitors.FirstOrDefault(m => m.Bounds.Contains(point));
-                if (monitor is null) { dragIntent.Reset(); dropPreview?.Hide(); return; }
+                if (monitor is null) { dragIntent.Reset(); dropPreview.Hide(); return; }
                 var sourceRoot = history.Current.Roots.GetValueOrDefault(monitor.Id);
                 var edge = LayoutInteraction.ScreenEdge(monitor.Bounds, point, (int)Math.Round(20 * monitor.Scale));
                 if (edge is { } sectionEdge && sourceRoot is not null && LayoutEngine.Windows(sourceRoot).Any(w => w.WindowId == incoming.WindowId))
@@ -551,14 +552,14 @@ public sealed partial class BentoController : IDisposable
                         section = moved is null ? null : history.Current.WithRoot(monitor.Id, moved);
                         dropProposals[previewDestination.Value] = section;
                     }
-                    if (section is null) { dropPreview?.Hide(); return; }
+                    if (section is null) { dropPreview.Hide(); return; }
                     preview = section; validPreview = true; PresentDropPreview(); return;
                 }
-                if (!Area(monitor).Contains(point)) { dragIntent.Reset(); dropPreview?.Hide(); return; }
+                if (!Area(monitor).Contains(point)) { dragIntent.Reset(); dropPreview.Hide(); return; }
                 var target = Layout(monitor, history.Current).Regions.FirstOrDefault(r => r.Bounds.Contains(point));
-                if (target?.Window.WindowId == incoming.WindowId) { dragIntent.Reset(); dropPreview?.Hide(); return; }
+                if (target?.Window.WindowId == incoming.WindowId) { dragIntent.Reset(); dropPreview.Hide(); return; }
                 // Gaps are deliberately non-droppable, so divider gestures cannot silently insert windows.
-                if (target is null && history.Current.Roots.GetValueOrDefault(monitor.Id) is not null) { dragIntent.Reset(); dropPreview?.Hide(); return; }
+                if (target is null && history.Current.Roots.GetValueOrDefault(monitor.Id) is not null) { dragIntent.Reset(); dropPreview.Hide(); return; }
                 var bounds = target?.Bounds ?? Area(monitor);
                 dropTargetBounds = bounds;
                 intent = target is null ? new(Placement.Center, 0, false) :
@@ -616,8 +617,8 @@ public sealed partial class BentoController : IDisposable
             preview = null; previewDestination = null; validPreview = false;
             var monitor = monitors.FirstOrDefault(m => Area(m).Contains(point));
             if (incoming is not null && monitor is not null)
-                (dropPreview ??= new DropPreviewWindow()).Present(dropTargetBounds, monitor.Scale, false, Placement.Center, 0, conflict: true, dimBounds: monitor.Bounds);
-            else dropPreview?.Hide();
+                dropPreview.Present([new PreviewSlot(incoming.WindowId, monitor.Id, dropTargetBounds)], monitors, incoming.WindowId, false, conflict: true);
+            else dropPreview.Hide();
             Status = ex.Message;
         }
     }
@@ -667,7 +668,7 @@ public sealed partial class BentoController : IDisposable
         dragIntent.Reset(); intent = default; touchPoint = null;
         nativeResizeWindow = 0; validPreview = false; gestureHandles = null; gestureHandlesRoot = null;
         timer.Interval = TimeSpan.FromSeconds(1);
-        dropPreview?.Hide();
+        dropPreview.Hide();
         if (restoreLive)
             foreach (var handle in dividers) { handle.ResetPresentation(); handle.Show(); }
         PlaceDividersBelowInterface();
@@ -873,28 +874,21 @@ public sealed partial class BentoController : IDisposable
     }
     private void PresentDropPreview()
     {
-        if (preview is null || nativeResizeWindow != 0) { dropPreview?.Hide(); return; }
+        if (preview is null || nativeResizeWindow != 0) { dropPreview.Hide(); return; }
         if (divider is not null && dividerMonitor is not null)
         {
-            dropPreview?.Hide();
+            dropPreview.Hide();
             var monitor = monitors.Single(m => m.Id == dividerMonitor);
             var boundary = Layout(monitor, preview).Dividers.Single(d => d.SplitId == divider.SplitId);
             dividers.FirstOrDefault(h => h.SplitId == dividerSurface)?.PresentResize(boundary.Bounds);
             if (preview.Roots[monitor.Id] is { } root) UpdateJoinCue(monitor, root, boundary);
             return;
         }
-        foreach (var monitor in monitors)
-        {
-            var layout = Layout(monitor, preview);
-            PixelRect? bounds = incoming is not null
-                ? previewDestination?.Monitor == monitor.Id ? layout.Regions.FirstOrDefault(r => r.Window.WindowId == incoming.WindowId)?.Bounds : null
-                : layout.Dividers.FirstOrDefault(d => d.SplitId == divider?.SplitId)?.Bounds;
-            if (bounds is null) continue;
-            (dropPreview ??= new DropPreviewWindow()).Present(bounds.Value, monitor.Scale,
-                Settings.Animate && SystemParameters.ClientAreaAnimation, previewDestination?.Placement ?? Placement.Center, intent.Progress, dimBounds: monitor.Bounds);
-            return;
-        }
-        dropPreview?.Hide();
+        if (incoming is null) { dropPreview.Hide(); return; }
+        IEnumerable<PreviewSlot> Slots(WorkspaceState state) => monitors.SelectMany(m => Layout(m, state).Regions
+            .Select(region => new PreviewSlot(region.Window.WindowId, m.Id, region.Bounds)));
+        var slots = LayoutPreview.ForDrag(Slots(history.Current), Slots(preview), incoming.WindowId);
+        dropPreview.Present(slots, monitors, incoming.WindowId, Settings.Animate && SystemParameters.ClientAreaAnimation);
     }
     private IReadOnlyList<ResizeHandle> Handles(DesktopMonitor monitor, WorkspaceState state) =>
         state.Roots.GetValueOrDefault(monitor.Id) is { } root ? resizeHandles.Get(monitor.Id, root, Area(monitor), Gap(monitor)) : [];

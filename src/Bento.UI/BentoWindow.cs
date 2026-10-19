@@ -219,6 +219,7 @@ public sealed class BentoWindow : Window
         taskbarToggle = SessionToggle(controller.HideTaskbar, controller.SetTaskbarHidden);
         Row(desktop, "Pause Bento", "Keep the layout while new apps float. A single click brings a paused app forward.", pauseToggle);
         Row(desktop, "Hide Taskbar", "Use Windows autohide while active. Your taskbar setting returns on Off or quit.", taskbarToggle);
+        Row(desktop, "Disable Windows Snap", "Let Bento handle window edges while active. Your previous Windows Snap setting returns when Bento turns off or quits.", Toggle(draft.SuppressWindowsSnap, value => draft = draft with { SuppressWindowsSnap = value }));
         var session = Card("Layout memory");
         Row(session, "Save for This Session", "Keep this layout until Bento quits. Turning Bento off keeps saved window positions.", SessionAction("Save", controller.SaveBento));
         Row(session, "Use Session Save", "Restore the saved layout for windows still open in this session.", SessionAction("Use", controller.UseSessionSave));
@@ -290,8 +291,7 @@ public sealed class BentoWindow : Window
         Row(gestures, "Hold to split", "Wait at an edge until the slot divides.\n0 ms splits immediately.", Range(draft.SplitHoldMs, 0, 2000, 50, " ms", n => draft = draft with { SplitHoldMs = n }));
         Row(gestures, "Smooth transitions", "Respects Windows reduced-motion settings", Toggle(draft.Animate, v => draft = draft with { Animate = v }));
         Row(gestures, "Transition duration", "Short and quiet", Range(draft.AnimationMs, 80, 400, 20, " ms", n => draft = draft with { AnimationMs = n }));
-        var windows = Card("Windows integration");
-        Row(windows, "Let Bento handle edge snapping", "Temporarily disables Windows Snap for all apps.\nRestored when Bento turns off or exits.", Toggle(draft.SuppressWindowsSnap, v => draft = draft with { SuppressWindowsSnap = v }));
+        var windows = Card("Keyboard shortcut");
         var hotkey = new TextBox { Text = draft.Shortcut, IsReadOnly = true, IsEnabled = draft.ShortcutEnabled, Width = 140, ToolTip = "Click, then press a modifier plus a letter or number." };
         AutomationProperties.SetName(hotkey, "Shortcut keys");
         hotkey.PreviewKeyDown += (_, e) =>

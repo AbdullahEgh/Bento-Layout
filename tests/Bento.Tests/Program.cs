@@ -44,6 +44,12 @@ internal static class Program
             Console.WriteLine($"RESULT: {passed} passed, {failed} failed");
             return failed == 0 ? 0 : 1;
         }
+        if (args.Contains("--preview-smoke"))
+        {
+            NativeTests.RunAll(fixtureCount: 5);
+            Console.WriteLine($"RESULT: {passed} passed, {failed} failed");
+            return failed == 0 ? 0 : 1;
+        }
         if (args.Contains("--interactive"))
         {
             int countIndex = Array.IndexOf(args, "--windows");

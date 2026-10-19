@@ -8,10 +8,11 @@ public sealed class DropPreviewWindow : Window
 {
     public PixelRect PreviewBounds { get; private set; }
     public bool AcrylicEnabled { get; private set; }
+    public long SlotWindowId { get; internal set; }
+    public bool IsDestination { get; private set; } = true;
     private readonly Border surface = new() { BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8) };
     private readonly Border innerEdge = new() { BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(7) };
     private readonly DispatcherTimer motion = new() { Interval = TimeSpan.FromMilliseconds(16) };
-    private readonly PreviewDimWindow dimmer = new();
     private PixelRect rendered, from;
     private long started;
     private bool conflict;
@@ -22,6 +23,9 @@ public sealed class DropPreviewWindow : Window
         Title = "Bento drop preview";
         WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
         Background = Brushes.Transparent;
+        // Layered + transparent is required for native input to pass through
+        // to external application threads. WPF must own the layered style.
+        AllowsTransparency = true;
         ShowInTaskbar = false; ShowActivated = false; Topmost = true;
         IsHitTestVisible = false;
         var layers = new Grid(); layers.Children.Add(innerEdge);
@@ -33,9 +37,9 @@ public sealed class DropPreviewWindow : Window
             DesktopIntegration.PositionOverlay(new WindowInteropHelper(this).Handle, rendered);
             if (t >= 1) motion.Stop();
         };
-        IsVisibleChanged += (_, _) => { if (!IsVisible) { motion.Stop(); dimmer.Hide(); } };
+        IsVisibleChanged += (_, _) => { if (!IsVisible) { motion.Stop(); } };
         AppTheme.Changed += RefreshAppearance;
-        Closed += (_, _) => { motion.Stop(); dimmer.Close(); AppTheme.Changed -= RefreshAppearance; };
+        Closed += (_, _) => { motion.Stop(); AppTheme.Changed -= RefreshAppearance; };
         SourceInitialized += (_, _) =>
         {
             var handle = new WindowInteropHelper(this).Handle;
@@ -52,7 +56,7 @@ public sealed class DropPreviewWindow : Window
         AcrylicEnabled = handle != 0 && !SystemParameters.HighContrast && WindowAppearance.SetAcrylic(handle, dark);
         // Match the native eight-DIP corner, with a quiet rim and a soft glass highlight.
         // Tint the acrylic lightly so the destination remains recognizable underneath.
-        normalEdge = new SolidColorBrush(dark ? Color.FromArgb(65, 255, 255, 255) : Color.FromArgb(38, 0, 0, 0));
+        normalEdge = new SolidColorBrush(dark ? Color.FromArgb(IsDestination ? (byte)110 : (byte)50, 255, 255, 255) : Color.FromArgb(IsDestination ? (byte)80 : (byte)28, 0, 0, 0));
         surface.BorderBrush = conflict ? Brushes.Orange : normalEdge;
         innerEdge.BorderBrush = new SolidColorBrush(Color.FromArgb(dark ? (byte)12 : (byte)90, 255, 255, 255));
         surface.Background = AcrylicEnabled
@@ -60,12 +64,10 @@ public sealed class DropPreviewWindow : Window
                 dark ? Color.FromArgb(8, 0, 0, 0) : Color.FromArgb(16, 255, 255, 255), 90)
             : new SolidColorBrush(dark ? Color.FromRgb(38, 41, 45) : Color.FromRgb(242, 244, 247));
     }
-    public void Present(PixelRect bounds, double scale, bool animate = true, Placement placement = Placement.Center, double progress = 0, bool conflict = false, PixelRect? dimBounds = null)
+    public void Present(PixelRect bounds, double scale, bool animate = true, bool destination = true, bool conflict = false)
     {
         if (bounds.Width <= 0 || bounds.Height <= 0) { Hide(); return; }
-        bool dimMoved = dimBounds is { } display && dimmer.Present(display, scale);
-        if (dimBounds is null) dimmer.Hide();
-        if (dimMoved && IsVisible) dimmer.PlaceBelow(new WindowInteropHelper(this).Handle);
+        if (IsDestination != destination) { IsDestination = destination; RefreshAppearance(); }
         this.conflict = conflict;
         surface.BorderBrush = conflict ? Brushes.Orange : normalEdge;
         if (IsVisible && PreviewBounds == bounds) return;
@@ -82,7 +84,7 @@ public sealed class DropPreviewWindow : Window
 }
 
 // Temporary text-free display dim. Like the slot preview it never activates or
-// receives input, and its lifetime follows the owning preview window.
+// receives input. The layout owns one dimmer per affected monitor.
 internal sealed class PreviewDimWindow : Window
 {
     private PixelRect? presented;

@@ -10,6 +10,16 @@ internal static class PlatformParityTests
     private sealed class Session { public bool Active; public readonly List<long> Windows = new(); }
     public static void RunAll()
     {
+        Run("Drag preview includes every destination slot and changed source slots without unrelated displays", () =>
+        {
+            var before = new[] { new PreviewSlot(1, "A", new(0,0,300,500)), new PreviewSlot(2, "A", new(308,0,300,500)), new PreviewSlot(3, "B", new(1000,0,600,500)), new PreviewSlot(4, "C", new(2000,0,600,500)) };
+            var after = new[] { new PreviewSlot(2, "A", new(0,0,608,500)), new PreviewSlot(3, "B", new(1000,0,296,500)), new PreviewSlot(1, "B", new(1304,0,296,500)), before[3] };
+            var preview = LayoutPreview.ForDrag(before, after, 1);
+            Equal(3, preview.Count); Equal(1L, preview[0].WindowId);
+            Check(preview.All(slot => slot == after.Single(a => a.WindowId == slot.WindowId)));
+            Check(preview.All(slot => slot.MonitorId != "C"));
+            Equal(2, LayoutPreview.ForDrag(before, before, 1).Count);
+        });
         Run("Gesture proposals invalidate successes and failures when the workspace changes", () =>
         {
             var cache = new GestureProposalCache<string, object>(); var first = new object(); var next = new object(); var proposal = new object();

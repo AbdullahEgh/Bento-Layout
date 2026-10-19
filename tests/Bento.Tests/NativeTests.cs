@@ -20,6 +20,8 @@ internal static class NativeTests
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern nint WindowFromPoint(System.Drawing.Point point);
     [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern int GetClassName(nint handle, System.Text.StringBuilder text, int length);
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
     private static extern int GetWindowText(nint handle, System.Text.StringBuilder text, int length);
     [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
     private static extern nint GetWindowLongPtr(nint handle, int index);
@@ -97,7 +99,8 @@ internal static class NativeTests
     }
     internal static void RunAll(bool interactive = false, int fixtureCount = 3)
     {
-        if (fixtureCount is < 3 or > 12 || (!interactive && fixtureCount != 3))
+        bool previewSmoke = Environment.GetCommandLineArgs().Contains("--preview-smoke");
+        if (fixtureCount is < 3 or > 12 || (!interactive && !previewSmoke && fixtureCount != 3))
             throw new ArgumentOutOfRangeException(nameof(fixtureCount));
         if (Application.Current is null)
         {
@@ -190,14 +193,97 @@ internal static class NativeTests
                 finally { real.RestoreAll(); }
             });
             else Console.WriteLine("NOT RUN: live Explorer desktop activation; release gate requires --native --real-desktop on an interactive Windows desktop.");
+            if (Environment.GetCommandLineArgs().Contains("--real-desktop"))
+            Run("Workspace Windows Snap switch applies to the OS and restores on toggle, Off and quit", () =>
+            {
+                bool originalSnap = WindowSnapping.Enabled;
+                string file = Path.Combine(BentoSettings.DataDirectory, "settings.json");
+                byte[]? saved = File.Exists(file) ? File.ReadAllBytes(file) : null;
+                string journal = Path.Combine(Path.GetTempPath(), "Bento-snap-test-" + Guid.NewGuid().ToString("N"), "snap.txt");
+                using var tested = new BentoController(() => WindowCatalog.Discover(false).Where(w => w.Title.StartsWith(prefix, StringComparison.Ordinal)).ToArray(),
+                    new BentoSettings(ShortcutEnabled: false, Animate: false, SuppressWindowsSnap: false),
+                    desktopEnvironment: new DesktopEnvironment(), snapLease: new SnapLease(journal));
+                try
+                {
+                    tested.ShowInterface(); Pump();
+                    var settings = Application.Current!.Windows.OfType<BentoWindow>().Single();
+                    var toggle = Descendants<CheckBox>(settings).Single(b => System.Windows.Automation.AutomationProperties.GetName(b) == "Disable Windows Snap");
+                    Equal(false, toggle.IsChecked); Check(!tested.Settings.SuppressWindowsSnap);
+                    tested.SetAutomatic(true); Pump(); Equal(originalSnap, WindowSnapping.Enabled);
+                    toggle.IsChecked = true; Pump(); Pump(); Check(tested.Settings.SuppressWindowsSnap); Check(!WindowSnapping.Enabled);
+                    toggle.IsChecked = false; Pump(); Pump(); Check(!tested.Settings.SuppressWindowsSnap); Equal(originalSnap, WindowSnapping.Enabled);
+                    toggle.IsChecked = true; Pump(); Pump(); Check(!WindowSnapping.Enabled);
+                    tested.SetAutomatic(false); Pump(); Equal(originalSnap, WindowSnapping.Enabled);
+                    tested.SetAutomatic(true); Pump(); Check(!WindowSnapping.Enabled);
+                    tested.Dispose(); Equal(originalSnap, WindowSnapping.Enabled);
+                }
+                finally
+                {
+                    tested.Dispose();
+                    WindowSnapping.Enabled = originalSnap;
+                    foreach (var original in originals) native.Restore(original);
+                    if (saved is not null) File.WriteAllBytes(file, saved); else if (File.Exists(file)) File.Delete(file);
+                }
+            });
             long gestureTime = 0;
             using var controller = new BentoController(() => WindowCatalog.Discover(includeMinimized: false)
                 .Where(w => w.Title.StartsWith(prefix, StringComparison.Ordinal)).OrderBy(w => w.Title).ToArray(),
                 new BentoSettings(Animate: true), interactive ? null : () => gestureTime,
-                desktopEnvironment: interactive && Environment.GetCommandLineArgs().Contains("--real-desktop") ? new DesktopEnvironment() : null);
+                desktopEnvironment: (interactive || previewSmoke) && Environment.GetCommandLineArgs().Contains("--real-desktop") ? new DesktopEnvironment() : null);
             var monitor = WindowCatalog.Monitors().First();
             long foreground = WindowCatalog.Foreground;
             controller.ArrangeDesktop(); Pump();
+            if (previewSmoke)
+            {
+                Run("Five external windows expose five projected slots during swaps and held splits", () =>
+                {
+                    Equal(5, controller.ManagedCount);
+                    var before = fixtures.ToDictionary(w => w.Id, w => native.VisibleBounds(w.Id));
+                    var target = controller.Layout(monitor).Regions.Single(r => r.Window.WindowId == fixtures[1].Id).Bounds;
+                    var center = new PixelPoint(target.X + target.Width / 2, target.Y + target.Height / 2);
+                    controller.BeginDrag(fixtures[0].Id); controller.PreviewDrag(center);
+                    VerifySlots();
+                    if (Environment.GetCommandLineArgs().Contains("--preview-inspect"))
+                    {
+                        var until = DateTime.UtcNow.AddSeconds(45);
+                        while (DateTime.UtcNow < until) Pump();
+                        VerifySlots();
+                    }
+                    var edge = new PixelPoint(target.X + target.Width / 2, target.Bottom - (int)Math.Round(24 * monitor.Scale));
+                    controller.PreviewDrag(edge); gestureTime += controller.Settings.SplitHoldMs; controller.PreviewDrag(edge);
+                    VerifySlots();
+                    controller.CancelDrag();
+                    Check(!Application.Current!.Windows.OfType<DropPreviewWindow>().Any(w => w.IsVisible));
+                    controller.BeginDrag(fixtures[0].Id); controller.PreviewDrag(center); VerifySlots();
+                    controller.FinishDrag(center); Pump();
+                    Check(!Application.Current.Windows.OfType<DropPreviewWindow>().Any(w => w.IsVisible));
+                    VerifyBounds(controller.Layout(monitor), native);
+                    controller.SetAutomatic(false); Pump();
+                    void VerifySlots()
+                    {
+                        var panels = Application.Current!.Windows.OfType<DropPreviewWindow>().Where(w => w.IsVisible).ToArray();
+                        if (panels.Length != 5) throw new Exception($"Expected five slots; got {panels.Length}; controller: {controller.Status}");
+                        Equal(1, panels.Count(w => w.IsDestination));
+                        foreach (var region in controller.Layout(monitor).Regions) Equal(region.Bounds, panels.Single(w => w.SlotWindowId == region.Window.WindowId).PreviewBounds);
+                        foreach (var window in fixtures) Equal(before[window.Id], native.VisibleBounds(window.Id));
+                        var dims = Application.Current.Windows.Cast<Window>().Where(w => w.Title == "Bento preview dim" && w.IsVisible).ToArray();
+                        Equal(1, dims.Length);
+                        foreach (var panel in panels)
+                        {
+                            Check(IsAbove(panel, dims[0]));
+                            var bounds = panel.PreviewBounds;
+                            var hit = WindowFromPoint(new(bounds.X + bounds.Width / 2, bounds.Y + bounds.Height / 2));
+                            if (hit == new System.Windows.Interop.WindowInteropHelper(panel).Handle)
+                            {
+                                var name = new System.Text.StringBuilder(256); GetClassName(hit, name, name.Capacity);
+                                throw new Exception($"Preview intercepts native hit: HWND={hit:X}, class={name}, style={GetWindowLongPtr(hit, -20):X}, slot={panel.SlotWindowId}, bounds={bounds}, acrylic={panel.AcrylicEnabled}");
+                            }
+                            Check(hit != new System.Windows.Interop.WindowInteropHelper(dims[0]).Handle);
+                        }
+                    }
+                });
+                return;
+            }
             if (interactive)
             {
                 Run($"All {fixtureCount} test windows occupy their desktop regions", () =>
@@ -279,9 +365,9 @@ internal static class NativeTests
                 controller.BeginDrag(fixtures[2].Id); controller.PreviewDrag(point);
                 var originalBounds = fixtures.Select(w => native.VisibleBounds(w.Id)).ToArray();
                 gestureTime += controller.Settings.SplitHoldMs - 1; controller.PreviewDrag(point);
-                Equal(target, Application.Current!.Windows.OfType<DropPreviewWindow>().Single(w => w.IsVisible).PreviewBounds);
+                Equal(target, Application.Current!.Windows.OfType<DropPreviewWindow>().Single(w => w.IsVisible && w.IsDestination).PreviewBounds);
                 gestureTime += 1; controller.PreviewDrag(point);
-                Equal(controller.Layout(monitor).Regions.Single(r => r.Window.WindowId == fixtures[2].Id).Bounds, Application.Current.Windows.OfType<DropPreviewWindow>().Single(w => w.IsVisible).PreviewBounds);
+                Equal(controller.Layout(monitor).Regions.Single(r => r.Window.WindowId == fixtures[2].Id).Bounds, Application.Current.Windows.OfType<DropPreviewWindow>().Single(w => w.IsVisible && w.IsDestination).PreviewBounds);
                 for (int i = 0; i < fixtures.Length; i++) Equal(originalBounds[i], native.VisibleBounds(fixtures[i].Id));
                 controller.FinishDrag(point); Pump();
                 Equal(3, controller.Layout(monitor).Regions.Count); VerifyBounds(controller.Layout(monitor), native);
@@ -311,7 +397,7 @@ internal static class NativeTests
                 var placement = pair.Axis == SplitAxis.Horizontal ? Placement.Left : Placement.Top;
                 controller.BeginDrag(source.WindowId); controller.PreviewDrag(point);
                 gestureTime += controller.Settings.SplitHoldMs; controller.PreviewDrag(point);
-                var shown = Application.Current!.Windows.OfType<DropPreviewWindow>().Single(w => w.IsVisible).PreviewBounds;
+                var shown = Application.Current!.Windows.OfType<DropPreviewWindow>().Single(w => w.IsVisible && w.IsDestination).PreviewBounds;
                 Equal(controller.Layout(monitor).Regions.Single(r => r.Window.Id == source.Id).Bounds, shown);
                 controller.CancelDrag();
             });
@@ -395,19 +481,60 @@ internal static class NativeTests
                 controller.BeginDrag(fixtures[0].Id); Pump(); controller.CancelDrag();
                 for (int i = 0; i < 3; i++) Equal(before[i], native.VisibleBounds(fixtures[i].Id));
             });
-            Run("Dragging shows only one destination preview and hides it after release", () =>
+            Run("Dragging previews every target-monitor slot, including unchanged neighbors", () =>
             {
                 var target = controller.Layout(monitor).Regions.Single(r => r.Window.WindowId == fixtures[1].Id).Bounds;
+                var unchanged = fixtures.Select(w => native.VisibleBounds(w.Id)).ToArray();
                 controller.BeginDrag(fixtures[0].Id); Pump();
                 controller.PreviewDrag(new(target.X + target.Width / 2, target.Y + target.Height / 2));
                 var previews = Application.Current!.Windows.OfType<DropPreviewWindow>().Where(w => w.IsVisible).ToArray();
-                Equal(1, previews.Length); Equal(target, previews[0].PreviewBounds);
+                Equal(controller.Layout(monitor).Regions.Count, previews.Length); Equal(target, previews.Single(w => w.IsDestination).PreviewBounds);
+                Equal(fixtures[0].Id, previews.Single(w => w.IsDestination).SlotWindowId);
+                foreach (var region in controller.Layout(monitor).Regions) Equal(region.Bounds, previews.Single(w => w.SlotWindowId == region.Window.WindowId).PreviewBounds);
+                Check(previews.All(w => !w.IsHitTestVisible && !w.ShowActivated));
+                Check(previews.All(w => (GetWindowLongPtr(new System.Windows.Interop.WindowInteropHelper(w).Handle, -20).ToInt64() & 0x08000020) == 0x08000020));
+                Equal(1, Application.Current.Windows.Cast<Window>().Count(w => w.Title == "Bento preview dim" && w.IsVisible));
+                for (int i = 0; i < fixtures.Length; i++) Equal(unchanged[i], native.VisibleBounds(fixtures[i].Id));
                 Check(!Descendants<TextBlock>(previews[0]).Any()); Check(!Descendants<ProgressBar>(previews[0]).Any());
                 if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22621) && !SystemParameters.HighContrast) Check(previews[0].AcrylicEnabled);
                 previews[0].UpdateLayout();
                 CapturePreview(previews[0], "drop-preview.png");
                 controller.CancelDrag();
-                Check(!previews[0].IsVisible);
+                Check(previews.All(w => !w.IsVisible));
+                Check(!Application.Current.Windows.Cast<Window>().Any(w => w.Title == "Bento preview dim" && w.IsVisible));
+            });
+            Run("A split previews all three affected slots without native writes and clears every panel", () =>
+            {
+                var before = controller.Layout(monitor).Regions.ToDictionary(r => r.Window.WindowId, r => r.Bounds);
+                var actual = fixtures.ToDictionary(w => w.Id, w => native.VisibleBounds(w.Id));
+                bool exercised = false;
+                foreach (var source in fixtures)
+                {
+                    foreach (var target in fixtures.Where(w => w.Id != source.Id))
+                    {
+                        var bounds = before[target.Id];
+                        controller.BeginDrag(source.Id);
+                        var point = new PixelPoint(bounds.X + bounds.Width / 2, bounds.Bottom - (int)Math.Round(24 * monitor.Scale));
+                        controller.PreviewDrag(point); gestureTime += controller.Settings.SplitHoldMs; controller.PreviewDrag(point);
+                        var expected = controller.Layout(monitor).Regions.Where(r => r.Window.WindowId == source.Id || before[r.Window.WindowId] != r.Bounds).ToArray();
+                        if (expected.Length >= 3)
+                        {
+                            var panels = Application.Current!.Windows.OfType<DropPreviewWindow>().Where(w => w.IsVisible).ToArray();
+                            Equal(expected.Length, panels.Length);
+                            foreach (var region in expected) Equal(region.Bounds, panels.Single(p => p.SlotWindowId == region.Window.WindowId).PreviewBounds);
+                            Equal(1, panels.Count(p => p.IsDestination));
+                            foreach (var window in fixtures) Equal(actual[window.Id], native.VisibleBounds(window.Id));
+                            controller.PreviewDrag(new(int.MinValue, int.MinValue));
+                            Check(panels.All(p => !p.IsVisible));
+                            controller.PreviewDrag(point); Check(Application.Current.Windows.OfType<DropPreviewWindow>().Count(p => p.IsVisible) >= 2);
+                            controller.CancelDrag(); Check(panels.All(p => !p.IsVisible));
+                            exercised = true; break;
+                        }
+                        controller.CancelDrag();
+                    }
+                    if (exercised) break;
+                }
+                Check(exercised);
             });
             Run("Pointer movement within one drop zone reuses the preview without moving HWNDs", () =>
             {

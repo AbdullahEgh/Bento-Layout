@@ -182,7 +182,7 @@ public sealed partial class BentoController
         }
         if (!known) return;
         native.ForgetWindow(id); CancelSettled();
-        dropProposals.Clear(); dragIntent.Reset(); preview = null; previewDestination = null; validPreview = false; dropPreview?.Hide();
+        dropProposals.Clear(); dragIntent.Reset(); preview = null; previewDestination = null; validPreview = false; dropPreview.Hide();
         if (incoming?.WindowId == id || nativeResizeWindow == id || activeNativeDrag == id)
         { ClearDrag(restoreLive: false); activeNativeDrag = 0; nativeStartBounds = null; }
         else if (divider is not null || nativeResizeWindow != 0)
