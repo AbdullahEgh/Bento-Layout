@@ -1,8 +1,7 @@
-Bento for macOS 0.2.42
+Bento for macOS 0.2.43
 
-- Static, full-size drag slots with a clear selected destination.
-- Smoother organizing cover with a spinning indicator.
-- More reliable grips, Pause, and waiting-window replacement.
-- Apple Blue icon and controls.
+- Preserve your layout through Mac lock and unlock.
+- Recover grip controls after interrupted gestures.
+- Keep grip resizing inside the Dock’s available screen area.
 
-Downloads: macOS 0.2.42 and Windows 0.3.13 (Windows 11 x64, .NET 10 Desktop Runtime).
+Includes the unchanged Windows 0.3.14 download.

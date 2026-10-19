@@ -7,6 +7,11 @@ struct ReleaseNotes: Identifiable {
 
     // Keep newest first; ship the log with the app so it also works offline.
     static let history: [ReleaseNotes] = [
+        .init(version: "0.2.43", points: [
+            "Preserve your layout through Mac lock and unlock.",
+            "Recover grip controls after interrupted gestures.",
+            "Keep grip resizing inside the Dock’s available screen area.",
+        ]),
         .init(version: "0.2.42", points: [
             "Smoother organizing blur and waiting tiles for apps that cannot fit.",
             "Drag a waiting tile to replace a slot; its previous app goes to the Dock.",

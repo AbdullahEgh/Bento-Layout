@@ -11,6 +11,11 @@ on:
         required: true
         type: string
         default: main
+      windows_release:
+        description: 'Reuse exact Windows assets from this published tag instead of rebuilding'
+        required: false
+        type: string
+        default: ''
       notes_only:
         description: 'Refresh signed notes for an existing release without replacing its app'
         type: boolean
@@ -102,18 +107,46 @@ jobs:
         with:
           ref: ${{ inputs.windows_ref }}
       - uses: actions/setup-dotnet@v4
+        if: ${{ inputs.windows_release == '' }}
         with:
           dotnet-version: '10.0.x'
       - name: Build and validate Windows download
+        if: ${{ inputs.windows_release == '' }}
         run: ./build.ps1 -NativeTests -Publish
       - name: Verify Windows preview and OTA contracts
+        if: ${{ inputs.windows_release == '' }}
         run: |
           ./tests/Bento.Tests/bin/Release/net10.0-windows/Bento.Tests.exe --verify-update-package artifacts/Bento-win-x64.zip
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           ./tests/Bento.Tests/bin/Release/net10.0-windows/Bento.Tests.exe --preview-smoke
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Validate settings window stacking
+        if: ${{ inputs.windows_release == '' }}
         run: ./tests/Bento.Tests/bin/Release/net10.0-windows/Bento.Tests.exe --settings-order-smoke
+      - name: Reuse published Windows assets unchanged
+        if: ${{ inputs.windows_release != '' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WINDOWS_RELEASE: ${{ inputs.windows_release }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$WINDOWS_RELEASE" > windows-source.json
+          gh release download "$WINDOWS_RELEASE" --repo "$GITHUB_REPOSITORY" --pattern Bento-win-x64.zip --pattern Bento-windows-release.json --dir artifacts
+          python - <<'PYVERIFY'
+          import hashlib, json, os
+          from pathlib import Path
+          release = json.loads(Path('windows-source.json').read_text())
+          assert not release['draft'] and not release['prerelease']
+          assets = {a['name']: a for a in release['assets']}
+          for name in ['Bento-win-x64.zip', 'Bento-windows-release.json']:
+              digest = hashlib.sha256((Path('artifacts') / name).read_bytes()).hexdigest()
+              assert assets[name]['digest'] == 'sha256:' + digest
+          metadata = json.loads(Path('artifacts/Bento-windows-release.json').read_text(encoding='utf-8-sig'))
+          assert 'v' + metadata['Version'] == os.environ['WINDOWS_RELEASE']
+          assert metadata['Sha256'].lower() == hashlib.sha256(Path('artifacts/Bento-win-x64.zip').read_bytes()).hexdigest()
+          PYVERIFY
       - uses: actions/upload-artifact@v4
         with:
           name: Bento-windows-release
