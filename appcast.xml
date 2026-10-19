@@ -4,22 +4,24 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.41</title>
-            <pubDate>Mon, 19 Oct 2026 15:06:46 +0000</pubDate>
-            <sparkle:version>161</sparkle:version>
-            <sparkle:shortVersionString>0.2.41</sparkle:shortVersionString>
+            <title>0.2.42</title>
+            <pubDate>Mon, 19 Oct 2026 22:45:51 +0000</pubDate>
+            <sparkle:version>166</sparkle:version>
+            <sparkle:shortVersionString>0.2.42</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.41
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.42
 
-- Fit smaller screens with fewer layout retries and unnecessary minimizations.
-- Keep temporary window moves and resizes separate while paused; Resume restores saved slots.
+- Static, full-size drag slots with a clear selected destination.
+- Smoother organizing cover with a spinning indicator.
+- More reliable grips, Pause, and waiting-window replacement.
+- Apple Blue icon and controls.
 
-Downloads include macOS and the current Windows portable app (Windows 11 x64, .NET 10 Desktop Runtime).
+Downloads: macOS 0.2.42 and Windows 0.3.13 (Windows 11 x64, .NET 10 Desktop Runtime).
 ]]></description>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.41/Bento-macos-universal.zip" length="4522302" type="application/octet-stream" sparkle:edSignature="CTm7a1W21RQVM2nCSuSIfIVT2dzJTVrFKsJ15PQ8byEwSQiXTrvsb1zyZ2tQvtzeV3shW/qin9TV8m4YcmwPCw=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.42/Bento-macos-universal.zip" length="6110856" type="application/octet-stream" sparkle:edSignature="2l5uUVHNfE1rRWI/bkshsJFQ/Qw85FfAy1w/jviDc6i/JiJ2eoht1tv24MXNEcmmTFNNY/syN2oa44S5K8xOCw=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: /aymAiZTShTxsRVzZjyDBXqqD2qFMulZ8Qh4J59z0FnvX0yVVar19w/C0EdCS4adEdbBQ7N8YZ5SRDhbLTYaDg==
-length: 1443
+edSignature: m85JB3cHfublQNS/UD95vZKe5bwT+nzutubTAIPBYaUzgY/7NcAmkVspbjiODBf6gYxx7SbRQ5xXV52HF/StBA==
+length: 1467
 -->
