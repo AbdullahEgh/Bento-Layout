@@ -14,9 +14,7 @@ public interface IDesktopEnvironment : IDisposable
     bool MoveHelper(long helper, Guid desktop);
 }
 
-// An ownerless, invisible probe obtains an actual shell desktop GUID. We verify
-// both the GUID and current membership; failure defers writes rather than using
-// the foreground app's home desktop (which can be pinned on all desktops).
+// Read Explorer's current desktop identity; helper/tool HWNDs need not belong to a shell desktop.
 public sealed class DesktopEnvironment : IDesktopEnvironment
 {
     [ComImport, Guid("A5CD92FF-29BE-454C-8D04-D82879FB3F1B"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -26,66 +24,50 @@ public sealed class DesktopEnvironment : IDesktopEnvironment
         [PreserveSig] int GetWindowDesktopId(nint window, out Guid desktop);
         [PreserveSig] int MoveWindowToDesktop(nint window, in Guid desktop);
     }
+    private readonly Func<Guid?> readIdentity;
+    public DesktopEnvironment(Func<Guid?>? readIdentity = null) => this.readIdentity = readIdentity ?? ShellDesktopIdentity.Read;
     private IVirtualDesktopManager? manager;
-    private nint probe;
     private Guid? identity;
-    private bool unavailable;
+    private bool disposed;
     private bool suspended;
-    private long lastProbe;
-    private bool ambiguousIdentity;
     public DesktopObservation Sample()
     {
+        if (disposed) return new(null, true, "Windows desktop integration is closed.");
         try
         {
-            if (unavailable) return new(null, true, "Windows virtual desktop membership is unavailable.");
             manager ??= (IVirtualDesktopManager)(Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid("AA509086-5CA9-4C25-8F95-589D3C07B48A"), throwOnError: true)!)
                 ?? throw new InvalidOperationException("Virtual desktop manager is unavailable."));
             bool locked = SHQueryUserNotificationState(out int state) >= 0 && state == 1;
             bool overview = ShellOverview();
             suspended = locked || overview;
             if (suspended) return new(identity, true, locked ? "Session locked or not present." : "Desktop overview or shell transition.");
-            bool oldCurrent = probe != 0 && manager.IsWindowOnCurrentVirtualDesktop(probe, out bool present) >= 0 && present;
-            long now = Environment.TickCount64;
-            if (identity is null || !oldCurrent || ambiguousIdentity || now - lastProbe >= 250)
-            {
-                // Recheck with a fresh ownerless probe. A reused window can be
-                // pinned to every desktop and its home GUID is then insufficient.
-                nint fresh = CreateWindowEx(0x00080000 | 0x08000000 | 0x00000080 | 0x00000020,
-                    "STATIC", "Bento desktop identity", unchecked((int)0x80000000), -32000, -32000, 1, 1, 0, 0, 0, 0);
-                if (fresh == 0) { suspended = true; return new(null, true, "Could not identify the current Windows desktop."); }
-                try
-                {
-                    if (!SetLayeredWindowAttributes(fresh, 0, 0, 2)) { suspended = true; return new(null, true, "Desktop identity window could not be prepared."); }
-                    Native.ShowWindow(fresh, 4);
-                    if (manager.GetWindowDesktopId(fresh, out Guid id) < 0 || id == Guid.Empty ||
-                        manager.IsWindowOnCurrentVirtualDesktop(fresh, out bool current) < 0 || !current)
-                    { suspended = true; return new(null, true, "Windows did not identify the current desktop; arrangement deferred."); }
-                    if (identity is { } previous && previous != id && oldCurrent)
-                    {
-                        suspended = true; ambiguousIdentity = true;
-                        return new(null, true, "Shared or changing desktop identity. Wait for the shell, or unpin Bento from all desktops.");
-                    }
-                    if (probe != 0) DestroyWindow(probe);
-                    probe = fresh; fresh = 0; identity = id; lastProbe = now; ambiguousIdentity = false;
-                }
-                finally { if (fresh != 0) DestroyWindow(fresh); }
-            }
-            return new(identity, false);
+            identity = readIdentity();
+            suspended = identity is null || identity == Guid.Empty;
+            return new(identity, suspended, suspended ? "Windows did not identify the current desktop; arrangement deferred." : null);
         }
         catch (Exception ex) when (ex is COMException or InvalidCastException or TypeLoadException)
-        { unavailable = true; return new(null, true, "Windows desktop integration is unavailable; arrangement deferred."); }
+        {
+            // Explorer can restart. Retry the connection on a later sample.
+            ReleaseManager(); identity = null; suspended = true;
+            return new(null, true, "Windows desktop integration is unavailable; arrangement deferred.");
+        }
     }
     public bool IsCurrent(Guid desktop)
     {
-        try { return !suspended && !(SHQueryUserNotificationState(out int state) >= 0 && state == 1) && !ShellOverview() && identity == desktop && manager is not null && probe != 0 &&
-            manager.IsWindowOnCurrentVirtualDesktop(probe, out bool current) >= 0 && current; }
-        catch (COMException) { return false; }
+        return !disposed && !suspended && desktop != Guid.Empty && identity == desktop && manager is not null &&
+            !(SHQueryUserNotificationState(out int state) >= 0 && state == 1) && !ShellOverview() && readIdentity() == desktop;
     }
     public bool Contains(Guid desktop, long window)
     {
-        try { return IsCurrent(desktop) && manager!.IsWindowOnCurrentVirtualDesktop((nint)window, out bool current) >= 0 && current &&
-            manager.GetWindowDesktopId((nint)window, out Guid owner) >= 0 && owner == desktop; }
-        catch (COMException) { return false; }
+        if (!IsCurrent(desktop)) return false;
+        try
+        {
+            int presentResult = manager!.IsWindowOnCurrentVirtualDesktop((nint)window, out bool current);
+            int ownerResult = manager.GetWindowDesktopId((nint)window, out Guid owner);
+            if (presentResult < 0 || ownerResult < 0) { ReleaseManager(); suspended = true; return false; }
+            return current && owner == desktop && IsCurrent(desktop);
+        }
+        catch (COMException) { ReleaseManager(); suspended = true; return false; }
     }
     public bool MoveHelper(long helper, Guid desktop)
     {
@@ -123,14 +105,14 @@ public sealed class DesktopEnvironment : IDesktopEnvironment
     }
     public void Dispose()
     {
-        unavailable = true; suspended = true; identity = null;
-        if (probe != 0) { DestroyWindow(probe); probe = 0; }
+        disposed = true; suspended = true; identity = null;
+        ReleaseManager();
+    }
+    private void ReleaseManager()
+    {
         var connection = manager; manager = null;
         if (connection is not null)
             try { Marshal.FinalReleaseComObject(connection); } catch (InvalidComObjectException) { /* Explorer already disconnected. */ }
     }
     [DllImport("shell32.dll")] private static extern int SHQueryUserNotificationState(out int state);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern nint CreateWindowEx(int extended, string className, string title, int style, int x, int y, int width, int height, nint parent, nint menu, nint instance, nint parameter);
-    [DllImport("user32.dll")] private static extern bool SetLayeredWindowAttributes(nint window, uint key, byte alpha, uint flags);
-    [DllImport("user32.dll")] private static extern bool DestroyWindow(nint window);
 }

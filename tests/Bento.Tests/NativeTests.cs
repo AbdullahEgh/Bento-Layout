@@ -86,7 +86,7 @@ internal static class NativeTests
                     var point = control.TransformToAncestor(settings).Transform(new Point(0, 0));
                     Check(point.X >= 0 && point.X + control.ActualWidth <= settings.ActualWidth);
                 }
-                settings.Width = 850; Pump(); Check(!picker.IsVisible);
+                settings.Width = 850; Pump(); Equal(settings.ActualWidth < 680, picker.IsVisible);
             });
             Run("Settings are not topmost", () => Check(!settings.Topmost));
             Run("Foreground fixture starts above settings", () => Check(IsAbove(other, settings)));
@@ -150,10 +150,47 @@ internal static class NativeTests
             var native = new WindowController();
             var originals = fixtures.Select(w => native.Capture(w.Id)).ToArray();
             var preBentoBounds = fixtures.Select(w => native.VisibleBounds(w.Id)).ToArray();
+            Run("Real desktop adapter identifies the shell and activates fixtures through Settings and tray actions", () =>
+            {
+                using var environment = new DesktopEnvironment();
+                var observation = environment.Sample();
+                if (observation.Suspended || observation.Desktop is not { } desktop)
+                    throw new Exception($"Production desktop adapter: {observation.Reason}");
+                Check(environment.IsCurrent(desktop)); Check(!environment.IsCurrent(Guid.NewGuid()));
+                foreach (var fixture in fixtures) Check(environment.Contains(desktop, fixture.Id));
+                Guid? observed = null;
+                using (var recovery = new DesktopEnvironment(() => observed))
+                {
+                    Check(recovery.Sample().Suspended); Check(!recovery.IsCurrent(desktop));
+                    observed = desktop; Check(!recovery.Sample().Suspended); Check(recovery.IsCurrent(desktop));
+                    observed = Guid.NewGuid(); Check(!recovery.IsCurrent(desktop));
+                    observed = null; Check(recovery.Sample().Suspended);
+                    observed = desktop; Check(!recovery.Sample().Suspended); Check(recovery.IsCurrent(desktop));
+                }
+                for (int i = 0; i < 5; i++) { Pump(); Equal(desktop, environment.Sample().Desktop); Check(environment.IsCurrent(desktop)); }
+                using var real = new BentoController(() => WindowCatalog.Discover().Where(w => w.Title.StartsWith(prefix, StringComparison.Ordinal)).ToArray(),
+                    new BentoSettings(ShortcutEnabled: false, Animate: false, SuppressWindowsSnap: false), desktopEnvironment: environment);
+                try
+                {
+                    real.ShowInterface(); Pump();
+                    var settings = Application.Current!.Windows.OfType<BentoWindow>().Single();
+                    var toggle = Descendants<Button>(settings).Single(b => System.Windows.Automation.AutomationProperties.GetName(b) == "Turn on");
+                    toggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump();
+                    if (!real.Automatic || real.Suspended) throw new Exception($"Settings activation failed: {real.Status}");
+                    Equal(fixtureCount, real.ManagedCount);
+                    foreach (var display in WindowCatalog.Monitors()) VerifyBounds(real.Layout(display), native);
+                    toggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump(); Check(!real.Automatic);
+                    real.TrayClick(); Pump(); Check(real.Automatic); Check(!real.Suspended); Equal(fixtureCount, real.ManagedCount);
+                    real.TrayClick(); Pump(); Check(!real.Automatic);
+                    for (int i = 0; i < fixtures.Length; i++) Equal(preBentoBounds[i], native.VisibleBounds(fixtures[i].Id));
+                }
+                finally { real.RestoreAll(); }
+            });
             long gestureTime = 0;
             using var controller = new BentoController(() => WindowCatalog.Discover(includeMinimized: false)
                 .Where(w => w.Title.StartsWith(prefix, StringComparison.Ordinal)).OrderBy(w => w.Title).ToArray(),
-                new BentoSettings(Animate: true), interactive ? null : () => gestureTime);
+                new BentoSettings(Animate: true), interactive ? null : () => gestureTime,
+                desktopEnvironment: interactive && Environment.GetCommandLineArgs().Contains("--real-desktop") ? new DesktopEnvironment() : null);
             var monitor = WindowCatalog.Monitors().First();
             long foreground = WindowCatalog.Foreground;
             controller.ArrangeDesktop(); Pump();
@@ -234,7 +271,7 @@ internal static class NativeTests
             Run("Dragging to an edge splits and reflows actual windows", () =>
             {
                 var target = controller.Layout(monitor).Regions.Single(r => r.Window.WindowId == fixtures[0].Id).Bounds;
-                var point = new PixelPoint(target.X + target.Width / 2, target.Bottom - 12);
+                var point = new PixelPoint(target.X + target.Width / 2, target.Bottom - (int)Math.Round(24 * monitor.Scale));
                 controller.BeginDrag(fixtures[2].Id); controller.PreviewDrag(point);
                 var originalBounds = fixtures.Select(w => native.VisibleBounds(w.Id)).ToArray();
                 gestureTime += controller.Settings.SplitHoldMs - 1; controller.PreviewDrag(point);
@@ -253,7 +290,7 @@ internal static class NativeTests
                 var before = controller.Layout(monitor).Regions;
                 var sourceBounds = before.Single(r => r.Window.WindowId == fixtures[0].Id).Bounds;
                 var targetBounds = before.Single(r => r.Window.WindowId == fixtures[1].Id).Bounds;
-                var point = new PixelPoint(targetBounds.X + 12, targetBounds.Y + targetBounds.Height / 2);
+                var point = new PixelPoint(targetBounds.X + (int)Math.Round(24 * monitor.Scale), targetBounds.Y + targetBounds.Height / 2);
                 controller.BeginDrag(fixtures[0].Id); controller.PreviewDrag(point); gestureTime += 100; controller.FinishDrag(point); Pump();
                 Equal(sourceBounds, controller.Layout(monitor).Regions.Single(r => r.Window.WindowId == fixtures[1].Id).Bounds);
                 VerifyBounds(controller.Layout(monitor), native);
@@ -422,6 +459,7 @@ internal static class NativeTests
             {
                 var before = fixtures.Select(w => native.VisibleBounds(w.Id)).ToArray();
                 var boundary = controller.Layout(monitor).Dividers.First();
+                var selected = ResizeHandles.Hit(ResizeHandles.Calculate(controller.DisplayState.Roots[monitor.Id]!, controller.Area(monitor), controller.Gap(monitor)), new(boundary.Bounds.X + 1, boundary.Bounds.Y + 1), monitor.Scale);
                 controller.BeginDivider(monitor, boundary, new(boundary.Bounds.X + 1, boundary.Bounds.Y + 1));
                 var point = new PixelPoint(boundary.ParentBounds.X + boundary.ParentBounds.Width / 2, boundary.ParentBounds.Y + boundary.ParentBounds.Height / 2);
                 controller.PreviewDrag(point);
@@ -430,7 +468,7 @@ internal static class NativeTests
                 var grip = (Border)((Grid)active.Content).Children[0];
                 Equal(80d, Math.Max((double)grip.GetAnimationBaseValue(FrameworkElement.WidthProperty), (double)grip.GetAnimationBaseValue(FrameworkElement.HeightProperty)));
                 Equal(2d, Math.Min(grip.Width, grip.Height)); Equal(1d, (double)grip.GetAnimationBaseValue(UIElement.OpacityProperty));
-                Equal(controller.Layout(monitor).Dividers.Single(d => d.SplitId == boundary.SplitId).Bounds, native.VisibleBounds(new System.Windows.Interop.WindowInteropHelper(active).Handle.ToInt64()));
+                Equal(controller.Layout(monitor).Dividers.Single(d => d.SplitId == (selected?.Divider.SplitId ?? boundary.SplitId)).Bounds, native.VisibleBounds(new System.Windows.Interop.WindowInteropHelper(active).Handle.ToInt64()));
                 VerifyBounds(controller.Layout(monitor), native);
                 Check(fixtures.Where((w, i) => native.VisibleBounds(w.Id) != before[i]).Any());
                 controller.CancelDrag(); Equal(80d, Math.Max((double)grip.GetAnimationBaseValue(FrameworkElement.WidthProperty), (double)grip.GetAnimationBaseValue(FrameworkElement.HeightProperty)));
@@ -485,8 +523,8 @@ internal static class NativeTests
                 var boundary = before.Dividers.First();
                 bool horizontal = boundary.Axis == SplitAxis.Horizontal;
                 var source = before.Regions.First(r => horizontal ? r.Bounds.Right == boundary.Bounds.X : r.Bounds.Bottom == boundary.Bounds.Y);
-                var requested = horizontal ? source.Bounds with { Width = source.Bounds.Width + 24 }
-                    : source.Bounds with { Height = source.Bounds.Height + 24 };
+                var requested = horizontal ? source.Bounds with { Width = source.Bounds.Width + (int)Math.Round(24 * monitor.Scale) }
+                    : source.Bounds with { Height = source.Bounds.Height + (int)Math.Round(24 * monitor.Scale) };
                 controller.BeginNativeResize(source.Window.WindowId);
                 native.Move(source.Window.WindowId, requested);
                 controller.FinishDrag(); Pump();

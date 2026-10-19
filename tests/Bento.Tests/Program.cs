@@ -56,6 +56,22 @@ internal static class Program
             NativeTests.RunAll(interactive: true, fixtureCount: fixtureCount);
             return failed == 0 ? 0 : 1;
         }
+        Run("Shell desktop identity validates IDs and never guesses among several desktops", () =>
+        {
+            var a = Guid.NewGuid(); var b = Guid.NewGuid();
+            Equal<Guid?>(a, ShellDesktopIdentity.Resolve(a.ToByteArray(), b.ToByteArray(), null));
+            Equal<Guid?>(b, ShellDesktopIdentity.Resolve(null, b.ToByteArray(), null));
+            Equal<Guid?>(a, ShellDesktopIdentity.Resolve(null, null, a.ToByteArray()));
+            Check(ShellDesktopIdentity.Resolve(null, null, a.ToByteArray().Concat(b.ToByteArray()).ToArray()) is null);
+            foreach (object bad in new object[] { new byte[0], new byte[15], new byte[17], Guid.Empty.ToByteArray(), a.ToString() })
+            {
+                Check(ShellDesktopIdentity.Resolve(bad, null, a.ToByteArray()) is null);
+                Check(ShellDesktopIdentity.Resolve(null, null, bad) is null);
+            }
+            Check(ShellDesktopIdentity.Resolve(null, null, null) is null);
+            // Missing/malformed observations do not latch a failure or stale ID.
+            Equal<Guid?>(b, ShellDesktopIdentity.Resolve(b.ToByteArray(), null, null));
+        });
         SharedFixtureTests.RunAll();
         ParityGeometryTests.RunAll();
         PlatformParityTests.RunAll();
