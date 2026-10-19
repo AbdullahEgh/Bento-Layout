@@ -278,9 +278,7 @@ public sealed class BentoWindow : Window
             draft = draft with { OnboardingComplete = true };
             if (!Save()) return;
             if (!controller.Automatic) controller.ArrangeDesktop();
-            Deactivated += (_, _) => cancelShortcutRecording?.Invoke();
-        Closed += (_, _) => cancelShortcutRecording?.Invoke();
-        SelectPage("Workspace");
+            SelectPage("Workspace");
         }));
     }
     private void Gestures()
@@ -424,7 +422,7 @@ public sealed class BentoWindow : Window
         local.Click += (_, _) =>
         {
             if (busy) return;
-        cancelShortcutRecording?.Invoke(); cancelShortcutRecording = null;
+            cancelShortcutRecording?.Invoke(); cancelShortcutRecording = null;
             var dialog = new OpenFileDialog { Filter = "Bento update (*.zip)|*.zip", Title = "Choose a Bento update" };
             if (dialog.ShowDialog(this) == true) PrepareInstall(dialog.FileName, result, updates);
         };
