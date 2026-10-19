@@ -101,31 +101,6 @@ public static class LayoutEngine
     }
 
     // Translate resizing a real window's inner edges into changes to its ancestor dividers.
-    public static LayoutNode ResizeWindow(LayoutNode root, long windowId, PixelRect requested, PixelRect area, int gap = 8)
-    {
-        var original = Calculate(root, area, gap);
-        var leaf = original.Regions.FirstOrDefault(r => r.Window.WindowId == windowId);
-        if (leaf is null) return root;
-        var result = root;
-        foreach (var boundary in original.Dividers)
-        {
-            bool horizontal = boundary.Axis == SplitAxis.Horizontal;
-            bool trailing = horizontal ? leaf.Bounds.Right == boundary.Bounds.X : leaf.Bounds.Bottom == boundary.Bounds.Y;
-            bool leading = horizontal ? leaf.Bounds.X == boundary.Bounds.Right : leaf.Bounds.Y == boundary.Bounds.Bottom;
-            // Coincident coordinates in a different branch must not resize that branch.
-            bool adjacent = horizontal
-                ? leaf.Bounds.Y >= boundary.ParentBounds.Y && leaf.Bounds.Bottom <= boundary.ParentBounds.Bottom
-                : leaf.Bounds.X >= boundary.ParentBounds.X && leaf.Bounds.Right <= boundary.ParentBounds.Right;
-            if (!adjacent || (!trailing && !leading)) continue;
-            int oldEdge = horizontal ? (trailing ? leaf.Bounds.Right : leaf.Bounds.X) : (trailing ? leaf.Bounds.Bottom : leaf.Bounds.Y);
-            int newEdge = horizontal ? (trailing ? requested.Right : requested.X) : (trailing ? requested.Bottom : requested.Y);
-            if (Math.Abs(newEdge - oldEdge) <= 2) continue;
-            var current = Calculate(result, area, gap).Dividers.Single(d => d.SplitId == boundary.SplitId);
-            int start = horizontal ? current.ParentBounds.X : current.ParentBounds.Y;
-            int length = (horizontal ? current.ParentBounds.Width : current.ParentBounds.Height) - gap;
-            double ratio = (newEdge - start - (leading ? gap : 0)) / (double)length;
-            result = Resize(result, boundary.SplitId, ratio);
-        }
-        return result;
-    }
+    public static LayoutNode ResizeWindow(LayoutNode root, long windowId, PixelRect requested, PixelRect area, int gap = 8, int snapDistance = 12) =>
+        LayoutInteraction.ResizeWindow(root, windowId, requested, area, gap, snapDistance);
 }

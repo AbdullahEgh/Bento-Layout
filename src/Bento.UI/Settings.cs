@@ -3,9 +3,9 @@ using System.Text.Json;
 namespace Bento.UI;
 
 public sealed record BentoSettings(uint Modifiers = 3, uint Key = 0x42, int Gap = 8, int Margin = 8,
-    int SplitHoldMs = 900, bool Animate = true, int AnimationMs = 180, bool SuppressWindowsSnap = false,
+    int SplitHoldMs = 900, bool Animate = true, int AnimationMs = 140, bool SuppressWindowsSnap = false,
     string Theme = "System", string UpdateRepository = "AbdullahEgh/Bento-Layout", bool CheckUpdates = false, int SchemaVersion = 2,
-    int BackgroundDarkness = 50, bool ShortcutEnabled = true, bool MinimizeOverflow = true)
+    int BackgroundDarkness = 50, bool ShortcutEnabled = true, bool MinimizeOverflow = true, bool OnboardingComplete = false)
 {
     public static string DataDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Bento");
     private static string PathName => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Bento", "settings.json");
@@ -24,6 +24,8 @@ public sealed record BentoSettings(uint Modifiers = 3, uint Key = 0x42, int Gap 
         if (settings is null || !settings.IsValid) return new();
         if (!document.RootElement.TryGetProperty("SchemaVersion", out _) && settings.SplitHoldMs == 450)
             settings = settings with { SplitHoldMs = 900 };
+        if (!document.RootElement.TryGetProperty("OnboardingComplete", out _) && document.RootElement.EnumerateObject().Any())
+            settings = settings with { OnboardingComplete = true }; // Existing installations keep their completed startup flow.
         return settings;
     }
     public bool IsValid => Gap is >= 4 and <= 32 && Margin is >= 0 and <= 64 &&

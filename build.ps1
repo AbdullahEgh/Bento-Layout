@@ -24,4 +24,5 @@ if ($Publish) {
     $taskVersion = [Reflection.AssemblyName]::GetAssemblyName((Join-Path $PSScriptRoot 'artifacts/Bento/Bento.dll')).Version.ToString(3)
     [ordered]@{ AppId = 'Bento.Windows'; Version = $taskVersion; Platform = 'win-x64'; Files = $taskFiles } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath './artifacts/Bento/bento-release.json' -Encoding utf8
     Compress-Archive -Path './artifacts/Bento/*' -DestinationPath './artifacts/Bento-win-x64.zip' -Force
+    [ordered]@{ AppId = 'Bento.Windows'; Version = $taskVersion; Platform = 'win-x64'; Asset = 'Bento-win-x64.zip'; Sha256 = (Get-FileHash -LiteralPath './artifacts/Bento-win-x64.zip' -Algorithm SHA256).Hash } | ConvertTo-Json | Set-Content -LiteralPath './artifacts/Bento-windows-release.json' -Encoding utf8
 }

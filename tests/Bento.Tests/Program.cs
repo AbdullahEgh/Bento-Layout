@@ -1,3 +1,4 @@
+using System.IO;
 using Bento.Core;
 using Bento.Windows;
 
@@ -10,10 +11,42 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.FirstOrDefault() == "--verify-update-package")
+        {
+            Run("Built package remains compatible with the shipped Windows OTA selector", () =>
+            {
+                string folder = Path.Combine(Path.GetTempPath(), "Bento-package-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    var manifest = UpdatePackage.Extract(args[1], folder);
+                    Equal("Bento.Windows", manifest.AppId); Equal("win-x64", manifest.Platform); Equal(Bento.UI.UpdateService.CurrentVersion, manifest.Version);
+                    string digest = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(args[1])));
+                    using var release = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(new {
+                        tag_name = "v" + manifest.Version, draft = false, prerelease = false, body = "Windows update", html_url = "https://github.com/AbdullahEgh/Bento-Layout/releases/tag/v" + manifest.Version,
+                        assets = new[] {
+                            new { name = "Bento-macos-universal.zip", browser_download_url = "https://github.com/AbdullahEgh/Bento-Layout/releases/download/v" + manifest.Version + "/Bento-macos-universal.zip", digest = "sha256:" + new string('0',64) },
+                            new { name = "Bento-win-x64.zip", browser_download_url = "https://github.com/AbdullahEgh/Bento-Layout/releases/download/v" + manifest.Version + "/Bento-win-x64.zip", digest = "sha256:" + digest }
+                        }
+                    }));
+                    var legacy = LegacyWindowsUpdateSelector.ParseRelease(release.RootElement, "0.3.9");
+                    Check(legacy is not null); Equal(manifest.Version, legacy!.Version); Equal(digest, legacy.Digest);
+                    Equal(legacy, Bento.UI.UpdateService.ParseRelease(release.RootElement, "0.3.9"));
+                    Check(LegacyWindowsUpdateSelector.ParseRelease(release.RootElement, manifest.Version) is null);
+                }
+                finally { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
+            });
+            Console.WriteLine($"RESULT: {passed} passed, {failed} failed"); return failed == 0 ? 0 : 1;
+        }
         if (args.FirstOrDefault() == "--fixture") return NativeTests.Fixture(args[1]);
         if (args.Contains("--settings-order-smoke"))
         {
             NativeTests.SettingsOrderSmoke();
+            Console.WriteLine($"RESULT: {passed} passed, {failed} failed");
+            return failed == 0 ? 0 : 1;
+        }
+        if (args.Contains("--preview-smoke"))
+        {
+            NativeTests.RunAll(fixtureCount: 5);
             Console.WriteLine($"RESULT: {passed} passed, {failed} failed");
             return failed == 0 ? 0 : 1;
         }
@@ -29,7 +62,25 @@ internal static class Program
             NativeTests.RunAll(interactive: true, fixtureCount: fixtureCount);
             return failed == 0 ? 0 : 1;
         }
+        Run("Shell desktop identity validates IDs and never guesses among several desktops", () =>
+        {
+            var a = Guid.NewGuid(); var b = Guid.NewGuid();
+            Equal<Guid?>(a, ShellDesktopIdentity.Resolve(a.ToByteArray(), b.ToByteArray(), null));
+            Equal<Guid?>(b, ShellDesktopIdentity.Resolve(null, b.ToByteArray(), null));
+            Equal<Guid?>(a, ShellDesktopIdentity.Resolve(null, null, a.ToByteArray()));
+            Check(ShellDesktopIdentity.Resolve(null, null, a.ToByteArray().Concat(b.ToByteArray()).ToArray()) is null);
+            foreach (object bad in new object[] { new byte[0], new byte[15], new byte[17], Guid.Empty.ToByteArray(), a.ToString() })
+            {
+                Check(ShellDesktopIdentity.Resolve(bad, null, a.ToByteArray()) is null);
+                Check(ShellDesktopIdentity.Resolve(null, null, bad) is null);
+            }
+            Check(ShellDesktopIdentity.Resolve(null, null, null) is null);
+            // Missing/malformed observations do not latch a failure or stale ID.
+            Equal<Guid?>(b, ShellDesktopIdentity.Resolve(b.ToByteArray(), null, null));
+        });
         SharedFixtureTests.RunAll();
+        ParityGeometryTests.RunAll();
+        PlatformParityTests.RunAll();
         Run("Empty workspace", () => Equal(0, LayoutEngine.Calculate(null, Area).Regions.Count));
         Run("First window fills work area", () => Equal(Area, LayoutEngine.Calculate(W(1), Area).Regions.Single().Bounds));
         Run("Automatic empty layout", () => Check(AutoLayout.Arrange([], Area) is null));

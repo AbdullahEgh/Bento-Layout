@@ -15,6 +15,38 @@ public sealed class WindowSnapshot
 
 public sealed class WindowController
 {
+    private readonly Func<long, bool>? canWrite;
+    private readonly NativeMinimumTracker minimums = new();
+    private readonly Dictionary<long, (uint Process, PixelSize Reported, double Scale)> constraints = new();
+    public WindowController(Func<long, bool>? canWrite = null) => this.canWrite = canWrite;
+    private void EnsureWrite(long id)
+    {
+        if (canWrite?.Invoke(id) == false) throw new InvalidOperationException("Desktop state changed; the native operation was deferred.");
+    }
+    public PixelSize EffectiveMinimum(AppWindow window)
+    {
+        if (constraints.TryGetValue(window.Id, out var old) && (old.Process != window.ProcessId || old.Scale != window.DpiScale)) minimums.Forget(window.Id);
+        var reported = window.ReportedMinimum ?? window.Minimum;
+        constraints[window.Id] = (window.ProcessId, reported, window.DpiScale);
+        return minimums.Effective(window.Id, window.ProcessId, reported);
+    }
+    public void ForgetWindow(long id) { minimums.Forget(id); constraints.Remove(id); }
+    public void RetainConstraints(IReadOnlySet<long> live)
+    {
+        minimums.Retain(live);
+        foreach (long id in constraints.Keys.Where(id => !live.Contains(id)).ToArray()) constraints.Remove(id);
+    }
+    public PixelSize ObserveUserFrame(AppWindow window, PixelRect frame)
+    {
+        EffectiveMinimum(window);
+        minimums.Observe(window.Id, window.ProcessId, window.ReportedMinimum ?? window.Minimum, frame, frame, learn: false);
+        return EffectiveMinimum(window);
+    }
+    public bool Accepts(long id, PixelRect slot) => NativeFrameFit.Accepts(VisibleBounds(id), slot);
+    private void Observe(long id, PixelRect actual, PixelRect target, bool learn)
+    {
+        if (constraints.TryGetValue(id, out var c)) minimums.Observe(id, c.Process, c.Reported, actual, target, learn);
+    }
     public bool IsResizeInteraction(long id, PixelPoint point)
     {
         nint coordinates = (nint)((point.Y & 0xffff) << 16 | (point.X & 0xffff));
@@ -23,6 +55,7 @@ public sealed class WindowController
     }
     public void Minimize(long id)
     {
+        EnsureWrite(id);
         if (!WindowCatalog.Exists(id)) throw new InvalidOperationException("The window has closed.");
         Native.ShowWindow((nint)id, 6);
     }
@@ -37,6 +70,7 @@ public sealed class WindowController
 
     public void Restore(WindowSnapshot snapshot)
     {
+        EnsureWrite(snapshot.WindowId);
         if (!WindowCatalog.Exists(snapshot.WindowId)) return;
         Native.GetWindowThreadProcessId((nint)snapshot.WindowId, out uint processId);
         if (processId != snapshot.ProcessId) return; // HWNDs can be recycled after a process exits.
@@ -53,8 +87,9 @@ public sealed class WindowController
         return Geometry.FromNative(rect);
     }
 
-    public void Move(long id, PixelRect desired)
+    public void Move(long id, PixelRect desired, bool learnMinimum = true)
     {
+        EnsureWrite(id);
         if (!WindowCatalog.Exists(id)) throw new InvalidOperationException("The window has closed.");
         var placement = new Native.WindowPlacement { Length = Marshal.SizeOf<Native.WindowPlacement>() };
         Native.GetWindowPlacement((nint)id, ref placement);
@@ -69,13 +104,24 @@ public sealed class WindowController
         if (Native.GetDpiForWindow((nint)id) != previousDpi && Native.GetWindowRect((nint)id, out rect))
             SetOuter(id, Geometry.CompensateFrame(desired, Geometry.FromNative(rect), VisibleBounds(id)));
         var actual = VisibleBounds(id);
-        if (Math.Abs(actual.X - desired.X) > 2 || Math.Abs(actual.Y - desired.Y) > 2 ||
-            Math.Abs(actual.Width - desired.Width) > 2 || Math.Abs(actual.Height - desired.Height) > 2)
-            throw new InvalidOperationException("The application did not accept this size. Try a larger region.");
+        if (!NativeFrameFit.Accepts(actual, desired))
+        {
+            var inward = NativeFrameFit.InwardTarget(actual, desired);
+            if (inward != desired)
+            {
+                EnsureWrite(id);
+                if (!Native.GetWindowRect((nint)id, out var outer)) throw new InvalidOperationException("The window has closed.");
+                SetOuter(id, Geometry.CompensateFrame(inward, Geometry.FromNative(outer), actual));
+                actual = VisibleBounds(id);
+            }
+        }
+        Observe(id, actual, desired, learnMinimum);
+        if (!NativeFrameFit.Accepts(actual, desired)) throw new InvalidOperationException("The application did not accept this size. Try a larger region.");
     }
 
-    private static void SetOuter(long id, PixelRect rect)
+    private void SetOuter(long id, PixelRect rect)
     {
+        EnsureWrite(id);
         if (!Native.SetWindowPos((nint)id, 0, rect.X, rect.Y, rect.Width, rect.Height, 0x0014))
             throw new Win32Exception(Marshal.GetLastWin32Error(), "Windows denied moving an application. Elevated apps may require Bento to run at the same privilege level.");
     }

@@ -7,5 +7,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Bento.Tests/Bento.Tests.csproj" />
+    <Project Path="tests/Bento.Core.Tests/Bento.Core.Tests.csproj" />
   </Folder>
 </Solution>

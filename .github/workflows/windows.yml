@@ -1,6 +1,8 @@
 name: Windows contracts
 on:
   push:
+    branches: ['**']
+    tags: ['v*']
     paths: ['src/**', 'tests/**', 'shared/**', '*.props', '*.slnx', '.github/workflows/windows.yml']
   pull_request:
     paths: ['src/**', 'tests/**', 'shared/**', '*.props', '*.slnx', '.github/workflows/windows.yml']
@@ -17,9 +19,66 @@ jobs:
           dotnet-version: '10.0.x'
       - name: Build, test and package Windows app
         run: ./build.ps1 -NativeTests -Publish
+      - name: Verify built package against the shipped OTA selector
+        run: ./tests/Bento.Tests/bin/Release/net10.0-windows/Bento.Tests.exe --verify-update-package artifacts/Bento-win-x64.zip
+      - name: Portable core regressions
+        run: dotnet run --project tests/Bento.Core.Tests -c Release --no-build
       - name: Settings window stacking regression
         run: ./tests/Bento.Tests/bin/Release/net10.0-windows/Bento.Tests.exe --settings-order-smoke
+      - name: Five-window drag preview regression
+        run: ./tests/Bento.Tests/bin/Release/net10.0-windows/Bento.Tests.exe --preview-smoke
       - uses: actions/upload-artifact@v4
         with:
           name: Bento-windows
-          path: artifacts/Bento-win-x64.zip
+          path: |
+            artifacts/Bento-win-x64.zip
+            artifacts/Bento-windows-release.json
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Bento-windows
+          path: download
+      - name: Verify Windows package and reuse the matching published Mac asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/macos-v0.2.40" > mac-source.json
+          gh release download macos-v0.2.40 --repo "$GITHUB_REPOSITORY" --pattern Bento-macos-universal.zip --dir download
+          python3 tools/verify-windows-release.py download mac-source.json
+      - name: Publish tested assets to the existing Windows OTA channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # A draft prevents older installed clients seeing an incomplete release.
+          notes="docs/windows-parity/RELEASE-${GITHUB_REF_NAME#v}.md"
+          test -s "$notes"
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "Bento for Windows ${GITHUB_REF_NAME#v}" --notes-file "$notes" download/Bento-win-x64.zip download/Bento-windows-release.json download/Bento-macos-universal.zip
+          release_id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[] | select(.tag_name == env.GITHUB_REF_NAME) | .id')"
+          [[ "$release_id" =~ ^[0-9]+$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > uploaded.json
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          assets = {a['name']: a for a in json.load(open('uploaded.json'))['assets']}
+          for path in Path('download').iterdir():
+              assert assets[path.name]['digest'] == 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest(), path.name
+          PY
+          printf '{"draft":false,"make_latest":"true"}' | gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" --input - > published.json
+          gh api "repos/$GITHUB_REPOSITORY/releases/latest" > latest.json
+          python3 - <<'PY'
+          import json, os
+          release = json.load(open('latest.json'))
+          assert release['tag_name'] == os.environ['GITHUB_REF_NAME'] and not release['draft'] and not release['prerelease']
+          assert any(a['name'] == 'Bento-win-x64.zip' and a['digest'].startswith('sha256:') for a in release['assets'])
+          print('PASS: existing /releases/latest Windows OTA discovery and asset digest')
+          PY

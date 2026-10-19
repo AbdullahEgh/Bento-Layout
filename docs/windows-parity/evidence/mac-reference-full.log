@@ -1,0 +1,239 @@
+warning: /Users/abdullah/Library/org.swift.swiftpm/configuration is not accessible or not writable, disabling user-level cache features.
+warning: /Users/abdullah/Library/org.swift.swiftpm/security is not accessible or not writable, disabling user-level cache features.
+Building for debugging...
+[Planning deferred tasks]
+[27 / 50]
+[28 / 51] BentoCore
+[38 / 96]
+[45 / 96]
+[47 / 96]
+[52 / 96]
+[56 / 96]
+[59 / 96]
+[61 / 96]
+[62 / 96]
+[73 / 96] BentoCore
+[86 / 97] BentoCoreTests-product
+[104 / 138]
+[108 / 138]
+[111 / 138]
+[115 / 138]
+[116 / 138]
+[117 / 138]
+[119 / 138]
+[120 / 138]
+[122 / 138]
+[127 / 138] BentoCoreTests-product
+[132 / 138] BentoCoreTests-product
+[134 / 138] BentoCoreTests-product
+Build complete! (9.67 sec)
+Test Suite 'All tests' started at 2026-10-18 20:12:58.789.
+Test Suite 'BentoCoreTests.xctest' started at 2026-10-18 20:12:58.791.
+Test Suite 'ActivationOverrideTests' started at 2026-10-18 20:12:58.791.
+Test Case '-[BentoCoreTests.ActivationOverrideTests testCrashRecoveryAndManualChoiceWins]' started.
+Test Case '-[BentoCoreTests.ActivationOverrideTests testCrashRecoveryAndManualChoiceWins]' passed (0.004 seconds).
+Test Case '-[BentoCoreTests.ActivationOverrideTests testExactRestorationAndAbsentKeyDeletion]' started.
+Test Case '-[BentoCoreTests.ActivationOverrideTests testExactRestorationAndAbsentKeyDeletion]' passed (0.002 seconds).
+Test Case '-[BentoCoreTests.ActivationOverrideTests testFailedRefreshCanRecoverNextLaunch]' started.
+Test Case '-[BentoCoreTests.ActivationOverrideTests testFailedRefreshCanRecoverNextLaunch]' passed (0.002 seconds).
+Test Case '-[BentoCoreTests.ActivationOverrideTests testInterruptedLiveValueChangeRestoresEitherOwnedValue]' started.
+Test Case '-[BentoCoreTests.ActivationOverrideTests testInterruptedLiveValueChangeRestoresEitherOwnedValue]' passed (0.001 seconds).
+Test Case '-[BentoCoreTests.ActivationOverrideTests testLiveRefreshFailureKeepsRecoverableOriginalValues]' started.
+Test Case '-[BentoCoreTests.ActivationOverrideTests testLiveRefreshFailureKeepsRecoverableOriginalValues]' passed (0.002 seconds).
+Test Case '-[BentoCoreTests.ActivationOverrideTests testLiveToggleRestoresOnlyItsOwnKeyAndKeepsOriginalBaseline]' started.
+Test Case '-[BentoCoreTests.ActivationOverrideTests testLiveToggleRestoresOnlyItsOwnKeyAndKeepsOriginalBaseline]' passed (0.006 seconds).
+Test Case '-[BentoCoreTests.ActivationOverrideTests testLiveValueChangeKeepsFirstOriginalAndRespectsManualChange]' started.
+Test Case '-[BentoCoreTests.ActivationOverrideTests testLiveValueChangeKeepsFirstOriginalAndRespectsManualChange]' passed (0.005 seconds).
+Test Case '-[BentoCoreTests.ActivationOverrideTests testPartialWriteFailureRollsBackAndRetainsRecoveryJournal]' started.
+Test Case '-[BentoCoreTests.ActivationOverrideTests testPartialWriteFailureRollsBackAndRetainsRecoveryJournal]' passed (0.001 seconds).
+Test Suite 'ActivationOverrideTests' passed at 2026-10-18 20:12:58.814.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.023 (0.024) seconds
+Test Suite 'InteractionAndUpdateTests' started at 2026-10-18 20:12:58.814.
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testDesktopWorkAreaReclaimsHiddenMenuAndDockWithoutUsingCameraArea]' started.
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testDesktopWorkAreaReclaimsHiddenMenuAndDockWithoutUsingCameraArea]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testDockReopenGetsSpaceBeforeExistingWindows]' started.
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testDockReopenGetsSpaceBeforeExistingWindows]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testFloatingCenterDropInsertsWithoutDisplacingAndEmptyDisplayAcceptsDrop]' started.
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testFloatingCenterDropInsertsWithoutDisplacingAndEmptyDisplayAcceptsDrop]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testGripClampsAndDoesNotMutateSnapshot]' started.
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testGripClampsAndDoesNotMutateSnapshot]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testHoldIndicatorResetsWhenPointerMovesToCenter]' started.
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testHoldIndicatorResetsWhenPointerMovesToCenter]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testImpossibleDropShowsConflictWithoutChangingWorkspace]' started.
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testImpossibleDropShowsConflictWithoutChangingWorkspace]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testInfeasibleTargetIsNotOffered]' started.
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testInfeasibleTargetIsNotOffered]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testLeavingTargetResetsHoldAndOutsideDropCancels]' started.
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testLeavingTargetResetsHoldAndOutsideDropCancels]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testMotionAcceleratesAndSettlesGentlyWithoutOvershoot]' started.
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testMotionAcceleratesAndSettlesGentlyWithoutOvershoot]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testMotionEndpointsAndMonotonicity]' started.
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testMotionEndpointsAndMonotonicity]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testNativeBorderChangesAncestorAndNeighbor]' started.
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testNativeBorderChangesAncestorAndNeighbor]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testNativeDropQuickSwapAndTimedSplit]' started.
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testNativeDropQuickSwapAndTimedSplit]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testNativeSeamReclaimsRoundedStripWithoutChangingMembership]' started.
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testNativeSeamReclaimsRoundedStripWithoutChangingMembership]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testOffCenterGripKeepsAnchorAcrossBothAxesAndOddGaps]' started.
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testOffCenterGripKeepsAnchorAcrossBothAxesAndOddGaps]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testOfficialSparkleArchiveSignatureAndCorruptionRejection]' started.
+/private/tmp/bento-parity-reference/macos/Tests/BentoCoreTests/InteractionAndUpdateTests.swift:0: error: -[BentoCoreTests.InteractionAndUpdateTests testOfficialSparkleArchiveSignatureAndCorruptionRejection] : failed: caught error: "Error Domain=NSCocoaErrorDomain Code=4 "The file “sign_update” doesn’t exist." UserInfo={NSFilePath=/private/tmp/bento-parity-reference/macos/.build/artifacts/macos/Sparkle/bin/sign_update}"
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testOfficialSparkleArchiveSignatureAndCorruptionRejection]' failed (0.035 seconds).
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testPhysicalEdgeMovesWholeSectionWhenLeafSwapCannotFit]' started.
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testPhysicalEdgeMovesWholeSectionWhenLeafSwapCannotFit]' passed (0.003 seconds).
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testPreviewMatchesFinalSlotsAfterSourceRemovalAndMinimumClamping]' started.
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testPreviewMatchesFinalSlotsAfterSourceRemovalAndMinimumClamping]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testResumeRetainsDisplaySlotIdentityAndRatioWithoutAdmittingFloatingWindows]' started.
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testResumeRetainsDisplaySlotIdentityAndRatioWithoutAdmittingFloatingWindows]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testSectionMovementCarriesSourceGroupAndDoesNotActivateOnAnotherDisplay]' started.
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testSectionMovementCarriesSourceGroupAndDoesNotActivateOnAnotherDisplay]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testSectionMovePreservesClampedWidthsAndSkipsAlreadyOutermostSection]' started.
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testSectionMovePreservesClampedWidthsAndSkipsAlreadyOutermostSection]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testSignedOTAConfigurationRejectsUnsafeSources]' started.
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testSignedOTAConfigurationRejectsUnsafeSources]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testSplitCacheInvalidatesForWorkAreaAndGapAndMemoizesConflict]' started.
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testSplitCacheInvalidatesForWorkAreaAndGapAndMemoizesConflict]' passed (0.002 seconds).
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testSplitPreviewIsStableAcrossRepeatedSamplesInEveryDirection]' started.
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testSplitPreviewIsStableAcrossRepeatedSamplesInEveryDirection]' passed (0.003 seconds).
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testStatusHoldConsumesReleaseAndFiresOnce]' started.
+Test Case '-[BentoCoreTests.InteractionAndUpdateTests testStatusHoldConsumesReleaseAndFiresOnce]' passed (0.000 seconds).
+Test Suite 'InteractionAndUpdateTests' failed at 2026-10-18 20:12:58.860.
+	 Executed 24 tests, with 1 failure (1 unexpected) in 0.045 (0.046) seconds
+Test Suite 'LayoutTests' started at 2026-10-18 20:12:58.860.
+Test Case '-[BentoCoreTests.LayoutTests testActivationDoesNotHideFittingAppsToEnlargeThePrimary]' started.
+Test Case '-[BentoCoreTests.LayoutTests testActivationDoesNotHideFittingAppsToEnlargeThePrimary]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testAdmissionReflowsFragmentedSlotsBeforeEvictingAnApp]' started.
+Test Case '-[BentoCoreTests.LayoutTests testAdmissionReflowsFragmentedSlotsBeforeEvictingAnApp]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testAutomaticOneThroughTwelve]' started.
+Test Case '-[BentoCoreTests.LayoutTests testAutomaticOneThroughTwelve]' passed (0.001 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testChatAndTerminalFitEitherOrientationAtExactLimits]' started.
+Test Case '-[BentoCoreTests.LayoutTests testChatAndTerminalFitEitherOrientationAtExactLimits]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testCrossDisplaySwapAndRemoval]' started.
+Test Case '-[BentoCoreTests.LayoutTests testCrossDisplaySwapAndRemoval]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testCrowdedDockAdmissionReplacesOneSlotWithoutMovingNeighbors]' started.
+Test Case '-[BentoCoreTests.LayoutTests testCrowdedDockAdmissionReplacesOneSlotWithoutMovingNeighbors]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testDockAdmissionEvictsOldestAndOnlyAsManyAsNeeded]' started.
+Test Case '-[BentoCoreTests.LayoutTests testDockAdmissionEvictsOldestAndOnlyAsManyAsNeeded]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testDockAdmissionPreservesEditedLayoutWhenAllFit]' started.
+Test Case '-[BentoCoreTests.LayoutTests testDockAdmissionPreservesEditedLayoutWhenAllFit]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testEightAppCapacitySearchHasStableGeometry]' started.
+Test Case '-[BentoCoreTests.LayoutTests testEightAppCapacitySearchHasStableGeometry]' passed (0.037 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testFittingChoosesUsableSubsetWhenTogetherTooLarge]' started.
+Test Case '-[BentoCoreTests.LayoutTests testFittingChoosesUsableSubsetWhenTogetherTooLarge]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testFittingLeavesOversizedWindowsOut]' started.
+Test Case '-[BentoCoreTests.LayoutTests testFittingLeavesOversizedWindowsOut]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testFittingPreservesEditsAndRefreshesLearnedMinimums]' started.
+Test Case '-[BentoCoreTests.LayoutTests testFittingPreservesEditsAndRefreshesLearnedMinimums]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testFittingRejectsInvalidInputsRatherThanSkippingThem]' started.
+Test Case '-[BentoCoreTests.LayoutTests testFittingRejectsInvalidInputsRatherThanSkippingThem]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testFocusedAppDoesNotCauseEvictionForAnIndividuallyImpossibleWindow]' started.
+Test Case '-[BentoCoreTests.LayoutTests testFocusedAppDoesNotCauseEvictionForAnIndividuallyImpossibleWindow]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testFourDirectionsAndNoDuplicates]' started.
+Test Case '-[BentoCoreTests.LayoutTests testFourDirectionsAndNoDuplicates]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testHoldQuickDropCancellationAndJitter]' started.
+Test Case '-[BentoCoreTests.LayoutTests testHoldQuickDropCancellationAndJitter]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testImpossibleDockWindowDoesNotEvictUsableWindows]' started.
+Test Case '-[BentoCoreTests.LayoutTests testImpossibleDockWindowDoesNotEvictUsableWindows]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testInvalidAndImpossibleInputs]' started.
+Test Case '-[BentoCoreTests.LayoutTests testInvalidAndImpossibleInputs]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testLiveDockGeometryReplacesStaleReservation]' started.
+Test Case '-[BentoCoreTests.LayoutTests testLiveDockGeometryReplacesStaleReservation]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testNativeCellRoundingStaysInsideItsSlot]' started.
+Test Case '-[BentoCoreTests.LayoutTests testNativeCellRoundingStaysInsideItsSlot]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testOrderIndependentConstraintGrouping]' started.
+Test Case '-[BentoCoreTests.LayoutTests testOrderIndependentConstraintGrouping]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testPairCapacityMatchesBothPossibleSplitAxes]' started.
+Test Case '-[BentoCoreTests.LayoutTests testPairCapacityMatchesBothPossibleSplitAxes]' passed (0.008 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testPortraitAndAsymmetricMinima]' started.
+Test Case '-[BentoCoreTests.LayoutTests testPortraitAndAsymmetricMinima]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testRealBrowserAndChatLimitsKeepAllFourAppsUsable]' started.
+Test Case '-[BentoCoreTests.LayoutTests testRealBrowserAndChatLimitsKeepAllFourAppsUsable]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testRecentActivationHonorsAsymmetricLimitsAndImpossibleApps]' started.
+Test Case '-[BentoCoreTests.LayoutTests testRecentActivationHonorsAsymmetricLimitsAndImpossibleApps]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testRecentActivationPrimaryAndOldestOverflow]' started.
+Test Case '-[BentoCoreTests.LayoutTests testRecentActivationPrimaryAndOldestOverflow]' passed (0.001 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testSeededThousandOperationExercise]' started.
+Test Case '-[BentoCoreTests.LayoutTests testSeededThousandOperationExercise]' passed (0.022 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testSelectionKeepsMoreUsableAppsWithRecentUseAsTieBreaker]' started.
+Test Case '-[BentoCoreTests.LayoutTests testSelectionKeepsMoreUsableAppsWithRecentUseAsTieBreaker]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testSelectionUsesRecencyWhenEqualCountsFit]' started.
+Test Case '-[BentoCoreTests.LayoutTests testSelectionUsesRecencyWhenEqualCountsFit]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testSharedWindowsGeometryFixtures]' started.
+Test Case '-[BentoCoreTests.LayoutTests testSharedWindowsGeometryFixtures]' passed (0.001 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testSiblingPromotedAndInsertionPreservesRoot]' started.
+Test Case '-[BentoCoreTests.LayoutTests testSiblingPromotedAndInsertionPreservesRoot]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testUndoRedoBranchAndBound]' started.
+Test Case '-[BentoCoreTests.LayoutTests testUndoRedoBranchAndBound]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testVisibleNonFocusedAppCanReflowExistingSlots]' started.
+Test Case '-[BentoCoreTests.LayoutTests testVisibleNonFocusedAppCanReflowExistingSlots]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.LayoutTests testZoneBoundsAndRoundTripPersistence]' started.
+Test Case '-[BentoCoreTests.LayoutTests testZoneBoundsAndRoundTripPersistence]' passed (0.000 seconds).
+Test Suite 'LayoutTests' passed at 2026-10-18 20:12:58.933.
+	 Executed 34 tests, with 0 failures (0 unexpected) in 0.072 (0.073) seconds
+Test Suite 'ResizeHandleTests' started at 2026-10-18 20:12:58.933.
+Test Case '-[BentoCoreTests.ResizeHandleTests testBottomRowResizesHorizontallyWithoutMovingTopRow]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testBottomRowResizesHorizontallyWithoutMovingTopRow]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testCachePreservesHandlesAndInvalidatesEveryGeometryInput]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testCachePreservesHandlesAndInvalidatesEveryGeometryInput]' passed (0.003 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testCenterSelectsSharedRowAndSideSelectsLocalRow]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testCenterSelectsSharedRowAndSideSelectsLocalRow]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testColumnsHaveTheSameSharedAndLocalOptions]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testColumnsHaveTheSameSharedAndLocalOptions]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testDockReflowKeepsJoinedRowsWhenOneBranchHitsMinimum]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testDockReflowKeepsJoinedRowsWhenOneBranchHitsMinimum]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testEquivalentHandlesNeverMoveWindowsAndHaveStableIdentity]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testEquivalentHandlesNeverMoveWindowsAndHaveStableIdentity]' passed (0.001 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testGripInkSeparatesShortPillsWithoutChangingLargerHitTargets]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testGripInkSeparatesShortPillsWithoutChangingLargerHitTargets]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testImpossibleSharedRowRetainsMembershipWithoutOverlap]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testImpossibleSharedRowRetainsMembershipWithoutOverlap]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testJoinCandidatesOnlyIncludeSharedSections]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testJoinCandidatesOnlyIncludeSharedSections]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testJoinedFirstTwoColumnsExposeSharedGripBesideFullHeightThirdColumn]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testJoinedFirstTwoColumnsExposeSharedGripBesideFullHeightThirdColumn]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testJoiningOneSeamDoesNotCueAnUnrelatedExistingSeam]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testJoiningOneSeamDoesNotCueAnUnrelatedExistingSeam]' passed (0.001 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testLocalGripPaddingAndUniversalRemainderOnBothAxes]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testLocalGripPaddingAndUniversalRemainderOnBothAxes]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testLocalVerticalEditKeepsHorizontalResizeAvailable]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testLocalVerticalEditKeepsHorizontalResizeAvailable]' passed (0.001 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testMiddleRowCanResizeIndependentlyInThreeRowGrid]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testMiddleRowCanResizeIndependentlyInThreeRowGrid]' passed (0.001 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testMovingAnExistingJoinedGripDoesNotReplaySnapCue]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testMovingAnExistingJoinedGripDoesNotReplaySnapCue]' passed (0.001 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testNativeHeightResizeChangesOnlyItsLocalColumn]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testNativeHeightResizeChangesOnlyItsLocalColumn]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testNativeWidthResizeChangesOnlyItsLocalRow]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testNativeWidthResizeChangesOnlyItsLocalRow]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testNearbyColumnsSnapSymmetrically]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testNearbyColumnsSnapSymmetrically]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testNearbyRowsSnapAndRestorePerpendicularLocalHandles]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testNearbyRowsSnapAndRestorePerpendicularLocalHandles]' passed (0.001 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testNoGripIsOfferedWhenNeitherNeighborCanResize]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testNoGripIsOfferedWhenNeitherNeighborCanResize]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testRemovingPlanningPreferencesPreservesExactFittedGeometry]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testRemovingPlanningPreferencesPreservesExactFittedGeometry]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testRepeatedGeometryBenchmark]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testRepeatedGeometryBenchmark]' passed (0.081 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testSharedSectionsIncludeThreeSlotsWithoutRequiringTheFullLine]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testSharedSectionsIncludeThreeSlotsWithoutRequiringTheFullLine]' passed (0.003 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testShownMenuCorrectsStaleExpandedGeometryOnItsOwnDisplay]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testShownMenuCorrectsStaleExpandedGeometryOnItsOwnDisplay]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testSnapRespectsMinimumAndLeavesDistantSeamsAlone]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testSnapRespectsMinimumAndLeavesDistantSeamsAlone]' passed (0.000 seconds).
+Test Case '-[BentoCoreTests.ResizeHandleTests testTwoAppDividerIsSpecificAndMultiSlotDividerIsShared]' started.
+Test Case '-[BentoCoreTests.ResizeHandleTests testTwoAppDividerIsSpecificAndMultiSlotDividerIsShared]' passed (0.000 seconds).
+Test Suite 'ResizeHandleTests' passed at 2026-10-18 20:12:59.029.
+	 Executed 26 tests, with 0 failures (0 unexpected) in 0.095 (0.096) seconds
+Test Suite 'BentoCoreTests.xctest' failed at 2026-10-18 20:12:59.029.
+	 Executed 92 tests, with 1 failure (1 unexpected) in 0.235 (0.239) seconds
+Test Suite 'All tests' failed at 2026-10-18 20:12:59.030.
+	 Executed 92 tests, with 1 failure (1 unexpected) in 0.235 (0.240) seconds
+Grip geometry benchmark: 250 unchanged requests, uncached=80.07800579071045ms cached=0.42700767517089844ms; identical handles
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.
+Note: Some test targets reported failures:
+  - BentoCoreTests (XCTest)

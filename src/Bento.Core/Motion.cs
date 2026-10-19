@@ -2,7 +2,11 @@ namespace Bento.Core;
 
 public static class Motion
 {
-    public static double Ease(double progress) => 1 - Math.Pow(1 - Math.Clamp(progress, 0, 1), 3);
+    public static double Ease(double progress)
+    {
+        double t = Math.Clamp(progress, 0, 1);
+        return t * t * t * (t * (6 * t - 15) + 10);
+    }
     public static PixelRect Interpolate(PixelRect from, PixelRect to, double progress)
     {
         double t = Ease(progress);

@@ -63,7 +63,8 @@ public sealed class LayoutHistory
     public bool CanUndo => undo.Count > 0;
     public void Commit(WorkspaceState next)
     {
-        if (ReferenceEquals(next, Current)) return;
+        if (ReferenceEquals(next, Current) || next.Roots.Count(p => p.Value is not null) == Current.Roots.Count(p => p.Value is not null) &&
+            next.Roots.Where(p => p.Value is not null).All(p => Current.Roots.TryGetValue(p.Key, out var root) && root == p.Value)) return;
         undo.Push(Current);
         if (undo.Count > 100)
         {
@@ -73,6 +74,16 @@ public sealed class LayoutHistory
         }
         Current = next;
         redo.Clear();
+    }
+    public void Forget(long window)
+    {
+        Current = Current.Remove(window);
+        void Prune(Stack<WorkspaceState> stack)
+        {
+            var states = stack.Reverse().Select(s => s.Remove(window)).ToArray(); stack.Clear();
+            foreach (var state in states) stack.Push(state);
+        }
+        Prune(undo); Prune(redo);
     }
     public WorkspaceState Undo()
     {

@@ -12,7 +12,11 @@ public sealed class DesktopDividerWindow : Window
     private bool finishing;
     private readonly Border grip;
     private bool resizing;
+    private bool cueSuppressesInk;
     private PixelRect presentedBounds;
+    private ResizeHandle? geometry;
+    private IReadOnlyList<ResizeHandle>? geometryGroup;
+    private readonly List<Border> segments = new();
     public Guid SplitId => divider.SplitId;
     public PixelRect DesktopBounds => divider.Bounds;
     public string MonitorId => monitor.Id;
@@ -28,6 +32,7 @@ public sealed class DesktopDividerWindow : Window
     }
     public void UpdateDivider(Divider value)
     {
+        if (divider == value) return;
         divider = value; ResetPresentation();
     }
 
@@ -45,13 +50,13 @@ public sealed class DesktopDividerWindow : Window
         Cursor = horizontal ? Cursors.SizeWE : Cursors.SizeNS;
         grip = new Border
         {
-            Width = horizontal ? 2 : Math.Min(40, Width), Height = horizontal ? Math.Min(40, Height) : 2,
+            Width = horizontal ? 2 : Math.Min(80, Width), Height = horizontal ? Math.Min(80, Height) : 2,
             Background = Brushes.White, Opacity = 0, CornerRadius = new CornerRadius(1),
             HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
         };
         var area = new Grid { Background = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0)) };
         area.Children.Add(grip); Content = area;
-        MouseEnter += (_, _) => { RefreshContrast(); Animate(OpacityProperty, 1); };
+        MouseEnter += (_, _) => { RefreshContrast(); if (!cueSuppressesInk) Animate(OpacityProperty, 1); };
         MouseLeave += (_, _) => { if (!resizing && !IsMouseCaptured && !AreAnyTouchesCaptured) Animate(OpacityProperty, 0); };
         SourceInitialized += (_, _) =>
         {
@@ -60,27 +65,65 @@ public sealed class DesktopDividerWindow : Window
             DesktopIntegration.PositionOverlay(handle, divider.Bounds, topmost: false);
         };
     }
-    public void RefreshContrast() => grip.Background = WallpaperContrast.At(new(presentedBounds.X + presentedBounds.Width / 2, presentedBounds.Y + presentedBounds.Height / 2), controller.Settings.BackgroundDarkness);
+    public void SuppressInkForJoin(bool suppress)
+    {
+        if (cueSuppressesInk == suppress) return;
+        cueSuppressesInk = suppress;
+        Animate(OpacityProperty, !suppress && IsMouseOver ? 1 : 0);
+    }
+    public void UpdateHandle(ResizeHandle value, IReadOnlyList<ResizeHandle> all)
+    {
+        if (ReferenceEquals(geometry, value) && ReferenceEquals(geometryGroup, all)) return;
+        geometry = value; geometryGroup = all;
+        ResetPresentation();
+    }
+    public void RefreshContrast()
+    {
+        var ink = WallpaperContrast.At(new(presentedBounds.X + presentedBounds.Width / 2, presentedBounds.Y + presentedBounds.Height / 2), controller.Settings.BackgroundDarkness);
+        if (segments.Count == 0) grip.Background = ink;
+        else foreach (var segment in segments) segment.Background = ink;
+    }
+    private void RenderInk(PixelRect bounds, bool shared)
+    {
+        segments.Clear(); grip.Child = null;
+        bool h = divider.Axis == SplitAxis.Horizontal;
+        double span = (h ? bounds.Height : bounds.Width) / monitor.Scale;
+        Animate(WidthProperty, h ? 2 : shared ? span : Math.Min(80, span));
+        Animate(HeightProperty, h ? shared ? span : Math.Min(80, span) : 2);
+        if (shared && geometry is not null && geometryGroup is not null)
+        {
+            grip.Background = Brushes.Transparent;
+            var canvas = new Canvas(); grip.Child = canvas;
+            var centers = geometryGroup.Where(local => ResizeHandles.Contains(geometry, local)).Select(local =>
+                h ? (local.Divider.Bounds.Y + local.Divider.Bounds.Height / 2d - bounds.Y) / monitor.Scale
+                    : (local.Divider.Bounds.X + local.Divider.Bounds.Width / 2d - bounds.X) / monitor.Scale).Distinct();
+            foreach (var piece in GripInk.Segments(span, centers))
+            {
+                var segment = new Border { Width = h ? 2 : piece.End - piece.Start, Height = h ? piece.End - piece.Start : 2,
+                    Opacity = piece.Local ? 1 : .45, CornerRadius = new CornerRadius(1), IsHitTestVisible = false };
+                if (h) Canvas.SetTop(segment, piece.Start); else Canvas.SetLeft(segment, piece.Start);
+                segments.Add(segment); canvas.Children.Add(segment);
+            }
+        }
+        RefreshContrast();
+    }
     public void PresentResize(PixelRect bounds)
     {
-        bool first = !resizing;
-        bool moved = presentedBounds != bounds;
+        bool first = !resizing, moved = presentedBounds != bounds;
         resizing = true; presentedBounds = bounds;
-        bool horizontal = divider.Axis == SplitAxis.Horizontal;
-        Animate(WidthProperty, horizontal ? 2 : Math.Min(104, bounds.Width / monitor.Scale));
-        Animate(HeightProperty, horizontal ? Math.Min(104, bounds.Height / monitor.Scale) : 2);
-        grip.CornerRadius = new CornerRadius(1); Animate(OpacityProperty, 1);
-        if (first) RefreshContrast();
+        // A local gesture temporarily uses its own section, while a held shared
+        // seam retains the segmented long line and opaque local pills.
+        if (first || moved) RenderInk(bounds, geometry?.Shared == true &&
+            (divider.Axis == SplitAxis.Horizontal ? bounds.Height == divider.Bounds.Height : bounds.Width == divider.Bounds.Width));
+        Animate(OpacityProperty, 1);
         if (moved) DesktopIntegration.MoveOverlay(new WindowInteropHelper(this).Handle, bounds);
     }
     public void ResetPresentation()
     {
         bool moved = presentedBounds != divider.Bounds;
         resizing = false; presentedBounds = divider.Bounds;
-        bool horizontal = divider.Axis == SplitAxis.Horizontal;
-        Animate(WidthProperty, horizontal ? 2 : Math.Min(40, divider.Bounds.Width / monitor.Scale));
-        Animate(HeightProperty, horizontal ? Math.Min(40, divider.Bounds.Height / monitor.Scale) : 2);
-        grip.CornerRadius = new CornerRadius(1); Animate(OpacityProperty, IsMouseOver ? 1 : 0);
+        RenderInk(divider.Bounds, geometry?.Shared == true);
+        Animate(OpacityProperty, !cueSuppressesInk && IsMouseOver ? 1 : 0);
         if (moved) DesktopIntegration.MoveOverlay(new WindowInteropHelper(this).Handle, divider.Bounds);
     }
 

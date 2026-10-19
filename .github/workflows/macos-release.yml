@@ -105,7 +105,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Bento-windows-release
-          path: artifacts/Bento-win-x64.zip
+          path: |
+            artifacts/Bento-win-x64.zip
+            artifacts/Bento-windows-release.json
           if-no-files-found: error
 
   attach-windows:
@@ -120,7 +122,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ inputs.version }}
-        run: gh release upload "macos-v$RELEASE_VERSION" download/Bento-win-x64.zip --repo "$GITHUB_REPOSITORY"
+        run: gh release upload "macos-v$RELEASE_VERSION" download/Bento-win-x64.zip download/Bento-windows-release.json --repo "$GITHUB_REPOSITORY"
 
   refresh-notes:
     if: ${{ inputs.notes_only }}
