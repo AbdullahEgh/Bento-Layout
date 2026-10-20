@@ -520,6 +520,9 @@ struct DesktopInput {
         gestureAreas = nil; gestureDisplays = nil; gestureScreens = [:]; escapeRequested = false; releasePending = false
         snapshot = nil; candidate = nil; swapsSections = false; session = nil; grip = nil; gripWorkspace = nil; pressedWindow = nil; pressedFrame = nil
         liveTask = nil; liveFailure = false; nativeResize = false; model.interacting = false; finishing = false
+        // Native panel delivery can complete between polling samples. Reset the
+        // edge detector to the actual button state so the next press is captured.
+        wasPressed = input().pressed; waitForRelease = wasPressed
         model.onStateChange?()
         synchronize()
     }
