@@ -4,24 +4,23 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.42</title>
-            <pubDate>Mon, 19 Oct 2026 22:45:51 +0000</pubDate>
-            <sparkle:version>166</sparkle:version>
-            <sparkle:shortVersionString>0.2.42</sparkle:shortVersionString>
+            <title>0.2.43</title>
+            <pubDate>Tue, 20 Oct 2026 00:28:50 +0000</pubDate>
+            <sparkle:version>169</sparkle:version>
+            <sparkle:shortVersionString>0.2.43</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.42
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.43
 
-- Static, full-size drag slots with a clear selected destination.
-- Smoother organizing cover with a spinning indicator.
-- More reliable grips, Pause, and waiting-window replacement.
-- Apple Blue icon and controls.
+- Preserve your layout through Mac lock and unlock.
+- Recover grip controls after interrupted gestures.
+- Keep grip resizing inside the Dock’s available screen area.
 
-Downloads: macOS 0.2.42 and Windows 0.3.13 (Windows 11 x64, .NET 10 Desktop Runtime).
+Includes the unchanged Windows 0.3.14 download.
 ]]></description>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.42/Bento-macos-universal.zip" length="6110856" type="application/octet-stream" sparkle:edSignature="2l5uUVHNfE1rRWI/bkshsJFQ/Qw85FfAy1w/jviDc6i/JiJ2eoht1tv24MXNEcmmTFNNY/syN2oa44S5K8xOCw=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.43/Bento-macos-universal.zip" length="6124795" type="application/octet-stream" sparkle:edSignature="3u1yk4GtffjrNmEQI0cr4dgE+6qHp9Piw6/FnuoYrP70bUvl8n7T1iU9UUA0BomblonsGRKH79AxBHc3Q4LUBg=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: m85JB3cHfublQNS/UD95vZKe5bwT+nzutubTAIPBYaUzgY/7NcAmkVspbjiODBf6gYxx7SbRQ5xXV52HF/StBA==
-length: 1467
+edSignature: 5GONfmAaxl+F+ukU10kfVz51UJ3YTJDYuWSGecSH05xut9KxYPu2Y+dhIIQmre9+WRjFjd9f6uauRsfOjdwECw==
+length: 1382
 -->
