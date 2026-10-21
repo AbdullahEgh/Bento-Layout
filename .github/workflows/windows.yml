@@ -51,8 +51,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/macos-v0.2.42" > mac-source.json
-          gh release download macos-v0.2.42 --repo "$GITHUB_REPOSITORY" --pattern Bento-macos-universal.zip --dir download
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/macos-v0.2.44" > mac-source.json
+          gh release download macos-v0.2.44 --repo "$GITHUB_REPOSITORY" --pattern Bento-macos-universal.zip --dir download
           python3 tools/verify-windows-release.py download mac-source.json
       - name: Publish tested assets to the existing Windows OTA channel
         env:

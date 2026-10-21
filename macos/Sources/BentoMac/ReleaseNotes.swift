@@ -7,6 +7,10 @@ struct ReleaseNotes: Identifiable {
 
     // Keep newest first; ship the log with the app so it also works offline.
     static let history: [ReleaseNotes] = [
+        .init(version: "0.2.44", points: [
+            "Recover grips after long locks and sleep.",
+            "Refresh stale Mission Control and window state without rebuilding your layout.",
+        ]),
         .init(version: "0.2.43", points: [
             "Preserve your layout through Mac lock and unlock.",
             "Recover grip controls after interrupted gestures.",

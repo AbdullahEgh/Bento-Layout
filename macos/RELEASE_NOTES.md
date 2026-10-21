@@ -1,7 +1,6 @@
-Bento for macOS 0.2.43
+Bento for macOS 0.2.44
 
-- Preserve your layout through Mac lock and unlock.
-- Recover grip controls after interrupted gestures.
-- Keep grip resizing inside the Dock’s available screen area.
+- Recover grips after long locks and sleep.
+- Clear stale Mission Control and window state while preserving your layout.
 
-Includes the unchanged Windows 0.3.14 download.
+Includes macOS 0.2.44 and Windows 0.3.15 downloads.
