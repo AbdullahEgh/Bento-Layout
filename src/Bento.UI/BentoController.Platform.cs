@@ -94,23 +94,41 @@ public sealed partial class BentoController
                     catch (Exception ex) { Report(ex.Message); }
         };
     }
+    private void SuspendEnvironment()
+    {
+        if (environmentSuspended) return;
+        environmentSuspended = true; session.NeedsReapply |= automatic; sessions.Invalidate(); CancelSettled();
+        transition?.Dispose(); transition = null; geometryTimer.Stop(); membershipTimer.Stop();
+        ClearDrag(restoreLive: false); activeNativeDrag = 0; nativeStartBounds = null;
+        pendingGeometry = null; resizeHandles.Clear();
+        CloseDesktopHelpers(); CloseBackdrops(); ClosePausedShades(); CloseJoinCues();
+        pointer?.Dispose(); pointer = null;
+        UpdateLeases(); trayInterface.Refresh();
+    }
+    private void SessionChanged(object sender, Microsoft.Win32.SessionSwitchEventArgs args) => Dispatch(() =>
+    {
+        if (args.Reason is Microsoft.Win32.SessionSwitchReason.SessionLock or Microsoft.Win32.SessionSwitchReason.SessionUnlock
+            or Microsoft.Win32.SessionSwitchReason.ConsoleDisconnect or Microsoft.Win32.SessionSwitchReason.ConsoleConnect
+            or Microsoft.Win32.SessionSwitchReason.RemoteDisconnect or Microsoft.Win32.SessionSwitchReason.RemoteConnect)
+            SuspendEnvironment();
+    }, scoped: false);
+    private void PowerChanged(object sender, Microsoft.Win32.PowerModeChangedEventArgs args) => Dispatch(() =>
+    {
+        if (args.Mode is Microsoft.Win32.PowerModes.Suspend or Microsoft.Win32.PowerModes.Resume)
+            SuspendEnvironment();
+    }, scoped: false);
     private bool EnsureDesktop()
     {
         if (disposed) return false;
         if (desktopEnvironment is null) return !overview;
         var sample = desktopEnvironment.Sample();
+        // A lost Task View exit event must not latch helpers off indefinitely.
+        // The live environment sample includes the current shell overview state.
+        if (environmentSuspended && !sample.Suspended && sample.Desktop is { } current && current != Guid.Empty)
+            overview = false;
         if (sample.Suspended || sample.Desktop is not { } desktop || desktop == Guid.Empty || overview)
         {
-            if (!environmentSuspended)
-            {
-                environmentSuspended = true; session.NeedsReapply |= automatic; sessions.Invalidate(); CancelSettled();
-                transition?.Dispose(); transition = null; geometryTimer.Stop(); membershipTimer.Stop();
-                ClearDrag(restoreLive: false); activeNativeDrag = 0; nativeStartBounds = null;
-                CloseDesktopHelpers(); CloseBackdrops(); ClosePausedShades(); CloseJoinCues(); pointer?.Dispose(); pointer = null;
-                // Restore owned shell preferences while the active desktop is
-                // unknown. Fullscreen detection itself does not take this path.
-                UpdateLeases(); trayInterface.Refresh();
-            }
+            SuspendEnvironment();
             Status = sample.Reason ?? "Desktop transition: arrangement deferred.";
             return false;
         }

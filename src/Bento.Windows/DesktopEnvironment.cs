@@ -37,7 +37,7 @@ public sealed class DesktopEnvironment : IDesktopEnvironment
         {
             manager ??= (IVirtualDesktopManager)(Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid("AA509086-5CA9-4C25-8F95-589D3C07B48A"), throwOnError: true)!)
                 ?? throw new InvalidOperationException("Virtual desktop manager is unavailable."));
-            bool locked = SHQueryUserNotificationState(out int state) >= 0 && state == 1;
+            bool locked = !InteractiveDesktop();
             bool overview = ShellOverview();
             suspended = locked || overview;
             if (suspended) return new(identity, true, locked ? "Session locked or not present." : "Desktop overview or shell transition.");
@@ -55,7 +55,7 @@ public sealed class DesktopEnvironment : IDesktopEnvironment
     public bool IsCurrent(Guid desktop)
     {
         return !disposed && !suspended && desktop != Guid.Empty && identity == desktop && manager is not null &&
-            !(SHQueryUserNotificationState(out int state) >= 0 && state == 1) && !ShellOverview() && readIdentity() == desktop;
+            InteractiveDesktop() && !ShellOverview() && readIdentity() == desktop;
     }
     public bool Contains(Guid desktop, long window)
     {
@@ -114,5 +114,23 @@ public sealed class DesktopEnvironment : IDesktopEnvironment
         if (connection is not null)
             try { Marshal.FinalReleaseComObject(connection); } catch (InvalidComObjectException) { /* Explorer already disconnected. */ }
     }
-    [DllImport("shell32.dll")] private static extern int SHQueryUserNotificationState(out int state);
+    // Notification availability is not session-lock state (it also includes idle
+    // and presentation modes). Query the actual input desktop on every sample.
+    private static bool InteractiveDesktop()
+    {
+        nint desktop = OpenInputDesktop(0, false, 0x0001); // DESKTOP_READOBJECTS
+        if (desktop == 0) return false;
+        try
+        {
+            var name = new StringBuilder(256);
+            return GetUserObjectInformation(desktop, 2, name, name.Capacity * sizeof(char), out _) &&
+                string.Equals(name.ToString(), "Default", StringComparison.OrdinalIgnoreCase);
+        }
+        finally { CloseDesktop(desktop); }
+    }
+    [DllImport("user32.dll", SetLastError = true)] private static extern nint OpenInputDesktop(uint flags, [MarshalAs(UnmanagedType.Bool)] bool inherit, uint access);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static extern bool GetUserObjectInformation(nint handle, int index, StringBuilder value, int length, out int needed);
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)] private static extern bool CloseDesktop(nint desktop);
 }

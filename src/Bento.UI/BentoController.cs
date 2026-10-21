@@ -106,6 +106,8 @@ public sealed partial class BentoController : IDisposable
         timer.Tick += (_, _) => Tick(); timer.Start();
         ConfigurePlatformTimers();
         Microsoft.Win32.SystemEvents.UserPreferenceChanged += AppearanceChanged;
+        Microsoft.Win32.SystemEvents.SessionSwitch += SessionChanged;
+        Microsoft.Win32.SystemEvents.PowerModeChanged += PowerChanged;
         if (!shortcut) Report($"Could not register {Settings.Shortcut} (Windows error {shortcutError}). Choose another shortcut in tray settings.");
         // Session overrides are acquired only after activation on a proven desktop.
         }
@@ -118,6 +120,8 @@ public sealed partial class BentoController : IDisposable
                 () => { if (source is not null) { DesktopIntegration.UnregisterShortcut(source.Handle, 1); source.Dispose(); } } })
                 try { release(); } catch { /* Preserve the initialization failure. */ }
             Microsoft.Win32.SystemEvents.UserPreferenceChanged -= AppearanceChanged;
+        Microsoft.Win32.SystemEvents.SessionSwitch -= SessionChanged;
+        Microsoft.Win32.SystemEvents.PowerModeChanged -= PowerChanged;
             throw;
         }
     }
@@ -1009,6 +1013,8 @@ public sealed partial class BentoController : IDisposable
         activeNativeDrag = 0; nativeStartBounds = null; completingNativeGesture = 0;
         resizeHandles.Clear(); workAreaBaseline.Clear(); savedSession = null; lastBento = null;
         Microsoft.Win32.SystemEvents.UserPreferenceChanged -= AppearanceChanged;
+        Microsoft.Win32.SystemEvents.SessionSwitch -= SessionChanged;
+        Microsoft.Win32.SystemEvents.PowerModeChanged -= PowerChanged;
         Cleanup(WallpaperContrast.Invalidate); Cleanup(events.Dispose); Cleanup(() => transition?.Dispose());
         Cleanup(CloseDesktopHelpers); Cleanup(() => appWindow?.Close()); Cleanup(CloseBackdrops);
         sessions.Clear(); Cleanup(() => desktopEnvironment?.Dispose());
