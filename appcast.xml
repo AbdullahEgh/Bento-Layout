@@ -4,23 +4,22 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.43</title>
-            <pubDate>Tue, 20 Oct 2026 00:28:50 +0000</pubDate>
-            <sparkle:version>169</sparkle:version>
-            <sparkle:shortVersionString>0.2.43</sparkle:shortVersionString>
+            <title>0.2.44</title>
+            <pubDate>Wed, 21 Oct 2026 13:35:43 +0000</pubDate>
+            <sparkle:version>170</sparkle:version>
+            <sparkle:shortVersionString>0.2.44</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.43
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.44
 
-- Preserve your layout through Mac lock and unlock.
-- Recover grip controls after interrupted gestures.
-- Keep grip resizing inside the Dock’s available screen area.
+- Recover grips after long locks and sleep.
+- Clear stale Mission Control and window state while preserving your layout.
 
-Includes the unchanged Windows 0.3.14 download.
+Includes macOS 0.2.44 and Windows 0.3.15 downloads.
 ]]></description>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.43/Bento-macos-universal.zip" length="6124795" type="application/octet-stream" sparkle:edSignature="3u1yk4GtffjrNmEQI0cr4dgE+6qHp9Piw6/FnuoYrP70bUvl8n7T1iU9UUA0BomblonsGRKH79AxBHc3Q4LUBg=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.44/Bento-macos-universal.zip" length="6127846" type="application/octet-stream" sparkle:edSignature="/gshqa2Znphz0VqsNI+YOphioLXuaDOdw81D8KNzGuy+csALJMKmOswhz9aMH7kpELmfWI0AQNCl+zph7iimBA=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: 5GONfmAaxl+F+ukU10kfVz51UJ3YTJDYuWSGecSH05xut9KxYPu2Y+dhIIQmre9+WRjFjd9f6uauRsfOjdwECw==
-length: 1382
+edSignature: ZzDnU0OFT4e/oOWsxWjSPLDP7PRLF0t6E629KJisbOqrPj7fIV9nLtveJS/ijE/9b7qpMZhOfslytoMMWyd2Dg==
+length: 1339
 -->
