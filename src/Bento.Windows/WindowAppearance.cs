@@ -23,4 +23,11 @@ public static class WindowAppearance
         return DwmExtendFrameIntoClientArea(hwnd, ref margins) >= 0 &&
             DwmSetWindowAttribute(hwnd, 38, ref backdrop, sizeof(int)) >= 0;
     }
+    public static void ClearBackdrop(nint hwnd)
+    {
+        int none = 1;
+        DwmSetWindowAttribute(hwnd, 38, ref none, sizeof(int));
+        var margins = new Margins();
+        DwmExtendFrameIntoClientArea(hwnd, ref margins);
+    }
 }

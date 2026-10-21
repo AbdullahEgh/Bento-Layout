@@ -23,6 +23,7 @@ public sealed class BentoWindow : Window
     private BentoSettings draft;
     private string page = "Workspace";
     private bool busy;
+    private Action? cancelShortcutRecording;
     private bool? draftStartAtLogin;
     private readonly System.Threading.CancellationTokenSource lifetime = new();
     private readonly System.Threading.CancellationToken cancellation;
@@ -86,11 +87,14 @@ public sealed class BentoWindow : Window
         Closing += (_, _) => { autoSave.Stop(); if (pendingSave) Save(); };
         refresh.Tick += (_, _) => RefreshWorkspaceStatus();
         refresh.Start(); Closed += (_, _) => { closed = true; refresh.Stop(); autoSave.Stop(); lifetime.Cancel(); lifetime.Dispose(); };
+        Deactivated += (_, _) => cancelShortcutRecording?.Invoke();
+        Closed += (_, _) => cancelShortcutRecording?.Invoke();
         SelectPage("Workspace");
     }
     public void SelectPage(string name)
     {
         if (busy) return;
+        cancelShortcutRecording?.Invoke(); cancelShortcutRecording = null;
         page = name; compactNavigation.SelectedItem = name == "Update Log" ? "What's New" : name; content.Children.Clear(); scroll.ScrollToTop();
         bool reading = name is "What's New" or "Update Log";
         feedback.Visibility = reading ? Visibility.Collapsed : Visibility.Visible;
@@ -202,7 +206,7 @@ public sealed class BentoWindow : Window
     private void Workspace()
     {
         status = new(); count = new();
-        Heading("Your workspace", "A little structure. More room to focus.");
+        Heading("Workspace", "Arrange and manage your open windows.");
         var hero = Card(); status.Text = controller.Suspended ? "Waiting for this desktop" : controller.Paused ? "Bento is paused" : controller.Automatic ? "Bento is active" : "Bento is off"; status.FontSize = 18; status.FontWeight = FontWeights.SemiBold;
         count.Text = $"{controller.ManagedCount} arranged · {controller.MinimizedCount} minimized · {controller.OutsideCount} outside"; count.SetResourceReference(TextBlock.ForegroundProperty, "Secondary"); count.Margin = new Thickness(0, 4, 0, 16);
         var intro = new StackPanel { Margin = new Thickness(2, 16, 2, 15) }; intro.Children.Add(status); intro.Children.Add(count);
@@ -279,7 +283,8 @@ public sealed class BentoWindow : Window
     }
     private void Gestures()
     {
-        Heading("Make it feel right", "Drag to swap. Hold at an edge to split.");
+        Heading("Gestures", "Drag to swap. Hold at an edge to split.");
+        ShortcutSettings();
         var guide = Card();
         var illustration = new Grid { Height = 80, Margin = new Thickness(0, 14, 0, 14) };
         illustration.ColumnDefinitions.Add(new()); illustration.ColumnDefinitions.Add(new() { Width = new GridLength(42) }); illustration.ColumnDefinitions.Add(new());
@@ -291,27 +296,83 @@ public sealed class BentoWindow : Window
         Row(gestures, "Hold to split", "Wait at an edge until the slot divides.\n0 ms splits immediately.", Range(draft.SplitHoldMs, 0, 2000, 50, " ms", n => draft = draft with { SplitHoldMs = n }));
         Row(gestures, "Smooth transitions", "Respects Windows reduced-motion settings", Toggle(draft.Animate, v => draft = draft with { Animate = v }));
         Row(gestures, "Transition duration", "Short and quiet", Range(draft.AnimationMs, 80, 400, 20, " ms", n => draft = draft with { AnimationMs = n }));
-        var windows = Card("Keyboard shortcut");
-        var hotkey = new TextBox { Text = draft.Shortcut, IsReadOnly = true, IsEnabled = draft.ShortcutEnabled, Width = 140, ToolTip = "Click, then press a modifier plus a letter or number." };
-        AutomationProperties.SetName(hotkey, "Shortcut keys");
+    }
+    private void ShortcutSettings()
+    {
+        var card = Card("Keyboard");
+        var hotkey = new TextBox { Text = draft.Shortcut, Width = 185, IsReadOnly = true,
+            IsReadOnlyCaretVisible = false, TextAlignment = TextAlignment.Center, ToolTip = "Click, then press your shortcut. Escape cancels." };
+        AutomationProperties.SetName(hotkey, "Record toggle shortcut");
+        AutomationProperties.SetHelpText(hotkey, "Press modifiers and a letter or number. Saved when you release the keys. Escape cancels.");
+        bool recording = false, updatingToggle = false;
+        (uint Modifiers, uint Key)? pending = null;
+        void Cancel()
+        {
+            if (!recording) return;
+            recording = false; pending = null; controller.EditingShortcut = false;
+            hotkey.Text = draft.Shortcut;
+        }
+        cancelShortcutRecording = Cancel;
+        void Begin()
+        {
+            if (recording) return;
+            recording = true; pending = null; controller.EditingShortcut = true;
+            hotkey.Text = "Press shortcut…";
+        }
+        hotkey.GotKeyboardFocus += (_, _) => Begin();
+        hotkey.PreviewMouseLeftButtonDown += (_, _) => Begin();
+        hotkey.LostKeyboardFocus += (_, _) => Cancel();
+        hotkey.Unloaded += (_, _) => Cancel();
+        bool ApplyShortcut(bool enabled, uint modifiers, uint key)
+        {
+            Cancel(); // Restore registration before validating the replacement with Windows.
+            if (!controller.UpdateSettings(controller.Settings with { ShortcutEnabled = enabled, Modifiers = modifiers, Key = key }))
+            { feedback.Text = controller.Status; return false; }
+            draft = draft with { ShortcutEnabled = enabled, Modifiers = modifiers, Key = key };
+            hotkey.Text = draft.Shortcut;
+            Dirty(); feedback.Text = "Shortcut saved";
+            return true;
+        }
         hotkey.PreviewKeyDown += (_, e) =>
         {
-            if (e.Key is Key.Tab or Key.Escape) return;
-            e.Handled = true; var key = e.Key == Key.System ? e.SystemKey : e.Key; uint vk = (uint)KeyInterop.VirtualKeyFromKey(key); var m = Keyboard.Modifiers;
-            if (!((vk is >= 0x30 and <= 0x39) || (vk is >= 0x41 and <= 0x5A)) || m == ModifierKeys.None) return;
-            uint modifiers = ((m & ModifierKeys.Alt) != 0 ? 1u : 0) | ((m & ModifierKeys.Control) != 0 ? 2u : 0) | ((m & ModifierKeys.Shift) != 0 ? 4u : 0) | ((m & ModifierKeys.Windows) != 0 ? 8u : 0);
-            draft = draft with { Key = vk, Modifiers = modifiers }; hotkey.Text = draft.Shortcut; Dirty();
+            var key = e.Key == Key.System ? e.SystemKey : e.Key;
+            if (key == Key.Tab) { Cancel(); return; }
+            e.Handled = true;
+            if (key == Key.Escape) { Cancel(); hotkey.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next)); return; }
+            if (!recording) Begin();
+            if (e.IsRepeat) return;
+            uint vk = (uint)KeyInterop.VirtualKeyFromKey(key);
+            var held = Keyboard.Modifiers;
+            if (!((vk is >= 0x30 and <= 0x39) || (vk is >= 0x41 and <= 0x5A)) || held == ModifierKeys.None) return;
+            uint mask = ((held & ModifierKeys.Alt) != 0 ? 1u : 0) | ((held & ModifierKeys.Control) != 0 ? 2u : 0)
+                | ((held & ModifierKeys.Shift) != 0 ? 4u : 0) | ((held & ModifierKeys.Windows) != 0 ? 8u : 0);
+            pending = (mask, vk); hotkey.Text = (draft with { Modifiers = mask, Key = vk }).Shortcut;
+        };
+        hotkey.PreviewKeyUp += (_, e) =>
+        {
+            if (!recording) return;
+            e.Handled = true;
+            if (Keyboard.Modifiers != ModifierKeys.None || pending is not { } combination) return;
+            ApplyShortcut(draft.ShortcutEnabled, combination.Modifiers, combination.Key);
+            hotkey.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next));
         };
         var shortcutControls = new StackPanel { Orientation = Orientation.Horizontal };
-        var shortcutEnabled = Toggle(draft.ShortcutEnabled, enabled => { draft = draft with { ShortcutEnabled = enabled }; hotkey.IsEnabled = enabled; });
+        var shortcutEnabled = new CheckBox { IsChecked = draft.ShortcutEnabled, VerticalAlignment = VerticalAlignment.Center };
+        void EnableChanged()
+        {
+            if (updatingToggle) return;
+            if (!ApplyShortcut(shortcutEnabled.IsChecked == true, draft.Modifiers, draft.Key))
+            { updatingToggle = true; shortcutEnabled.IsChecked = draft.ShortcutEnabled; updatingToggle = false; }
+        }
+        shortcutEnabled.Checked += (_, _) => EnableChanged(); shortcutEnabled.Unchecked += (_, _) => EnableChanged();
         shortcutEnabled.Margin = new Thickness(0, 0, 10, 0);
         AutomationProperties.SetName(shortcutEnabled, "Enable toggle shortcut");
         shortcutControls.Children.Add(shortcutEnabled); shortcutControls.Children.Add(hotkey);
-        Row(windows, "Toggle Bento shortcut", "Change the keys or turn the shortcut off", shortcutControls);
+        Row(card, "Toggle Bento", "Click the field and press your keys.\nSaves immediately. Switch off to disable.", shortcutControls);
     }
     private void Updates()
     {
-        Heading("Always getting better", $"You're running Bento {UpdateService.CurrentVersion}.");
+        Heading("Updates", $"You're running Bento {UpdateService.CurrentVersion}.");
         var updates = Card("Updates");
         var repository = new TextBox { Text = draft.UpdateRepository, Width = 210, ToolTip = "owner/Bento-Layout" };
         repository.TextChanged += (_, _) => { draft = draft with { UpdateRepository = repository.Text.Trim() }; Dirty(); };
@@ -361,6 +422,7 @@ public sealed class BentoWindow : Window
         local.Click += (_, _) =>
         {
             if (busy) return;
+            cancelShortcutRecording?.Invoke(); cancelShortcutRecording = null;
             var dialog = new OpenFileDialog { Filter = "Bento update (*.zip)|*.zip", Title = "Choose a Bento update" };
             if (dialog.ShowDialog(this) == true) PrepareInstall(dialog.FileName, result, updates);
         };

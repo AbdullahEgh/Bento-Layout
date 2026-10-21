@@ -14,7 +14,7 @@ internal sealed class TrayInterface : IDisposable
     private readonly List<Drawing.Image> menuImages = new();
     private Drawing.Icon? image;
     private bool disposed;
-    private (bool Active, bool Paused, bool Suspended, bool Dark, bool TaskbarDark)? appearance;
+    private (bool Active, bool Paused, bool Suspended, bool Dark, bool TaskbarDark, bool Contrast)? appearance;
 
     public TrayInterface(BentoController controller, Action rememberActive, Func<long> activeWindow)
     {
@@ -66,13 +66,13 @@ internal sealed class TrayInterface : IDisposable
         pause.Enabled = toggle.Enabled = !controller.Suspended;
         undo.Enabled = active && !paused && !controller.Suspended;
         Icon.Text = controller.Suspended ? "Bento waiting for desktop · Right-click for settings" : paused ? "Bento paused · Click to resume · Hold to hide taskbar" : active ? "Bento active · Click to pause · Hold to hide taskbar" : "Bento off · Click to arrange windows";
-        var next = (active, paused, controller.Suspended, dark, taskbarDark);
+        var next = (active, paused, controller.Suspended, dark, taskbarDark, SystemParameters.HighContrast);
         if (appearance == next) return;
         appearance = next;
         var old = image; image = AppIcons.CreateTrayIcon(active && !controller.Suspended, taskbarDark, paused && !controller.Suspended); Icon.Icon = image; old?.Dispose();
-        menu.Renderer = new MenuRenderer(dark);
-        menu.BackColor = dark ? Drawing.Color.FromArgb(32, 34, 38) : Drawing.Color.FromArgb(250, 250, 250);
-        menu.ForeColor = dark ? Drawing.Color.FromArgb(240, 242, 245) : Drawing.Color.FromArgb(30, 32, 36);
+        menu.Renderer = SystemParameters.HighContrast ? new Forms.ToolStripSystemRenderer() : new MenuRenderer(dark);
+        menu.BackColor = SystemParameters.HighContrast ? Drawing.SystemColors.Menu : dark ? Drawing.Color.FromArgb(32, 34, 38) : Drawing.Color.FromArgb(250, 250, 250);
+        menu.ForeColor = SystemParameters.HighContrast ? Drawing.SystemColors.MenuText : dark ? Drawing.Color.FromArgb(240, 242, 245) : Drawing.Color.FromArgb(30, 32, 36);
         foreach (var previous in menuImages) previous.Dispose(); menuImages.Clear();
         int glyph = 0;
         foreach (Forms.ToolStripItem item in menu.Items)

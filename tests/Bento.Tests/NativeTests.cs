@@ -81,7 +81,7 @@ internal static class NativeTests
                 var picker = Descendants<ComboBox>(settings).Single(c => System.Windows.Automation.AutomationProperties.GetName(c) == "Settings page");
                 Check(picker.IsVisible); Check(settings.ActualWidth <= 361);
                 picker.SelectedItem = "Gestures"; Pump();
-                Check(Descendants<TextBox>(settings).Any(t => System.Windows.Automation.AutomationProperties.GetName(t) == "Shortcut keys"));
+                Check(Descendants<TextBox>(settings).Any(t => System.Windows.Automation.AutomationProperties.GetName(t) == "Record toggle shortcut"));
                 picker.SelectedItem = "Workspace"; Pump();
                 foreach (var control in Descendants<Slider>(settings))
                 {
@@ -91,9 +91,38 @@ internal static class NativeTests
                 settings.Width = 850; Pump(); Equal(settings.ActualWidth < 680, picker.IsVisible);
             });
             Run("Settings are not topmost", () => Check(!settings.Topmost));
+            Run("Shortcut recorder cancels on navigation and allows editing while disabled", () =>
+            {
+                settings.SelectPage("Gestures");
+                var recorder = Descendants<TextBox>(settings).Single(t => System.Windows.Automation.AutomationProperties.GetName(t) == "Record toggle shortcut");
+                Check(recorder.IsEnabled); Check(!controller.Settings.ShortcutEnabled);
+                recorder.RaiseEvent(new System.Windows.Input.KeyboardFocusChangedEventArgs(System.Windows.Input.Keyboard.PrimaryDevice, 0, settings, recorder)
+                    { RoutedEvent = System.Windows.Input.Keyboard.GotKeyboardFocusEvent });
+                Check(controller.EditingShortcut); Equal("Press shortcut…", recorder.Text);
+                settings.SelectPage("Workspace"); Check(!controller.EditingShortcut);
+            });
+            Run("Accent text retains contrast for light and dark Windows accent colors", () =>
+            {
+                Equal(Colors.Black, AppTheme.ForegroundOn(Colors.Yellow));
+                Equal(Colors.White, AppTheme.ForegroundOn(Colors.Navy));
+                foreach (string theme in new[] { "Light", "Dark" })
+                {
+                    AppTheme.Apply(theme);
+                    var text = (SolidColorBrush)Application.Current!.Resources["Text"];
+                    var surface = (SolidColorBrush)Application.Current.Resources["Surface"];
+                    Check(text.Color != surface.Color);
+                }
+                AppTheme.Apply(controller.Settings.Theme);
+            });
             Run("Foreground fixture starts above settings", () => Check(IsAbove(other, settings)));
             for (int i = 0; i < 3; i++) { controller.Refresh(); Pump(); }
             Run("Desktop refresh keeps settings behind another window", () => Check(IsAbove(other, settings)));
+            if (Environment.GetCommandLineArgs().Contains("--settings-inspect"))
+            {
+                other.Close(); settings.Activate();
+                var until = DateTime.UtcNow.AddMinutes(3);
+                while (DateTime.UtcNow < until && settings.IsVisible) Pump();
+            }
         }
         finally { other.Close(); settings.Close(); }
     }
@@ -128,6 +157,23 @@ internal static class NativeTests
             int error = DesktopIntegration.ShortcutError;
             try { if (!registered) throw new Exception($"RegisterHotKey returned Windows error {error}."); }
             finally { if (registered) DesktopIntegration.UnregisterShortcut(0, 0x5B20); }
+        });
+        Run("Shortcut recording releases its binding, restores on cancel, and keeps the old shortcut on conflict", () =>
+        {
+            using var binding = new ShortcutRegistration(0, 0x5B21);
+            using var competitor = new ShortcutRegistration(0, 0x5B22);
+            Check(binding.Configure(true, 7, 0x78)); Check(binding.IsRegistered);
+            Check(!competitor.Configure(true, 7, 0x78));
+            binding.Suspend(); Check(!binding.IsRegistered);
+            Check(competitor.Configure(true, 7, 0x78));
+            Check(!binding.Resume()); Check(!binding.IsRegistered);
+            Check(competitor.Configure(false, 7, 0x78));
+            Check(binding.Resume()); Check(binding.IsRegistered);
+            Check(competitor.Configure(true, 7, 0x79));
+            Check(!binding.Configure(true, 7, 0x79)); Check(binding.IsRegistered);
+            Check(!competitor.Configure(true, 7, 0x78));
+            Check(binding.Configure(false, 7, 0x78)); Check(!binding.IsRegistered);
+            Check(binding.Configure(true, 7, 0x78)); Check(binding.IsRegistered);
         });
         string prefix = $"Bento fixture {Guid.NewGuid():N}";
         var processes = new List<Process>();
@@ -332,6 +378,34 @@ internal static class NativeTests
                 timeout.Start(); Application.Current!.Run(); return;
             }
             Run("Desktop arrangement keeps the active application focused", () => Equal(foreground, WindowCatalog.Foreground));
+            Run("Delayed native move events restore a managed window dropped in its own slot", () =>
+            {
+                var region = controller.Layout(monitor).Regions.First();
+                var center = new PixelPoint(region.Bounds.X + region.Bounds.Width / 2, region.Bounds.Y + region.Bounds.Height / 2);
+                // Both queued callbacks run after the native window has moved.
+                controller.QueueNativeDrag(region.Window.WindowId, true, center);
+                native.Move(region.Window.WindowId, region.Bounds with { X = region.Bounds.X + 40, Y = region.Bounds.Y + 40 });
+                controller.QueueNativeDrag(region.Window.WindowId, false, center);
+                Pump(); Pump();
+                Equal(region.Bounds, native.VisibleBounds(region.Window.WindowId));
+                Check(!controller.Dragging);
+                VerifyBounds(controller.Layout(monitor), native);
+            });
+            Run("Queued native release uses its captured destination and creates one undo step", () =>
+            {
+                var before = controller.Layout(monitor).Regions.ToArray();
+                var source = before[0]; var target = before[1];
+                var start = new PixelPoint(source.Bounds.X + source.Bounds.Width / 2, source.Bounds.Y + source.Bounds.Height / 2);
+                var release = new PixelPoint(target.Bounds.X + target.Bounds.Width / 2, target.Bounds.Y + target.Bounds.Height / 2);
+                controller.QueueNativeDrag(source.Window.WindowId, true, start);
+                native.Move(source.Window.WindowId, source.Bounds with { X = source.Bounds.X + 40, Y = source.Bounds.Y + 40 });
+                controller.QueueNativeDrag(source.Window.WindowId, false, release);
+                Pump(); Pump();
+                Equal(target.Bounds, native.VisibleBounds(source.Window.WindowId));
+                VerifyBounds(controller.Layout(monitor), native);
+                controller.Undo(); Pump(); Pump();
+                foreach (var region in before) Equal(region.Bounds, native.VisibleBounds(region.Window.WindowId));
+            });
             Run("Desktop arrangement has no blueprint or visible drop preview", () =>
             {
                 Check(!Application.Current!.Windows.OfType<DropPreviewWindow>().Any(w => w.IsVisible));
@@ -502,7 +576,7 @@ internal static class NativeTests
                 Equal(1, Application.Current.Windows.Cast<Window>().Count(w => w.Title == "Bento preview dim" && w.IsVisible));
                 for (int i = 0; i < fixtures.Length; i++) Equal(unchanged[i], native.VisibleBounds(fixtures[i].Id));
                 Check(!Descendants<TextBlock>(previews[0]).Any()); Check(!Descendants<ProgressBar>(previews[0]).Any());
-                if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22621) && !SystemParameters.HighContrast) Check(previews[0].AcrylicEnabled);
+                if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22621) && AppTheme.TransparencyEnabled) Check(previews[0].AcrylicEnabled);
                 previews[0].UpdateLayout();
                 CapturePreview(previews[0], "drop-preview.png");
                 controller.CancelDrag();
@@ -654,6 +728,49 @@ internal static class NativeTests
                 backdrop.Present(monitor, 100, applications); Check(backdrop.IsVisible); Equal(1d, shade.Opacity);
                 backdrop.Present(monitor, 50, applications); Equal(.5d, shade.Opacity);
             });
+            Run("Background fade reverses without a flash or stale hide and respects instant mode", () =>
+            {
+                var backdrop = new DesktopBackdropWindow();
+                try
+                {
+                var shade = (Border)backdrop.Content;
+                var applications = fixtures.Select(w => w.Id).ToArray();
+                backdrop.Present(monitor, 50, applications);
+                backdrop.Dismiss(true, 600); Check(backdrop.IsVisible);
+                Pump(); Check(shade.Opacity > 0 && shade.Opacity < .5);
+                double fading = shade.Opacity;
+                backdrop.Dismiss(true, 600); // Repeated restacking must not reset the fade.
+                Check(Math.Abs(shade.Opacity - fading) < .01);
+                backdrop.Present(monitor, 50, applications, true, 180);
+                for (int i = 0; i < 5; i++) Pump();
+                Check(backdrop.IsVisible); Equal(.5d, shade.Opacity);
+                backdrop.Dismiss(false); Check(!backdrop.IsVisible);
+                backdrop.Present(monitor, 50, applications);
+                backdrop.Dismiss(true, 180); Pump(); Pump(); Check(!backdrop.IsVisible);
+                }
+                finally { backdrop.Close(); }
+            });
+            Run("Minimizing every real fixture fades out the background and restoring them fades it back", () =>
+            {
+                var snapshots = fixtures.Select(w => native.Capture(w.Id)).ToArray();
+                var backdrop = Application.Current!.Windows.OfType<DesktopBackdropWindow>().Single(w => w.IsVisible);
+                try
+                {
+                    foreach (var fixture in fixtures) native.Minimize(fixture.Id);
+                    controller.Refresh();
+                    Equal(0, controller.ManagedCount);
+                    if (SystemParameters.ClientAreaAnimation) Check(backdrop.IsVisible);
+                    Pump(); Pump(); Check(!backdrop.IsVisible);
+                    foreach (var fixture in fixtures) Check(WindowCatalog.IsMinimized(fixture.Id));
+                }
+                finally
+                {
+                    foreach (var snapshot in snapshots) native.Restore(snapshot);
+                    controller.Refresh(); Pump(); Pump();
+                }
+                Check(backdrop.IsVisible); Equal(.5d, ((Border)backdrop.Content).Opacity);
+                VerifyBounds(controller.Layout(monitor), native);
+            });
             Run("Resizing a real window edge resizes its neighboring regions", () =>
             {
                 var before = controller.Layout(monitor);
@@ -747,19 +864,22 @@ internal static class NativeTests
                 native.Restore(originals[2]); paused.Refresh(); Pump(); Equal(3, paused.ManagedCount);
                 paused.RestoreAll(); Pump();
             });
-            Run("Organizing cover spans the display with a spinning indicator", () =>
+            Run("Organizing cover spans the display and respects system and app motion preferences", () =>
             {
-                var cover = new OrganizingWindow(monitor);
+                foreach (bool animate in new[] { true, false })
+                {
+                var cover = new OrganizingWindow(monitor, animate);
                 try
                 {
                     cover.Show(); cover.Fade(true); Pump();
                     Equal(monitor.Bounds, native.VisibleBounds(new System.Windows.Interop.WindowInteropHelper(cover).Handle.ToInt64()));
                     Check(cover.Topmost && !cover.ShowActivated);
                     var spinner = Descendants<System.Windows.Shapes.Ellipse>(cover).Single();
-                    Check(spinner.RenderTransform.HasAnimatedProperties);
+                    Equal(animate && SystemParameters.ClientAreaAnimation, spinner.RenderTransform.HasAnimatedProperties);
                     Check(Descendants<TextBlock>(cover).Any(t => t.Text == "Organizing Bento…"));
                 }
                 finally { cover.Close(); }
+                }
             });
             Run("Waiting replacement minimizes the occupant and rejected drops preserve the queue", () =>
             {

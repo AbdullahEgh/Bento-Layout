@@ -41,7 +41,8 @@ public sealed class DropPreviewWindow : Window
     {
         bool dark = AppTheme.SystemDark;
         var handle = new WindowInteropHelper(this).Handle;
-        AcrylicEnabled = handle != 0 && !SystemParameters.HighContrast && WindowAppearance.SetAcrylic(handle, dark);
+        AcrylicEnabled = handle != 0 && AppTheme.TransparencyEnabled && WindowAppearance.SetAcrylic(handle, dark);
+        if (handle != 0 && !AcrylicEnabled) WindowAppearance.ClearBackdrop(handle);
         // Match the native eight-DIP corner, with a quiet rim and a soft glass highlight.
         // Tint the acrylic lightly so the destination remains recognizable underneath.
         normalEdge = new SolidColorBrush(dark ? Color.FromArgb(IsDestination ? (byte)166 : (byte)50, 255, 255, 255) : Color.FromArgb(IsDestination ? (byte)80 : (byte)28, 0, 0, 0));
@@ -51,6 +52,12 @@ public sealed class DropPreviewWindow : Window
             ? new LinearGradientBrush(Color.FromArgb(IsDestination ? (byte)75 : (byte)18, 255, 255, 255),
                 dark ? Color.FromArgb(8, 0, 0, 0) : Color.FromArgb(16, 255, 255, 255), 90)
             : new SolidColorBrush(dark ? Color.FromRgb(38, 41, 45) : Color.FromRgb(242, 244, 247));
+        if (SystemParameters.HighContrast)
+        {
+            surface.Background = SystemColors.WindowBrush;
+            normalEdge = IsDestination ? SystemColors.HighlightBrush : SystemColors.WindowTextBrush;
+            surface.BorderBrush = normalEdge; innerEdge.BorderBrush = Brushes.Transparent;
+        }
     }
     public void Present(PixelRect bounds, double scale, bool animate = true, bool destination = true, bool conflict = false)
     {
