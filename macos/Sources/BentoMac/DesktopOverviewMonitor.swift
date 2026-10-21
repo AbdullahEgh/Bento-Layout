@@ -20,9 +20,12 @@ import ApplicationServices
         }
         connect()
     }
-    func connect() {
-        guard AXIsProcessTrusted(), let app = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first,
-              app.processIdentifier != dockPID else { return }
+    func connect(force: Bool = false) {
+        guard AXIsProcessTrusted(), let app = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first else { return }
+        if app.processIdentifier == dockPID, !force {
+            if active, let dock { refreshVisibility(dock) }
+            return
+        }
         if let observer { CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes) }
         observer = nil; dock = nil; dockPID = nil
         var next: AXObserver?
@@ -42,9 +45,12 @@ import ApplicationServices
         guard accepted else { return }
         observer = next; dock = element; dockPID = app.processIdentifier
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(next), .commonModes)
-        // Mission Control's AX group exists only while it is open (hs.spaces).
+        refreshVisibility(element)
+    }
+    private func refreshVisibility(_ element: AXUIElement) {
+        // Failed AX reads are unknown, not evidence that Mission Control closed.
         var children: CFTypeRef?
-        AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children)
+        guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children) == .success else { return }
         let visible = (children as? [AXUIElement] ?? []).contains { child in
             var identifier: CFTypeRef?
             AXUIElementCopyAttributeValue(child, kAXIdentifierAttribute as CFString, &identifier)

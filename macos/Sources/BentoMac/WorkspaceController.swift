@@ -131,12 +131,11 @@ struct MacSettings: Codable {
         onStateChange?()
     }
     private(set) var sessionSuspended = false
-    private var sessionLocked = false
     private var unlockAreas: [DisplayArea] = []
     private var unlockSamples = 0
+    private var unlockReadySince: Double?
     func setSessionLocked(_ locked: Bool) {
-        sessionLocked = locked
-        unlockAreas = []; unlockSamples = 0
+        unlockAreas = []; unlockSamples = 0; unlockReadySince = nil
         if locked {
             sessionSuspended = true
             activationGeneration += 1
@@ -147,11 +146,19 @@ struct MacSettings: Codable {
         onStateChange?()
     }
     private func recoverUnlockedSession() {
-        guard !sessionLocked, !busy, !activating, !interacting, !switchingDesktop,
+        // Sleep can lose or reorder the distributed unlock notification. Read
+        // the console session instead of leaving the notification latch set forever.
+        guard let session = CGSessionCopyCurrentDictionary() as? [String: Any],
+              session[kCGSessionOnConsoleKey as String] as? Bool == true,
+              session["CGSSessionScreenIsLocked"] as? Bool != true else {
+            unlockReadySince = nil; return
+        }
+        // Reconnect/recheck Dock observation before considering its cached
+        // Mission Control flag; an AXExposeExit may have been lost during sleep.
+        onStateChange?()
+        guard !busy, !activating, !interacting, !switchingDesktop,
               !desktopOverviewActive, system.desktopSpaceReady(),
               let identity = system.desktopIdentity else { return }
-        if let session = CGSessionCopyCurrentDictionary() as? [String: Any],
-           (session["CGSSessionScreenIsLocked"] as? Bool == true || session[kCGSessionOnConsoleKey as String] as? Bool == false) { return }
         let areas = displayAreas()
         guard !areas.isEmpty else { return }
         if areas == unlockAreas { unlockSamples += 1 }
@@ -159,8 +166,22 @@ struct MacSettings: Codable {
         guard unlockSamples >= 3 else { return }
         // A lock screen is not another Bento desktop, and temporarily absent
         // windows must never be interpreted as removals or manual resizing.
-        if identity == currentDesktop, active,
-           system.hasMissingVisibleWindows(windows.filter { !system.isMinimized($0) && system.isAlive($0) }) { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        if unlockReadySince == nil { unlockReadySince = now }
+        if identity == currentDesktop, active {
+            // Refresh server window numbers after WindowServer/display recreation.
+            // Keep membership and the saved split tree; do not admit new apps here.
+            if let discovered = try? system.discover() {
+                let refreshed = Dictionary(uniqueKeysWithValues: discovered.map { ($0.id, $0) })
+                windows = windows.map { refreshed[$0.id] ?? $0 }
+            }
+            let members = Set(history.current.windows.map(\.windowID))
+            let expected = windows.filter { members.contains($0.id) && !system.isMinimized($0) && system.isAlive($0) }
+            if system.hasMissingVisibleWindows(expected), now - (unlockReadySince ?? now) < 2 { return }
+            // A stale server number or hidden app must not disable every grip
+            // indefinitely. Restore the saved layout, then let normal membership
+            // reconciliation handle genuinely closed/minimized windows.
+        }
         sessionSuspended = false
         pendingMembership = nil; membershipSamples = 0
         pendingDrift = nil; driftSamples = 0

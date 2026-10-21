@@ -103,7 +103,7 @@ struct DesktopInput {
     }
     private func sessionLockChanged(_ locked: Bool) {
         model.setSessionLocked(locked)
-        guard locked else { synchronize(); return }
+        guard locked else { overviewMonitor?.connect(force: true); synchronize(); return }
         // Drop transient pointer state without committing or restoring frames
         // while the login window owns the display.
         sessionGeneration += 1
@@ -144,8 +144,9 @@ struct DesktopInput {
         } else { synchronize() }
     }
     func synchronize() {
-        guard !model.shuttingDown, !model.sessionSuspended else { removeHelpers(); updateSampling(); return }
+        guard !model.shuttingDown else { removeHelpers(); updateSampling(); return }
         overviewMonitor?.connect()
+        guard !model.sessionSuspended else { removeHelpers(); updateSampling(); return }
         updateSampling()
         guard !model.desktopOverviewActive else { overflowInsertion.hide(); return }
         overflowInsertion.synchronize()
