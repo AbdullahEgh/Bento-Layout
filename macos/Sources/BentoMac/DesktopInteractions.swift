@@ -107,7 +107,7 @@ struct DesktopInput {
         // Drop transient pointer state without committing or restoring frames
         // while the login window owns the display.
         sessionGeneration += 1
-        pending = nil; liveTask?.cancel()
+        pending = nil; liveTask?.cancel(); liveTask = nil
         snapshot = nil; candidate = nil; session = nil; grip = nil; gripWorkspace = nil
         gestureAreas = nil; gestureDisplays = nil; gestureScreens = [:]
         pressedWindow = nil; pressedFrame = nil
@@ -270,7 +270,7 @@ struct DesktopInput {
         for (id, panel) in grips { panel.gripView.hovering = !suppressGripsUntilRelease && panel.isVisible && hovered.contains(id) }
         if grip != nil {
             if pressed { moveGrip() }
-            else if wasPressed { moveGrip(); releasePending = true; Task { await self.finish(cancel: false) } }
+            else { moveGrip(); releasePending = true; Task { await self.finish(cancel: false) } }
             return
         }
         guard !model.busy, !model.activating else { return }
@@ -342,6 +342,7 @@ struct DesktopInput {
             let resized = abs(before.width - current.width) > 2 || abs(before.height - current.height) > 2
             let pointerMoved = abs(state.point.x - pressPoint.x) >= 4 || abs(state.point.y - pressPoint.y) >= 4
             if (moved || resized) && pointerMoved {
+                model.refreshInteractionConstraints()
                 let original = model.history.current.reconciled(with: model.windows.map(\.leaf))
                 let source = original.windows.first(where: { $0.windowID == window.id }) ?? window.leaf
                 snapshot = original; session = DropSession(workspace: original, source: source)
@@ -414,6 +415,7 @@ struct DesktopInput {
     func beginGrip(display: String, id: UUID, at point: Point? = nil) -> Bool {
         guard !model.pinned, !model.shuttingDown, !model.sessionSuspended, !model.desktopOverviewActive, model.desktopIsCurrent() else { return false }
         if grip?.display == display && grip?.divider.id == id { return true }
+        model.refreshInteractionConstraints()
         let prepared = model.history.current.reconciled(with: model.windows.map(\.leaf))
         guard model.active, model.permission, !model.busy, !model.interacting, !finishing, !releasePending,
               let root = prepared.roots[display], let area = areas()[display],
@@ -456,13 +458,14 @@ struct DesktopInput {
                 let generation = sessionGeneration
                 liveTask = Task { @MainActor [weak self] in
                     guard let self else { return }
-                    while !Task.isCancelled, !self.model.sessionSuspended, let next = self.pending {
+                    while generation == self.sessionGeneration, !Task.isCancelled, !self.model.sessionSuspended, let next = self.pending {
                         self.pending = nil
                         do {
                             guard let displays = self.gestureDisplays, displays == self.model.displayAreas() else { throw WindowFailure.workAreaChanged }
                             try await self.model.apply(next, displays: displays, liveResize: true)
                             // Do not move the grip back to an older applied sample
                             // while a newer pointer destination is already queued.
+                            guard generation == self.sessionGeneration else { return }
                             if self.candidate == next { self.updateGrips(next) }
                         }
                         catch {
@@ -470,7 +473,7 @@ struct DesktopInput {
                             self.liveFailure = true; self.pending = nil; self.model.message = error.localizedDescription; break
                         }
                     }
-                    guard generation == self.sessionGeneration else { self.liveTask = nil; return }
+                    guard generation == self.sessionGeneration else { return }
                     self.liveTask = nil
                     if self.liveFailure { Task { await self.finish(cancel: true) } }
                 }
@@ -510,11 +513,13 @@ struct DesktopInput {
         }
         do { try await model.finishInteraction(next, commit: !disappeared.isEmpty || !cancel && !liveFailure && candidate != nil && candidate != snapshot, animate: cancel || liveFailure || (grip == nil && !nativeResize)) }
         catch {
+            guard generation == sessionGeneration, !model.sessionSuspended else { return }
             trace?("gesture commit rejected; rolling back")
             let failure = error.localizedDescription
             do { try await model.finishInteraction(recovery, commit: false); model.message = failure }
             catch { model.message = "\(failure) Restoring the committed layout also failed: \(error.localizedDescription)" }
         }
+        guard generation == sessionGeneration, !model.sessionSuspended else { return }
         trace?("gesture settled elapsedMS=\(Int((ProcessInfo.processInfo.systemUptime - started) * 1000)) committed=\(!cancel && !liveFailure && model.message == nil && model.history.current != original)")
         preview.orderOut(nil)
         suppressGripsUntilRelease = false

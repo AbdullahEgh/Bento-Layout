@@ -53,6 +53,8 @@ public sealed partial class BentoController : IDisposable
     private long completingNativeGesture;
     private WindowNode? incoming;
     private long activeNativeDrag;
+    private bool nativeMouseObserved;
+    private bool dividerMouseObserved;
     private long lastActiveWindow { get => session.LastActive; set => session.LastActive = value; }
     private Dictionary<long, long> lastInteraction => session.Interactions;
     private long nativeResizeWindow;
@@ -283,7 +285,13 @@ public sealed partial class BentoController : IDisposable
         var visible = discovered.Where(w => CurrentMember(w.Id)).Select(w =>
         {
             var reported = windowSource is null ? w : w with { ReportedMinimum = w.Minimum };
-            return reported with { Minimum = native.EffectiveMinimum(reported) };
+            var minimum = native.EffectiveMinimum(reported);
+            if (windowSource is null && WindowCatalog.Exists(w.Id) && !WindowCatalog.IsMinimized(w.Id))
+            {
+                try { minimum = native.ObserveUserFrame(reported, native.VisibleBounds(w.Id)); }
+                catch (InvalidOperationException) when (!WindowCatalog.Exists(w.Id)) { }
+            }
+            return reported with { Minimum = minimum };
         }).ToList();
         foreach (var known in session.FullscreenKnown.Values)
             if (!visible.Any(w => w.Id == known.Id) && WindowCatalog.Exists(known.Id) && WindowCatalog.ProcessId(known.Id) == known.ProcessId && !WindowCatalog.IsMinimized(known.Id) && CurrentMember(known.Id)) visible.Add(known);
@@ -389,14 +397,31 @@ public sealed partial class BentoController : IDisposable
     {
         if (!EnsureDesktop() || !automatic || Paused) return;
         CancelSettled(); CloseJoinCues();
+        Windows = DiscoverWindows(useCache: false);
         var window = Windows.FirstOrDefault(w => w.Id == id);
         if (window is null) return;
         CancelDrag(); lastActiveWindow = id; lastInteraction[id] = clock();
+        dragStart = RefreshGestureConstraints(history.Current);
         transition?.Dispose();
-        incoming = history.Current.Windows.FirstOrDefault(w => w.WindowId == id) ?? WindowNode.Create(id, window.Minimum);
+        incoming = history.Current.Windows.FirstOrDefault(w => w.WindowId == id) is { } leaf
+            ? leaf with { Minimum = window.Minimum } : WindowNode.Create(id, window.Minimum);
         timer.Interval = TimeSpan.FromMilliseconds(16);
         foreach (var handle in dividers) handle.Hide();
         UpdatePreview();
+    }
+    private WorkspaceState RefreshGestureConstraints(WorkspaceState state)
+    {
+        var minima = Windows.ToDictionary(w => w.Id, w => w.Minimum);
+        foreach (var entry in state.Roots.ToArray())
+        {
+            var root = entry.Value;
+            if (root is null) continue;
+            foreach (var leaf in LayoutEngine.Windows(root).ToArray())
+                if (minima.TryGetValue(leaf.WindowId, out var minimum))
+                    root = LayoutEngine.Replace(root, leaf.Id, leaf with { Minimum = minimum });
+            state = state.WithRoot(entry.Key, root);
+        }
+        return state;
     }
     public void BeginDivider(DesktopMonitor monitor, Divider value, PixelPoint? touch = null)
     {
@@ -405,15 +430,18 @@ public sealed partial class BentoController : IDisposable
         CancelDrag();
         dividerSurface = value.SplitId;
         var point = touch ?? WindowCatalog.Cursor;
-        var handles = Handles(monitor, history.Current); gestureHandles = handles;
+        Windows = DiscoverWindows(useCache: false);
+        var current = RefreshGestureConstraints(history.Current);
+        var handles = Handles(monitor, current); gestureHandles = handles;
         var selected = ResizeHandles.Hit(handles, point, monitor.Scale);
         divider = selected?.Divider ?? value; dividerMonitor = monitor.Id;
-        dragStart = selected is null ? history.Current : history.Current.WithRoot(monitor.Id, selected.Root);
+        dragStart = selected is null ? current : current.WithRoot(monitor.Id, selected.Root);
         gestureHandlesRoot = dragStart.Roots[monitor.Id];
         transition?.Dispose(); transition = null;
         liveResizeStart = Layout(monitor, dragStart).Regions.Select(r => native.Capture(r.Window.WindowId)).ToArray();
         foreach (var region in Layout(monitor, dragStart).Regions) liveBounds[region.Window.WindowId] = native.VisibleBounds(region.Window.WindowId);
         touchPoint = touch; dividerStart = touch ?? WindowCatalog.Cursor;
+        dividerMouseObserved = !touch.HasValue && WindowCatalog.LeftButtonDown;
         timer.Interval = TimeSpan.FromMilliseconds(16);
         foreach (var handle in dividers) if (handle.SplitId != dividerSurface) handle.Hide();
         UpdatePreview(touch);
@@ -424,7 +452,8 @@ public sealed partial class BentoController : IDisposable
         CancelSettled(); CloseJoinCues();
         CancelDrag();
         if (!history.Current.Windows.Any(w => w.WindowId == id)) return;
-        nativeResizeWindow = id; dragStart = history.Current;
+        Windows = DiscoverWindows(useCache: false);
+        nativeResizeWindow = id; dragStart = RefreshGestureConstraints(history.Current);
         var monitor = monitors.FirstOrDefault(m => LayoutEngine.Windows(history.Current.Roots.GetValueOrDefault(m.Id)).Any(w => w.WindowId == id));
         if (monitor is not null) { gestureHandles = Handles(monitor, history.Current); gestureHandlesRoot = history.Current.Roots[monitor.Id]; }
         timer.Interval = TimeSpan.FromMilliseconds(16);
@@ -442,6 +471,22 @@ public sealed partial class BentoController : IDisposable
             session.Pause.Retain(live);
             foreach (var missing in history.Current.Windows.Where(w => !WindowCatalog.Exists(w.WindowId) || WindowCatalog.IsMinimized(w.WindowId)).ToArray()) history.Commit(history.Current.Remove(missing.WindowId));
             RefreshPausedShades(); ApplyPendingInteractionState(); return;
+        }
+        // Mouse-up and native move/end events can be lost across desktop or
+        // remote-session transitions. Recover once the physical button is up;
+        // explicit touch gestures still finish through their capture callbacks.
+        var mouseDown = WindowCatalog.LeftButtonDown;
+        if (activeNativeDrag != 0 && mouseDown) nativeMouseObserved = true;
+        if (divider is not null && mouseDown) dividerMouseObserved = true;
+        if (activeNativeDrag != 0 && nativeMouseObserved && !mouseDown && !touchPoint.HasValue)
+        {
+            OnNativeDrag(activeNativeDrag, false);
+            return;
+        }
+        if (activeNativeDrag == 0 && divider is not null && dividerMouseObserved && !mouseDown && !touchPoint.HasValue)
+        {
+            FinishDrag();
+            return;
         }
         if (Dragging)
         {
@@ -495,6 +540,7 @@ public sealed partial class BentoController : IDisposable
                 Windows = DiscoverWindows();
                 bool fullscreen = session.Fullscreen.Contains(id) || LooksFullscreen(id);
                 activeNativeDrag = id; nativeStartBounds = null;
+                nativeMouseObserved = WindowCatalog.LeftButtonDown;
                 if (fullscreen || Paused || released.Contains(id) || !Windows.Any(w => w.Id == id))
                 {
                     // Settings and floating/excluded windows still suppress grip
@@ -562,10 +608,11 @@ public sealed partial class BentoController : IDisposable
             }
             else if (incoming is not null)
             {
-                if (dropProposals.Use(history.Current)) dragIntent.Reset();
+                var current = dragStart ?? history.Current;
+                if (dropProposals.Use(current)) dragIntent.Reset();
                 var monitor = monitors.FirstOrDefault(m => m.Bounds.Contains(point));
                 if (monitor is null) { dragIntent.Reset(); dropPreview.Hide(); return; }
-                var sourceRoot = history.Current.Roots.GetValueOrDefault(monitor.Id);
+                var sourceRoot = current.Roots.GetValueOrDefault(monitor.Id);
                 var edge = LayoutInteraction.ScreenEdge(monitor.Bounds, point, (int)Math.Round(20 * monitor.Scale));
                 if (edge is { } sectionEdge && sourceRoot is not null && LayoutEngine.Windows(sourceRoot).Any(w => w.WindowId == incoming.WindowId))
                 {
@@ -574,20 +621,20 @@ public sealed partial class BentoController : IDisposable
                     if (!dropProposals.TryGetValue(previewDestination.Value, out var section))
                     {
                         var moved = LayoutInteraction.MoveSection(sourceRoot, incoming.WindowId, sectionEdge, Area(monitor), Gap(monitor));
-                        section = moved is null ? null : history.Current.WithRoot(monitor.Id, moved);
+                        section = moved is null ? null : current.WithRoot(monitor.Id, moved);
                         dropProposals[previewDestination.Value] = section;
                     }
                     if (section is null) { dropPreview.Hide(); return; }
                     preview = section; validPreview = true; PresentDropPreview(); return;
                 }
                 if (!Area(monitor).Contains(point)) { dragIntent.Reset(); dropPreview.Hide(); return; }
-                var target = Layout(monitor, history.Current).Regions.FirstOrDefault(r => r.Bounds.Contains(point));
+                var target = Layout(monitor, current).Regions.FirstOrDefault(r => r.Bounds.Contains(point));
                 if (target?.Window.WindowId == incoming.WindowId) { dragIntent.Reset(); dropPreview.Hide(); return; }
                 bool seamSwap = false;
-                if (target is null && history.Current.Windows.Any(w => w.WindowId == incoming.WindowId)
-                    && Layout(monitor, history.Current).Dividers.Any(d => d.Bounds.Contains(point)))
+                if (target is null && current.Windows.Any(w => w.WindowId == incoming.WindowId)
+                    && Layout(monitor, current).Dividers.Any(d => d.Bounds.Contains(point)))
                 {
-                    target = Layout(monitor, history.Current).Regions.Where(r => r.Window.WindowId != incoming.WindowId)
+                    target = Layout(monitor, current).Regions.Where(r => r.Window.WindowId != incoming.WindowId)
                         .OrderBy(r => Math.Pow(Math.Max(r.Bounds.X - point.X, Math.Max(0, point.X - r.Bounds.Right)), 2)
                             + Math.Pow(Math.Max(r.Bounds.Y - point.Y, Math.Max(0, point.Y - r.Bounds.Bottom)), 2)).FirstOrDefault();
                     if (target is not null)
@@ -598,13 +645,13 @@ public sealed partial class BentoController : IDisposable
                     }
                 }
                 else seamTarget = null;
-                if (target is null && history.Current.Roots.GetValueOrDefault(monitor.Id) is not null) { dragIntent.Reset(); dropPreview.Hide(); return; }
+                if (target is null && current.Roots.GetValueOrDefault(monitor.Id) is not null) { dragIntent.Reset(); dropPreview.Hide(); return; }
                 var bounds = target?.Bounds ?? Area(monitor);
                 dropTargetBounds = bounds;
                 intent = target is null || seamSwap ? new(Placement.Center, 0, false) :
                     dragIntent.Update(monitor.Id, target.Window.Id, bounds, point, clock(), Settings.SplitHoldMs, monitor.Scale);
                 var placement = intent.Placement;
-                if (waitingIncoming == 0 && placement == Placement.Center && target is not null && !history.Current.Windows.Any(w => w.WindowId == incoming.WindowId))
+                if (waitingIncoming == 0 && placement == Placement.Center && target is not null && !current.Windows.Any(w => w.WindowId == incoming.WindowId))
                     placement = bounds.Width >= bounds.Height ? Placement.Right : Placement.Bottom;
                 var destinationKey = (monitor.Id, target?.Window.Id, placement, false);
                 previewDestination = destinationKey;
@@ -613,9 +660,9 @@ public sealed partial class BentoController : IDisposable
                     if (cached is null) throw new LayoutConstraintException("This destination cannot fit these windows.");
                     preview = cached; validPreview = true; PresentDropPreview(); return;
                 }
-                preview = DropPlanning.Place(history.Current, monitor.Id, target?.Window.Id, incoming, placement,
+                preview = DropPlanning.Place(current, monitor.Id, target?.Window.Id, incoming, placement,
                     monitors.ToDictionary(m => m.Id, Area), monitors.ToDictionary(m => m.Id, Gap),
-                    otherAxis: waitingIncoming == 0 && intent.Placement == Placement.Center && !history.Current.Windows.Any(w => w.WindowId == incoming.WindowId));
+                    otherAxis: waitingIncoming == 0 && intent.Placement == Placement.Center && !current.Windows.Any(w => w.WindowId == incoming.WindowId));
                 // Also scale the displaced window's constraint when swapping between different DPI monitors.
                 foreach (var destination in monitors)
                 {
@@ -713,7 +760,7 @@ public sealed partial class BentoController : IDisposable
         if (restoreLive && snapshots is not null) RestoreLiveResize(snapshots);
         incoming = null; divider = null; dividerSurface = null; dividerMonitor = null; dragStart = null; preview = null;
         previewDestination = null; dropProposals.Clear();
-        dragIntent.Reset(); intent = default; touchPoint = null; seamTarget = null;
+        dragIntent.Reset(); intent = default; touchPoint = null; seamTarget = null; dividerMouseObserved = false;
         nativeResizeWindow = 0; validPreview = false; gestureHandles = null; gestureHandlesRoot = null;
         timer.Interval = TimeSpan.FromSeconds(1);
         dropPreview.Hide();

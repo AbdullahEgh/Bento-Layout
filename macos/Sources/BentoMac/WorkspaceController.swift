@@ -429,6 +429,14 @@ struct MacSettings: Codable {
         }
     }
     func displayAreas() -> [DisplayArea] { system.displayAreas(margin: layoutMargin) }
+    func refreshInteractionConstraints() {
+        // Read-only native evidence; never probe-resize while grabbing a seam.
+        for window in windows {
+            if let minimum = system.reportedMinimum(window.element) { window.updateReportedMinimum(minimum) }
+            if let frame = system.frame(of: window.element) { window.reconcileObservedMinimum(frame) }
+        }
+        failedAutomaticInput = nil
+    }
     /// Preview the geometry actually committed to windows, not transient Dock/menu
     /// reveal bounds. Arrangement updates this snapshot only after a successful fit.
     func interactionAreas() -> [DisplayArea] {
@@ -566,7 +574,13 @@ struct MacSettings: Codable {
     }
     func tick() {
         if sessionSuspended { recoverUnlockedSession(); return }
-        guard !shuttingDown, !desktopOverviewActive else { return }
+        guard !shuttingDown else { return }
+        if desktopOverviewActive {
+            // Poll the Dock observer even while layout work is suspended: a
+            // missing ExposeExit must not disable interaction for the session.
+            onStateChange?()
+            guard !desktopOverviewActive else { return }
+        }
         refreshPermissionStatus()
         if !desktopIsCurrent() {
             if desktopSwitchTask == nil {

@@ -299,7 +299,7 @@ struct MotionWrite: @unchecked Sendable {
               position.x.isFinite, position.y.isFinite, size.width.isFinite, size.height.isFinite else { return nil }
         return Rect(Int(position.x.rounded()), Int(position.y.rounded()), Int(size.width.rounded()), Int(size.height.rounded()))
     }
-    private func reportedMinimum(_ element: AXUIElement) -> Size? {
+    func reportedMinimum(_ element: AXUIElement) -> Size? {
         for name in ["AXMinSize", "AXMinimumSize"] {
             guard let raw = attribute(element, name), CFGetTypeID(raw) == AXValueGetTypeID() else { continue }
             var size = CGSize.zero
