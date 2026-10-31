@@ -175,6 +175,7 @@ struct DesktopInput {
         let ids = Set(workspace.windows.map(\.windowID))
         let anchor = BentoWindowStack.anchor(windows: model.windows.filter { ids.contains($0.id) }, visible: visible)
         backdrop.show(darkness: model.settings.backgroundDarkness, animated: model.settings.animate, belowWindow: anchor)
+        let gripAnchor = BentoWindowStack.anchor(windows: model.windows.filter { ids.contains($0.id) }, visible: Array(visible.reversed()))
         resizeHandles = resizeHandles.filter { workspace.roots[$0.key] != nil }
         handleCache.retain(displays: Set(workspace.roots.keys))
         let displays = areas(); var retained = Set<UUID>()
@@ -231,7 +232,7 @@ struct DesktopInput {
                 panel.gripView.dragging = grip?.divider.id == divider.id
                 panel.ignoresMouseEvents = false
                 panel.level = anchor == nil ? NSWindow.Level(rawValue: -1) : .normal
-                if let anchor { panel.order(.above, relativeTo: anchor) }
+                if let gripAnchor { panel.order(.above, relativeTo: gripAnchor) }
                 else if !panel.isVisible { panel.orderFrontRegardless() }
             }
         }
