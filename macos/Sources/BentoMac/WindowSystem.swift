@@ -93,7 +93,7 @@ struct DisplayArea: Equatable {
 }
 
 final class ManagedWindow {
-    let id: UUID; let element: AXUIElement; let pid: pid_t
+    let id: UUID; var element: AXUIElement; let pid: pid_t
     var title: String; let application: String; let bundleID: String
     var frame: Rect
     // AX has no universal minimum-size attribute. Start small enough for narrow
@@ -184,7 +184,7 @@ struct MotionWrite: @unchecked Sendable {
                   (info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1 > 0,
                   let raw = info[kCGWindowBounds as String] as? [String: Any],
                   let bounds = CGRect(dictionaryRepresentation: raw as CFDictionary) else { return false }
-            return bounds.insetBy(dx: -0.5, dy: -0.5).contains(CGPoint(x: point.x, y: point.y))
+            return bounds.contains(CGPoint(x: point.x, y: point.y))
         }
         guard let front else { return true }
         return dividerWindowNumbers.contains((front[kCGWindowNumber as String] as? NSNumber)?.intValue ?? -1)
@@ -317,7 +317,13 @@ struct MotionWrite: @unchecked Sendable {
             let app = AXUIElementCreateApplication(application.processIdentifier)
             AXUIElementSetMessagingTimeout(app, 0.15)
             guard let windows = attribute(app, kAXWindowsAttribute) as? [AXUIElement] else { continue }
-            for element in windows {
+            let focused = attribute(app, kAXFocusedWindowAttribute)
+            // Prefer the selected tab if AXWindows also lists its hidden siblings.
+            let ordered = windows.sorted { a, b in
+                guard let focused else { return false }
+                return CFEqual(a, focused) && !CFEqual(b, focused)
+            }
+            for element in ordered {
                 AXUIElementSetMessagingTimeout(element, 0.15)
                 guard attribute(element, kAXSubroleAttribute) as? String == kAXStandardWindowSubrole,
                       attribute(element, kAXMinimizedAttribute) as? Bool != true,
@@ -338,7 +344,24 @@ struct MotionWrite: @unchecked Sendable {
                       AXUIElementIsAttributeSettable(element, kAXSizeAttribute as CFString, &sizable) == .success,
                       movable.boolValue && sizable.boolValue else { continue }
                 let title = attribute(element, kAXTitleAttribute) as? String ?? application.localizedName ?? "Window"
-                if let old = known.first(where: { $0.pid == application.processIdentifier && CFEqual($0.element, element) }) {
+                let serverNumber = (onScreen[kCGWindowNumber as String] as? NSNumber)?.intValue
+                // Native tabs can replace their AX window while retaining the same
+                // WindowServer surface. Slot identity belongs to that surface.
+                guard !found.contains(where: { $0.pid == application.processIdentifier && $0.serverNumber == serverNumber && serverNumber != nil }) else { continue }
+                let visibleNumbers = Set(visible.compactMap { ($0[kCGWindowNumber as String] as? NSNumber)?.intValue })
+                // Finder may swap the WindowServer surface as well as the AX
+                // object. Only transfer an exact, unique slot whose old surface
+                // disappeared; two visible Finder windows remain independent.
+                let replacedFinderSlots = known.filter { old in
+                    application.bundleIdentifier == "com.apple.finder" && old.pid == application.processIdentifier
+                        && old.frame == bounds && old.serverNumber.map { !visibleNumbers.contains($0) } == true
+                        && !found.contains(where: { candidate in candidate.id == old.id })
+                }
+                let old = known.first { $0.pid == application.processIdentifier && CFEqual($0.element, element) }
+                    ?? known.first { $0.pid == application.processIdentifier && serverNumber != nil && $0.serverNumber == serverNumber }
+                    ?? (replacedFinderSlots.count == 1 ? replacedFinderSlots.first : nil)
+                if let old {
+                    old.element = element
                     old.title = title; old.frame = bounds; found.append(old)
                 } else {
                     found.append(ManagedWindow(element: element, pid: application.processIdentifier, title: title,

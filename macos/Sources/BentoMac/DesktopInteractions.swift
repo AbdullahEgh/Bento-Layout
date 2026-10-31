@@ -231,7 +231,7 @@ struct DesktopInput {
                 panel.gripView.dragging = grip?.divider.id == divider.id
                 panel.ignoresMouseEvents = false
                 panel.level = anchor == nil ? NSWindow.Level(rawValue: -1) : .normal
-                if let anchor { panel.order(.below, relativeTo: anchor) }
+                if let anchor { panel.order(.above, relativeTo: anchor) }
                 else if !panel.isVisible { panel.orderFrontRegardless() }
             }
         }
@@ -733,8 +733,8 @@ struct DesktopInput {
         gripView = GripView(axis: axis)
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isReleasedWhenClosed = false; isOpaque = false; backgroundColor = .clear
-        // Synchronization places this above the backdrop and below Bento members.
-        // App content and shadows cover both the input surface and the grip ink.
+        // The input surface is confined to the gap, above member shadows so even
+        // a one-point gap can receive and retain a native mouse drag.
         hasShadow = false; level = NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue - 1); hidesOnDeactivate = false
         ignoresMouseEvents = false; acceptsMouseMovedEvents = true
         collectionBehavior = [.stationary, .ignoresCycle]; contentView = gripView

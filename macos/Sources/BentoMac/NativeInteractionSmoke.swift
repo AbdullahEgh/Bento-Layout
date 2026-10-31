@@ -147,6 +147,14 @@ final class FixturePreferences: PreferenceBackend {
             }
             passed.append(title)
         }
+        let thinGapWindows: [[String: Any]] = [
+            [kCGWindowNumber as String: 1, kCGWindowLayer as String: 0,
+             kCGWindowBounds as String: CGRect(x: 0, y: 0, width: 100, height: 200).dictionaryRepresentation],
+            [kCGWindowNumber as String: 2, kCGWindowLayer as String: 0,
+             kCGWindowBounds as String: CGRect(x: 101, y: 0, width: 100, height: 200).dictionaryRepresentation]
+        ]
+        try check(MacWindowSystem.dividerIsExposed(at: Point(100, 50), visible: thinGapWindows, dividerWindowNumbers: []), "one-point gap remains exposed at its boundary")
+        try check(!MacWindowSystem.dividerIsExposed(at: Point(101, 50), visible: thinGapWindows, dividerWindowNumbers: []), "neighbor content blocks divider polling")
         func matchingGeometry() throws -> Bool {
             for display in model.displayAreas() {
                 for region in try LayoutEngine.calculate(model.history.current.roots[display.id], in: display.bounds, gap: model.layoutGap).regions {

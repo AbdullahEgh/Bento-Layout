@@ -1,6 +1,7 @@
-Bento for macOS 0.2.44
+Bento for macOS 0.2.45
 
-- Recover grips after long locks and sleep.
-- Clear stale Mission Control and window state while preserving your layout.
+- Make grabbers easier to hold in very thin gaps.
+- Preserve Bento slots when switching Finder tabs.
+- Includes recovery for stale interaction state after sleep or long idle periods.
 
-Includes macOS 0.2.44 and Windows 0.3.15 downloads.
+Includes macOS 0.2.45 and Windows 0.3.15 downloads.
