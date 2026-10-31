@@ -4,22 +4,23 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Bento</title>
         <item>
-            <title>0.2.44</title>
-            <pubDate>Wed, 21 Oct 2026 13:35:43 +0000</pubDate>
-            <sparkle:version>170</sparkle:version>
-            <sparkle:shortVersionString>0.2.44</sparkle:shortVersionString>
+            <title>0.2.45</title>
+            <pubDate>Sat, 31 Oct 2026 17:16:55 +0000</pubDate>
+            <sparkle:version>172</sparkle:version>
+            <sparkle:shortVersionString>0.2.45</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.44
+            <description sparkle:format="markdown"><![CDATA[Bento for macOS 0.2.45
 
-- Recover grips after long locks and sleep.
-- Clear stale Mission Control and window state while preserving your layout.
+- Make grabbers easier to hold in very thin gaps.
+- Preserve Bento slots when switching Finder tabs.
+- Includes recovery for stale interaction state after sleep or long idle periods.
 
-Includes macOS 0.2.44 and Windows 0.3.15 downloads.
+Includes macOS 0.2.45 and Windows 0.3.15 downloads.
 ]]></description>
-            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.44/Bento-macos-universal.zip" length="6127846" type="application/octet-stream" sparkle:edSignature="/gshqa2Znphz0VqsNI+YOphioLXuaDOdw81D8KNzGuy+csALJMKmOswhz9aMH7kpELmfWI0AQNCl+zph7iimBA=="></enclosure>
+            <enclosure url="https://github.com/AbdullahEgh/Bento-Layout/releases/download/macos-v0.2.45/Bento-macos-universal.zip" length="6158177" type="application/octet-stream" sparkle:edSignature="MeFLWire0vld1XiXUQUZauM6F/G0ke8Flv5AKxLiw4Xmaq84fMvQyftUI1ir5OYZSA55z3bySVlLqFHaL23PAw=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: ZzDnU0OFT4e/oOWsxWjSPLDP7PRLF0t6E629KJisbOqrPj7fIV9nLtveJS/ijE/9b7qpMZhOfslytoMMWyd2Dg==
-length: 1339
+edSignature: qF6oPrMpwSKXLAB7osb8WkkAZNYLX54xnyNOujhNapKL1UAuMlQK+27GJEsfPiKd3FQID1R5DtTpIgC1WYBGDQ==
+length: 1401
 -->
